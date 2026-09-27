@@ -6,12 +6,14 @@ polling, so the shop needs no public URL.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from .. import clock, db
 from ..config import Config, parse_hhmm
+from ..recognition import labels
 from ..services import transactions
 from . import digest, handlers
 
@@ -80,3 +82,4 @@ async def _job_housekeeping(context: ContextTypes.DEFAULT_TYPE) -> None:
         transactions.close_stale(conn, cfg.verification.stale_transaction_minutes, cfg.media_dir,
                                  cfg.verification.delete_photos_after_verify)
     await digest.retry_queued_invoices(context.bot, cfg)
+    await asyncio.to_thread(labels.settle, cfg)  # look-alikes missed while offline

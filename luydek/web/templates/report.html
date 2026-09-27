@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Pilot report{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Pilot report</h1>
+    {% if rep %}
+    <div class="lead-line">Before (weeks 1–{{ rep.baseline_weeks }}, watching only) vs now (the last 2 full weeks) ·
+      day 0 was {{ rep.pilot_start.strftime('%d %B %Y') }}</div>
+    {% endif %}
+  </div>
+  <button class="btn btn-outline-dark no-print" onclick="window.print()">🖨 Print or save as PDF</button>
+</div>
+
+{% if not rep %}
+<div class="card"><div class="card-body p-5 text-center muted">No stock has been recorded yet, so there is nothing to report.
+  Start with the day-0 count on the <a href="/catalog">Catalog</a> page.</div></div>
+{% else %}
+
+{% if rep.simulated %}
+<div class="alert alert-warning fs-6"><b>⚠️ Includes simulated history.</b> These weeks come from
+  <code>scripts/simulate_history.py</code>, which keeps ordering "by feeling" throughout — they are <b>not</b> pilot results.</div>
+{% endif %}
+{% if not rep.comparable %}
+<div class="alert alert-info">Before/after needs the {{ rep.baseline_weeks }} watching weeks plus at least 2 full pilot weeks.
+  The charts below fill in as the weeks pass.</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  {% for h in rep.headlines %}
+  <div class="col-sm-6 col-xl">
+    <div class="stat {{ 'ok' if h.good else ('bad' if h.good == false else '') }}">
+      <div class="l mt-0">{{ h.label }}</div>
+      <div class="n my-1">{{ fmt(h.now, h.fmt) }}</div>
+      <div class="h">now · was {{ fmt(h.before, h.fmt) }} in weeks 1–{{ rep.baseline_weeks }}</div>
+      {% if h.good is not none %}
+      <div class="delta {{ 'delta-good' if h.good else 'delta-bad' }}">
+        {{ '✓' if h.good else '⚠' }} {{ '▼' if h.now < h.before else '▲' }}
+        {% if h.change is not none %}{{ '%.0f'|format(h.change|abs) }}% {{ 'lower' if h.now < h.before else 'higher' }}{% else %}{{ 'down' if h.now < h.before else 'up' }} from zero{% endif %}
+        <span class="muted">· {{ h.better }} is better</span></div>
+      {% elif h.before is not none and h.now is not none %}
+      <div class="delta">no change</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="d-flex align-items-center gap-4 flex-wrap mb-2">
+  <div class="section-title my-0">Week by week</div>
+  <div class="legend">
+    <span><i style="background:#8e8c84"></i>Weeks 1–{{ rep.baseline_weeks }}: watching only (before)</span>
+    <span><i style="background:#2a78d6"></i>Pilot weeks: order advice on</span>
+    <span><i style="background:#2a78d6;opacity:.45"></i>This week, so far</span>
+  </div>
+</div>
+<div class="row g-3" id="charts">
+  {% for c in charts %}
+  <div class="col-md-6 col-xl-3">
+    <div class="card h-100 chart-card">
+      <div class="card-body pb-2">
+        <div class="fw-semibold">{{ c.title }}</div>
+        <div class="small muted mb-1">{{ c.better|capitalize }} is better</div>
+        {{ c.svg }}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<div id="tip" class="chart-tip" role="tooltip" hidden></div>
+
+<details class="card mt-4">
+  <summary class="card-header">Show the numbers</summary>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead class="table-light"><tr><th>Week of</th><th>Phase</th>
+        {% for c in charts %}<th class="num">{{ c.title }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for w in rep.weeks %}
+      <tr><td class="text-nowrap">{{ w.start.strftime('%d %b') }}{% if w.partial %} <span class="muted small">(so far)</span>{% endif %}</td>
+        <td>{{ 'watching' if w.phase == 'baseline' else 'pilot' }}</td>
+        {% for c in charts %}<td class="num">{{ fmt(w|attr(c.key), c.kind) }}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-body small muted">
+    Empty-shelf days: a product that was stocked before, with nothing on the shelf all day and no sale.
+    Dead stock: dollars at cost of products with no sale in {{ cfg.forecast.sleeping_days }}+ days, on the week's last day.
+    Advice followed: order-list lines whose next delivery matched the advice (within one case), or skips that stayed skipped.
+    Camera right without help: auto-accepted plus confirmed-as-guessed, out of all settled camera items.
+  </div>
+</details>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const tip = document.getElementById("tip");
+  if (!tip) return;
+  function show(el, x, y) {
+    tip.textContent = el.dataset.tip;   // labels are data: textContent, never innerHTML
+    tip.hidden = false;
+    tip.style.left = Math.min(x + 12, window.innerWidth - tip.offsetWidth - 8) + "px";
+    tip.style.top = (y - tip.offsetHeight - 10) + "px";
+  }
+  document.querySelectorAll("#charts .hit").forEach((el) => {
+    el.addEventListener("pointermove", (e) => show(el, e.clientX, e.clientY));
+    el.addEventListener("pointerleave", () => (tip.hidden = true));
+    el.addEventListener("focus", () => { const r = el.getBoundingClientRect(); show(el, r.left, r.top); });
+    el.addEventListener("blur", () => (tip.hidden = true));
+  });
+})();
+</script>
+{% endblock %}

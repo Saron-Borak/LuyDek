@@ -1,63 +1,126 @@
 {% extends "base.html" %}
-{% block title %}Invoices{% endblock %}
+{% block title %}Deliveries{% endblock %}
 {% block content %}
+{% set words = {'extracted': 'Waiting for your OK', 'confirmed': 'In stock ✓', 'queued': 'Waiting for internet',
+                'failed': "Couldn't read it", 'rejected': 'Discarded'} %}
+<div class="page-head">
+  <div>
+    <h1>Deliveries</h1>
+    <div class="lead-line">Add what the agent delivered. Photograph the paper invoice: it's read for you, and you check it before anything enters stock.</div>
+  </div>
+</div>
+
 <div class="row g-3">
-  <div class="col-lg-5">
+  <div class="col-lg-7">
     <div class="card mb-3">
-      <div class="card-header">🧾 Photo of a supplier invoice</div>
-      <div class="card-body">
-        {% if key_present %}
-        <p class="small text-secondary">Claude reads the photo (Khmer, English, printed or handwritten) and returns each line matched
-          to your catalog. Nothing enters stock until you confirm. Owners can also just send the photo to the Telegram bot.</p>
-        {% else %}
-        <div class="alert alert-warning small">No <code>ANTHROPIC_API_KEY</code> in <code>.env</code>, so photos can't be read automatically.
-          Use the manual form below meanwhile.</div>
+      <div class="card-body p-4">
+        {% if not key_present %}
+        <div class="alert alert-warning">Reading photos needs an <code>ANTHROPIC_API_KEY</code> in <code>.env</code>.
+          Until then, <a href="#manual" data-bs-toggle="collapse">type the invoice in</a>.</div>
         {% endif %}
-        <form method="post" action="/invoices/upload" enctype="multipart/form-data" class="d-grid gap-2"
-              onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Reading… (up to a minute)'">
-          <input type="file" name="image" accept="image/*" class="form-control" required>
-          <button class="btn btn-dark" {% if not key_present %}disabled{% endif %}>Read invoice</button>
+        <form id="upload" method="post" action="/invoices/upload" enctype="multipart/form-data">
+          <label class="dropzone" id="drop" for="photo">
+            <span class="big">🧾</span>
+            <span class="fs-5 fw-semibold">Take a photo of the invoice</span>
+            <span class="muted">or drop a photo here · Khmer, English, printed or handwritten</span>
+            <img id="preview" class="d-none mt-2" alt="chosen invoice photo">
+          </label>
+          <input type="file" id="photo" name="image" accept="image/*" capture="environment" class="d-none" required>
+          <div class="d-flex gap-2 mt-3 flex-wrap">
+            <button class="btn btn-xl btn-primary flex-grow-1" id="read-btn" disabled>Read invoice</button>
+            <button type="button" class="btn btn-xl btn-outline-dark" data-bs-toggle="collapse" data-bs-target="#manual">⌨️ Type it in</button>
+          </div>
+          <div class="small muted mt-2">Takes up to a minute. Nothing is added to stock until you press <b>Add to stock</b>.</div>
         </form>
       </div>
     </div>
-    <div class="card">
-      <div class="card-header">Recent deliveries</div>
-      <table class="table table-sm mb-0">
-        {% for i in invoices %}
-        <tr>
-          <td><a href="/invoices/{{ i.id }}">#{{ i.id }}</a></td>
-          <td class="small">{{ i.received_at[5:16] }}</td>
-          <td class="small">{{ i.supplier or i.supplier_name_raw or '?' }}</td>
-          <td><span class="pill {{ {'confirmed': 'status-confirmed', 'extracted': 'status-pending', 'queued': 'status-best_guess', 'failed': 'status-removed', 'rejected': 'status-removed'}[i.status] }}">{{ i.status }}</span></td>
-          <td class="num small">{{ i.line_count }} lines · +{{ i.units }}</td>
-        </tr>
-        {% else %}<tr><td class="text-secondary p-3">No invoices yet.</td></tr>{% endfor %}
-      </table>
+
+    <div class="collapse {{ 'show' if not key_present }}" id="manual">
+      <div class="card">
+        <div class="card-header">⌨️ Type an invoice in <div class="sub">One row per line on the invoice. You'll check it on the next page.</div></div>
+        <form method="post" action="/invoices/manual" class="card-body">
+          <label class="form-label" for="m-sup">From</label>
+          <select id="m-sup" name="supplier_id" class="form-select form-select-lg mb-3">
+            {% for s in suppliers %}<option value="{{ s.id }}">{{ s.emoji }} {{ s.name }}</option>{% endfor %}</select>
+          <div id="rows">
+          {% for i in range(20) %}
+          <div class="line-card manual-row {{ 'd-none' if i >= 3 }}" data-row="{{ i }}">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-5"><label class="form-label small">Product</label>
+                <select name="product_{{ i }}" class="form-select"><option value="">—</option>
+                  {% for p in products %}<option value="{{ p.id }}">{{ p.name_en }}</option>{% endfor %}</select></div>
+              <div class="col-4 col-md-2"><label class="form-label small">How many</label>
+                <input name="qty_{{ i }}" type="number" step="any" min="0" inputmode="decimal" class="form-control"></div>
+              <div class="col-4 col-md-2"><label class="form-label small">of</label>
+                <select name="unit_{{ i }}" class="form-select"><option value="case">cases</option><option value="pack">packs</option><option value="piece">single</option></select></div>
+              <div class="col-4 col-md-3"><label class="form-label small">Cost each $</label>
+                <input name="cost_{{ i }}" type="number" step="0.01" min="0" inputmode="decimal" class="form-control" placeholder="optional"></div>
+              <div class="col-8 col-md-5"><label class="form-label small">Expires</label>
+                <input name="expiry_{{ i }}" type="date" class="form-control"></div>
+              <div class="col-4 col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="free_{{ i }}" value="1" id="free-{{ i }}">
+                <label class="form-check-label" for="free-{{ i }}">🎁 free</label></div></div>
+            </div>
+          </div>
+          {% endfor %}
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-outline-dark" id="add-row">➕ Add a line</button>
+            <button class="btn btn-lg btn-dark ms-auto">Continue to check →</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
-  <div class="col-lg-7">
+
+  <div class="col-lg-5">
+    <div class="card mb-3">
+      <div class="card-header">⏳ Waiting for your OK <span class="badge rounded-pill {{ 'text-bg-warning' if waiting else 'text-bg-success' }}">{{ waiting|length }}</span></div>
+      {% for i in waiting %}
+      <a class="inv-row" href="/invoices/{{ i.id }}">
+        <div class="flex-grow-1"><div class="fw-semibold">{{ i.supplier or i.supplier_name_raw or 'Unknown supplier' }}</div>
+          <div class="small muted">{{ i.received_at[5:16] }} · {{ i.line_count }} line{{ 's' if i.line_count != 1 }}{% if i.units %} · +{{ i.units }}{% endif %}</div></div>
+        <span class="badge-words bw-{{ i.status }}">{{ words[i.status] }}</span><span class="muted">›</span>
+      </a>
+      {% else %}
+      <div class="p-3 text-success">✓ Nothing waiting</div>
+      {% endfor %}
+    </div>
     <div class="card">
-      <div class="card-header">Manual entry <span class="small text-secondary fw-normal">— fallback when a photo can't be read</span></div>
-      <form method="post" action="/invoices/manual" class="card-body">
-        <div class="mb-2"><select name="supplier_id" class="form-select form-select-sm" style="max-width:20rem">
-          {% for s in suppliers %}<option value="{{ s.id }}">{{ s.emoji }} {{ s.name }}</option>{% endfor %}</select></div>
-        <table class="table table-sm align-middle">
-          <thead><tr><th>Product</th><th style="width:5rem">Qty</th><th style="width:6.5rem">Unit</th><th style="width:6rem">Cost/unit</th><th style="width:9rem">Expiry</th><th>Free</th></tr></thead>
-          {% for i in range(6) %}
-          <tr>
-            <td><select name="product_{{ i }}" class="form-select form-select-sm"><option value=""></option>
-              {% for p in products %}<option value="{{ p.id }}">{{ p.name_en }}</option>{% endfor %}</select></td>
-            <td><input name="qty_{{ i }}" type="number" step="any" min="0" class="form-control form-control-sm"></td>
-            <td><select name="unit_{{ i }}" class="form-select form-select-sm"><option>case</option><option>pack</option><option>piece</option></select></td>
-            <td><input name="cost_{{ i }}" type="number" step="0.01" min="0" class="form-control form-control-sm"></td>
-            <td><input name="expiry_{{ i }}" type="date" class="form-control form-control-sm"></td>
-            <td><input name="free_{{ i }}" type="checkbox" value="1" class="form-check-input"></td>
-          </tr>
-          {% endfor %}
-        </table>
-        <button class="btn btn-sm btn-dark">Create invoice for review</button>
-      </form>
+      <div class="card-header">Earlier deliveries</div>
+      {% for i in done %}
+      <a class="inv-row" href="/invoices/{{ i.id }}">
+        <div class="flex-grow-1"><div class="fw-semibold">{{ i.supplier or i.supplier_name_raw or 'Unknown supplier' }}</div>
+          <div class="small muted">{{ i.received_at[5:16] }} · {{ i.line_count }} line{{ 's' if i.line_count != 1 }}{% if i.units %} · +{{ i.units }}{% endif %}</div></div>
+        <span class="badge-words bw-{{ i.status }}">{{ words[i.status] }}</span><span class="muted">›</span>
+      </a>
+      {% else %}
+      <div class="p-3 muted">No deliveries yet.</div>
+      {% endfor %}
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const input = document.getElementById("photo"), drop = document.getElementById("drop");
+  const preview = document.getElementById("preview"), btn = document.getElementById("read-btn");
+  function chosen() {
+    const f = input.files[0];
+    btn.disabled = !f || {{ 'false' if key_present else 'true' }};
+    if (f) { preview.src = URL.createObjectURL(f); preview.classList.remove("d-none"); }
+  }
+  input.addEventListener("change", chosen);
+  ["dragenter", "dragover"].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.add("drag"); }));
+  ["dragleave", "drop"].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.remove("drag"); }));
+  drop.addEventListener("drop", (ev) => { if (ev.dataTransfer.files.length) { input.files = ev.dataTransfer.files; chosen(); } });
+  document.getElementById("upload").addEventListener("submit", () => { btn.disabled = true; btn.textContent = "Reading… (up to a minute)"; });
+  document.getElementById("add-row").addEventListener("click", () => {
+    const next = document.querySelector(".manual-row.d-none");
+    if (next) next.classList.remove("d-none");
+    if (!document.querySelector(".manual-row.d-none")) document.getElementById("add-row").disabled = true;
+  });
+})();
+</script>
 {% endblock %}

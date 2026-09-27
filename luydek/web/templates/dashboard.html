@@ -110,6 +110,7 @@
           <span class="val">{{ it.count }}</span>
           <button class="btn btn-outline-secondary" name="delta" value="1" aria-label="one more">+</button></form>
       </div>
+      {% if it.label_text %}<div class="small muted">🔎 Label reads “{{ it.label_text }}”, not clear enough to decide alone</div>{% endif %}
       <div class="question">{% if it.pack_id %}Is this <b>{{ pack_label(it, 'en') }}</b>? <span class="km muted small">{{ it.name_km }}</span>{% else %}What is this item?{% endif %}</div>
       <div class="choices">
         {% if it.pack_id %}

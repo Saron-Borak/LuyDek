@@ -17,6 +17,7 @@ from telegram.error import BadRequest, TelegramError
 from .. import clock, db, render
 from ..config import Config
 from ..i18n import t
+from ..recognition import labels
 from ..services import catalog, forecast, invoices, metrics, stock, transactions
 from . import keyboards
 
@@ -147,6 +148,10 @@ async def send_grid(bot: Bot, cfg: Config, chat_id: int, lang: str, item_id: int
 
 async def send_digest(bot: Bot, cfg: Config, resend: bool = False, manual: bool = False) -> int:
     """Batched check at a quiet moment: a header, one photo per unsure item, confirm-all."""
+    import asyncio
+
+    # Look-alikes whose label settles them never reach the owner.
+    await asyncio.to_thread(labels.settle, cfg)
     now = clock.now()
     with db.session(cfg) as conn:
         transactions.close_stale(conn, cfg.verification.stale_transaction_minutes, cfg.media_dir,

@@ -97,7 +97,9 @@ CREATE TABLE IF NOT EXISTS transaction_items (
     status          TEXT    NOT NULL,   -- auto / pending / confirmed / corrected / best_guess / removed / unknown
     verified_by     TEXT,
     verified_at     TEXT,
-    digest_id       INTEGER
+    digest_id       INTEGER,
+    label_text      TEXT,          -- what the label reader saw printed on a look-alike
+    label_checked_at TEXT          -- set once the label reader has looked (read or not)
 );
 
 CREATE TABLE IF NOT EXISTS stock_movements (

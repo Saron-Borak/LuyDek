@@ -1,59 +1,142 @@
 {% extends "base.html" %}
 {% block title %}Order lists{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-3">
+<div class="page-head">
   <div>
-    <h1 class="h4 mb-0">Weekly order lists</h1>
-    <div class="text-secondary small">One list per supplier, sent the evening before the agent's visit ({{ cfg.forecast.order_list_time }}).
-      Weighted average of the last 4 weeks, counting only days the item was in stock.</div>
+    <h1>Order lists</h1>
+    <div class="lead-line">What to buy from each agent before they visit — and what <b>not</b> to buy.</div>
   </div>
-  <div class="d-flex gap-2 align-items-center">
-    <span class="card kpi px-3 py-2"><span class="label">💤 Sleeping money</span><span class="fw-semibold" style="color:var(--sleep)">${{ '%.2f'|format(sleeping) }}</span></span>
-    <span class="card kpi px-3 py-2"><span class="label">Follow-rate</span><span class="fw-semibold">{{ follow.rate ~ '%' if follow.rate is not none else '–' }}</span></span>
-    <form method="post" action="/actions/orders"><button class="btn btn-primary" {% if not bot %}disabled title="Telegram bot is off"{% endif %}>📨 Send all to Telegram</button></form>
+  <div class="d-flex gap-2 flex-wrap align-items-stretch">
+    <a href="#sleeping" class="stat sleep py-2 px-3" style="height:auto"><div class="fs-4 fw-bold" style="color:var(--sleep)">${{ '%.0f'|format(sleeping) }}</div>
+      <div class="h mt-0">💤 sleeping on the shelf</div></a>
+    <div class="stat py-2 px-3" style="height:auto"><div class="fs-4 fw-bold">{{ follow.rate ~ '%' if follow.rate is not none else '–' }}</div>
+      <div class="h mt-0">advice followed</div></div>
+    <form method="post" action="/actions/orders" class="d-flex"><button class="btn btn-lg btn-primary" {% if not bot %}disabled title="Telegram bot is off"{% endif %}>📨 Send all to Telegram</button></form>
   </div>
 </div>
 
+<!-- jump to an agent -->
+<div class="chips mb-3">
+  {% for p in plans %}
+  <a class="chip text-decoration-none d-inline-flex align-items-center gap-1" href="#supplier-{{ p.supplier_id }}">
+    <b>{% if p.days_to_visit == 0 %}Today{% elif p.days_to_visit == 1 %}Tomorrow{% else %}{{ p.visit_date.strftime('%a') }}{% endif %}</b>
+    {{ p.emoji }} {{ p.name }}{% if p.of('order') %} · {{ p.of('order')|length }} to order{% endif %}</a>
+  {% endfor %}
+</div>
+
+<details class="mb-3 muted">
+  <summary class="py-1">How the numbers are worked out</summary>
+  <div class="pt-2" style="max-width:52rem">Average sales over the last 4 weeks, with recent weeks counting more and out-of-stock days
+    left out (an empty shelf is not zero demand). Enough is ordered to last until the delivery after next, plus a
+    {{ '%g'|format(cfg.forecast.safety_days) }}-day safety buffer ({{ '%g'|format(cfg.forecast.safety_days_critical) }} days for must-have items),
+    rounded up to whole cases, and never more than sells before it expires.</div>
+</details>
+
 {% for p in plans %}
-<div class="card mb-3">
-  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <span class="fs-6">{{ p.emoji }} {{ p.name }}
-      <span class="text-secondary fw-normal small">· visits {{ t('en', 'weekday_' ~ p.visit_date.weekday()) }} {{ p.visit_date }}
-        ({% if p.days_to_visit == 0 %}today{% elif p.days_to_visit == 1 %}tomorrow{% else %}in {{ p.days_to_visit }} days{% endif %})
-        · covers {{ p.days_to_visit + p.cycle_days }} days to the delivery after next</span></span>
-    <span>{% if p.order_value %}<b>${{ '%.2f'|format(p.order_value) }}</b>{% endif %}
-      {% if p.below_min_order %}<span class="pill status-pending">below ${{ '%.0f'|format(p.min_order) }} minimum</span>{% endif %}</span>
-  </div>
-  <div class="row g-0">
-    <div class="col-xl-8">
-      <div class="table-responsive">
-      <table class="table table-sm mb-0 align-middle">
-        <thead class="table-light"><tr><th></th><th>Product</th><th class="num">Stock</th><th class="num">Avg/day</th><th class="num">Last wk</th><th class="num">Out days</th><th class="num">Recommend</th><th>Why</th></tr></thead>
-        {% for l in p.lines %}
-        <tr>
-          <td><span class="pill act-{{ l.action }}">{{ l.action|upper }}</span></td>
-          <td>{{ l.name_en }}{% if l.is_critical %} <span class="pill bg-dark text-white">critical</span>{% endif %}</td>
-          <td class="num {% if l.stock <= 0 %}text-danger fw-semibold{% endif %}">{{ l.stock }}</td>
-          <td class="num">{{ '%.1f'|format(l.avg_daily) }}</td>
-          <td class="num">{{ l.sold_last_week }}</td>
-          <td class="num {% if l.stockout_days %}text-danger{% endif %}">{{ l.stockout_days or '' }}</td>
-          <td class="num text-nowrap fw-semibold">
-            {% if l.action == 'order' %}{{ l.cases }} case{{ 's' if l.cases != 1 }} <span class="text-secondary fw-normal">({{ l.units }})</span>
-            {% elif l.action == 'market' %}{{ l.units }} loose
-            {% elif l.action == 'sleeping' %}<span style="color:var(--sleep)">${{ '%.2f'|format(l.value) }}</span>{% endif %}
-          </td>
-          <td class="small text-secondary">{{ reasons[(p.supplier_id, l.product_id)] }}</td>
-        </tr>
-        {% endfor %}
-      </table>
-      </div>
+{% set orders = p.of('order') %}{% set market = p.of('market') %}{% set check = p.of('check') %}
+{% set skips = p.of('skip') %}{% set sleep = p.of('sleeping') %}
+<div class="card mb-4 supplier-card" id="supplier-{{ p.supplier_id }}">
+  <div class="card-header d-flex align-items-center gap-3 flex-wrap">
+    <div class="date-block">
+      <div class="d">{% if p.days_to_visit == 0 %}Today{% elif p.days_to_visit == 1 %}Tmrw{% else %}{{ p.visit_date.strftime('%a') }}{% endif %}</div>
+      <div class="s">{{ p.visit_date.strftime('%d %b') }}</div>
     </div>
-    <div class="col-xl-4 p-3 border-start">
-      <div class="d-flex justify-content-between mb-1 small text-secondary"><span>Telegram message</span>
-        <span><a href="?lang=km">ខ្មែរ</a> · <a href="?lang=en">English</a></span></div>
+    <div class="flex-grow-1">
+      <div class="fs-5">{{ p.emoji }} {{ p.name }}</div>
+      <div class="sub">{% if orders or market %}{{ orders|length + market|length }} to buy{% else %}nothing to buy this time{% endif %}
+        · {{ skips|length }} to skip{% if sleep %} · 💤 {{ sleep|length }} sleeping{% endif %}</div>
+    </div>
+    <div class="text-end">
+      {% if p.order_value %}<div class="fs-5 fw-bold">${{ '%.2f'|format(p.order_value) }}</div>{% endif %}
+      {% if p.below_min_order %}<div class="pill status-pending">below the ${{ '%.0f'|format(p.min_order) }} minimum</div>{% endif %}
+    </div>
+    {% if orders or market %}
+    <button class="btn btn-outline-dark" data-copy="copy-{{ p.supplier_id }}">📋 Copy for the agent</button>
+    <textarea id="copy-{{ p.supplier_id }}" class="d-none">Order for {{ p.name }} ({{ p.visit_date.strftime('%a %d %b') }}):
+{% for l in orders %}- {{ l.name_en }}: {{ l.cases }} case{{ 's' if l.cases != 1 }}
+{% endfor %}{% for l in market %}- {{ l.name_en }}: {{ l.units }} {{ l.unit }}s (loose)
+{% endfor %}</textarea>
+    {% endif %}
+  </div>
+
+  <div class="row g-0">
+    <div class="col-xl-8 p-3">
+      {% if p.observing %}<div class="alert alert-info">👀 Still learning this shop's sales — recommendations start after {{ cfg.forecast.observe_until }}.</div>{% endif %}
+
+      {% if orders or market %}
+      <div class="plan-section-title text-success">✅ Buy</div>
+      {% for l in orders + market %}
+      <div class="order-line">
+        <div class="qty-big">{% if l.action == 'order' %}{{ l.cases }}<small>case{{ 's' if l.cases != 1 }}</small>
+          <div class="u">{{ l.units }} {{ l.unit }}s</div>{% else %}{{ l.units }}<small>loose</small><div class="u">at the market</div>{% endif %}</div>
+        <div class="flex-grow-1">
+          <div class="fw-semibold fs-6">{{ l.name_en }} {% if l.is_critical %}<span class="pill bg-dark text-white">must-have</span>{% endif %}</div>
+          <div class="km small muted">{{ l.name_km if l.name_km != l.name_en }}</div>
+          <div class="facts">
+            <span>sold <b>{{ l.sold_last_week }}</b> last week</span>
+            <span><b>{{ l.stock if l.stock >= 0 else 0 }}</b> on the shelf</span>
+            <span>~<b>{{ '%.1f'|format(l.avg_daily) }}</b>/day</span>
+          </div>
+          {% if l.stockout_days %}<div class="warn-line">⚠️ Was out of stock {{ l.stockout_days }} day{{ 's' if l.stockout_days != 1 }} in the last 4 weeks — customers went across the street</div>{% endif %}
+          {% if l.capped_by_expiry %}<div class="warn-line">⌛ Kept small so it sells before it expires</div>{% endif %}
+          {% if l.action == 'market' %}<div class="warn-line">🛒 A full case would expire before it sold: buy a few loose instead</div>{% endif %}
+        </div>
+        <div class="text-end muted small">{% if l.action == 'order' %}${{ '%.2f'|format(l.cases * l.case_size * l.unit_cost) }}{% endif %}</div>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if check %}
+      <div class="plan-section-title text-warning-emphasis">❔ Have a look</div>
+      {% for l in check %}
+      <div class="plan-row"><span class="fw-semibold">{{ l.name_en }}</span><span class="muted">{{ reasons[(p.supplier_id, l.product_id)] }}</span></div>
+      {% endfor %}
+      {% endif %}
+
+      {% if skips %}
+      <div class="plan-section-title muted">⏸ Don't buy this time</div>
+      {% for l in skips %}
+      <div class="plan-row"><span>{{ l.name_en }}</span><span class="muted">{{ reasons[(p.supplier_id, l.product_id)] }}</span></div>
+      {% endfor %}
+      {% endif %}
+
+      {% if sleep %}
+      <div class="plan-section-title" style="color:var(--sleep)" id="sleeping-{{ p.supplier_id }}">💤 Sleeping money — don't buy, try to sell or return</div>
+      {% for l in sleep %}
+      <div class="plan-row"><span><span class="fw-semibold">{{ l.name_en }}</span>
+        <span class="d-block small muted">{{ l.stock }} on the shelf · {{ l.sold_4w }} sold in 4 weeks</span></span>
+        <span class="fs-5 fw-bold" style="color:var(--sleep)">${{ '%.2f'|format(l.value) }}</span></div>
+      {% endfor %}
+      {% endif %}
+    </div>
+    <div class="col-xl-4 p-3 border-start bg-light-subtle">
+      <div class="d-flex justify-content-between align-items-center mb-2 small">
+        <span class="fw-semibold">What the owner gets in Telegram</span>
+        <span class="btn-group btn-group-sm">
+          <a href="?lang=km#supplier-{{ p.supplier_id }}" class="btn btn-sm {{ 'btn-dark' if lang == 'km' else 'btn-outline-dark' }}">ខ្មែរ</a>
+          <a href="?lang=en#supplier-{{ p.supplier_id }}" class="btn btn-sm {{ 'btn-dark' if lang == 'en' else 'btn-outline-dark' }}">EN</a>
+        </span>
+      </div>
       <div class="tg-preview">{{ previews[p.supplier_id]|safe }}</div>
     </div>
   </div>
 </div>
 {% endfor %}
+<div id="sleeping"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll("[data-copy]").forEach((btn) => btn.addEventListener("click", async () => {
+  const text = document.getElementById(btn.dataset.copy).value.trim();
+  try { await navigator.clipboard.writeText(text); btn.textContent = "✓ Copied"; }
+  catch { window.prompt("Copy this list:", text); }
+  setTimeout(() => (btn.textContent = "📋 Copy for the agent"), 2000);
+}));
+// The "sleeping" figure jumps to the first agent that has sleeping stock.
+const firstSleep = document.querySelector('[id^="sleeping-"]');
+document.querySelector('a[href="#sleeping"]').addEventListener("click", (e) => {
+  if (firstSleep) { e.preventDefault(); firstSleep.scrollIntoView({ behavior: "smooth", block: "center" }); }
+});
+</script>
 {% endblock %}

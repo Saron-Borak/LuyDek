@@ -191,17 +191,21 @@ def ingest(conn: sqlite3.Connection, invoice_id: int, x: ExtractedInvoice, khr_p
 
 
 def match_supplier(conn: sqlite3.Connection, name: str | None, product_suppliers: list[int]) -> int | None:
-    """By name if it clearly matches, otherwise the supplier most of the lines belong to."""
-    suppliers = catalog.suppliers(conn)
+    """The supplier most of the lines belong to, unless the printed name is a near-exact match.
+
+    Names are a weak signal: "Snack agent" and "Coca-Cola agent" share half their
+    letters. The products on the invoice rarely lie about who delivered them.
+    """
+    by_products = max(set(product_suppliers), key=product_suppliers.count) if product_suppliers else None
+    by_name, score = None, 0.0
     if name:
-        scored = [(difflib.SequenceMatcher(None, catalog.normalize(name), catalog.normalize(s["name"])).ratio(), s["id"])
-                  for s in suppliers]
-        best = max(scored, default=(0, None))
-        if best[0] >= 0.6:
-            return best[1]
-    if product_suppliers:
-        return max(set(product_suppliers), key=product_suppliers.count)
-    return None
+        for s in catalog.suppliers(conn):
+            ratio = difflib.SequenceMatcher(None, catalog.normalize(name), catalog.normalize(s["name"])).ratio()
+            if ratio > score:
+                by_name, score = s["id"], ratio
+    if by_products is not None and not (by_name is not None and score >= 0.85):
+        return by_products
+    return by_name if score >= 0.6 else by_products
 
 
 def units_total(conn: sqlite3.Connection, product_id: int | None, qty: float, unit: str,

@@ -14,6 +14,7 @@ Hackathon MVP for the *Dead Stock, Empty Shelf* challenge. It runs all four demo
 | 2. A judge verifies an item on their phone | Telegram digest: crop photo + ✅ / look-alike / 🔍 Other / ✖ buttons |
 | 3. A photographed invoice raises stock | Send the photo to the bot (or `/invoices`); Claude reads it, the owner confirms with one tap |
 | 4. Weekly order list per supplier | `/orders` and Telegram, built from **clearly labelled SIMULATED** history |
+| + The 60-day proof | `/report`: before (watching weeks) vs now, per pilot metric |
 
 ---
 
@@ -98,15 +99,26 @@ recount). Suppliers and their visit days are edited at the bottom of the same pa
 ## How it works
 
 ```
-counter photo ─► segment (vs. empty-mat photo) ─► barcode pass (zxing) ─► CLIP ViT-B/32 embedding
-             ─► nearest packs in this store's gallery ─► multipack × units ─► tier
+counter photo ─► segment (vs. empty-mat photo) ─► split touching items ─► barcode pass (zxing)
+             ─► CLIP ViT-B/32 embedding ─► nearest packs in this store's gallery ─► multipack × units ─► tier
    high  (barcode, or score ≥ t_high AND margin to runner-up ≥ m_high) → sale recorded now
-   medium (score ≥ t_low) → "Is this X?"      low → photo grid        ignore class → dropped
+   medium (score ≥ t_low) → label reader if look-alikes → "Is this X?"   low → photo grid   ignore → dropped
 ```
 
 - **Tiers use the margin as well as the score.** Raw CLIP similarities sit in a narrow 0.75–0.95
   band, so the handoff's 0.90/0.60 can't be used as-is. Look-alikes both score high, and it is the
   small gap between them that sends an item to the owner.
+- **Touching items.** A blob whose outline is dented (solidity below 0.93) is split at the neck
+  between items: distance-transform cores seed a watershed, and the neighbour is painted out of
+  each crop. A convex blob is never split, so one long bottle stays one item. Two boxes pushed
+  flush edge to edge have no dent and still merge.
+- **Label reader.** When a pending item's top guesses score within 0.05 of each other (Paracetamol
+  250mg vs 500mg), just the product crop goes to Claude (`claude-opus-5`, low effort, well under a
+  cent) with those options, to read the printed size or strength. A clear reading records the sale
+  automatically (method `label`). Anything unclear stays with the owner, with what was read shown
+  on the card. It runs right after the sale closes, again before each digest, and every 5 minutes
+  in case the internet was down. It needs `ANTHROPIC_API_KEY` and can be switched off
+  (`labels.enabled`).
 - **Transactions.** Every still frame is recognised on its own. At close, each product counts at
   its maximum across frames, not the sum, because items get bagged while more arrive.
 - **Ledger.** `stock_movements` holds signed rows: opening, sale, delivery, freebie, adjustment.
@@ -129,31 +141,50 @@ counter photo ─► segment (vs. empty-mat photo) ─► barcode pass (zxing) �
 - **Privacy.** Once every item in a sale is settled, the full counter photo is deleted and only the
   product crops are kept.
 
+## Pilot report (`/report`)
+
+The handoff's 60-day proof, week by week. **Before** is the observation weeks (weeks 1–2: camera
+and checks on, no order advice). **Now** is the last two full weeks.
+- Headline tiles:
+  - empty-shelf days on must-have items
+  - dead stock (dollars at cost, no sale in 45+ days)
+  - order advice followed
+  - owner taps per day
+  - camera right without help
+- Charts: one small chart per metric. Watching weeks are grey, pilot weeks blue, and the week in
+  progress is faded and never compared.
+- **Show the numbers** holds the full table. **Print or save as PDF** gives a clean handout.
+
+Day 0 is the first day stock was recorded, or set `pilot.start` in `configs/config.yaml`. Every
+number comes from the ledger and the logs. When the window includes simulated history, the page
+says so in a banner. The simulator keeps ordering "by feeling" throughout, so it shows no
+improvement, as it shouldn't.
+
 ## Layout
 
 ```
 luydek/
-  services/     catalog · stock (ledger) · transactions · invoices (Claude) · forecast · metrics
-  recognition/  segment · barcode · encoder (CLIP) · matcher (gallery + tiers) · pipeline
+  services/     catalog · stock (ledger) · transactions · invoices (Claude) · forecast · metrics · report
+  recognition/  segment · barcode · encoder (CLIP) · matcher (gallery + tiers) · labels (Claude) · pipeline
   bot/          app (jobs) · handlers · digest (outgoing messages) · keyboards
-  web/          server (FastAPI; the bot runs in its event loop) · templates · static
+  web/          server (FastAPI; the bot runs in its event loop) · charts (inline SVG) · templates · static
   i18n.py       Khmer/English strings    render.py  owner-facing message text
 scripts/        seed_demo · simulate_history · calibrate · synthetic_demo · sale_from_photo
 configs/        config.yaml (thresholds, digest times, forecast rules) · synthetic.yaml
 ```
 
-`.venv/Scripts/python.exe -m pytest` runs 74 tests covering the ledger, forecast math, recognition,
-transactions, invoices (mocked Claude), bot flows (fake Telegram) and the web app. The tests use a
+`.venv/Scripts/python.exe -m pytest` runs 91 tests covering the ledger, forecast math, recognition,
+touching-item splitting, the label reader and invoices (mocked Claude), the pilot report, transactions, bot flows (fake Telegram) and the web app. The tests use a
 colour-histogram encoder, so they don't need CLIP.
 
 ## Not built yet (and what to say if asked)
 
-- **Detector.** Segmentation against the empty mat stands in for a trained detector, so touching
-  items merge into one blob. Place them apart in the demo. A YOLO detector slots in behind
+- **Detector.** Segmentation against the empty mat stands in for a trained detector. Touching
+  items are split when their outline has a neck, but boxes pushed flush edge to edge still merge,
+  and pale boxes on a pale mat are only partly seen. A YOLO detector slots in behind
   `segment.segment()`.
-- **Dosage and size text.** Paracetamol 250mg vs 500mg look the same to CLIP. They land in
-  *medium* and the owner picks. The next step is OCR on the crop when the top two candidates are
-  look-alikes.
+- **Label reading offline.** The label reader needs the internet. Without it, look-alikes go to
+  the owner as before. A local OCR model is the offline alternative.
 - **Multiple stores.** It is single-store (one database per shop). There is no weekly shelf-photo
   spot check yet, no Croston's method or seasonality, and no warm start from distributor history.
 - **Khmer strings.** `luydek/i18n.py` was written by a non-native author. Have a native speaker

@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 import pytest
 
@@ -195,3 +196,56 @@ def test_reference_photo_round_trip(conn, cfg):
     rel = pipeline.save_reference(conn, cfg, jpeg(mat_frame()))
     assert db.get_setting(conn, pipeline.REFERENCE_KEY) == rel
     assert pipeline.load_reference(conn, cfg).shape == (480, 640, 3)
+
+
+# --- touching items ----------------------------------------------------------------------------
+
+def test_two_touching_cans_are_split_and_each_crop_shows_one(cfg):
+    frame = mat_frame()
+    cv2.circle(frame, (250, 240), 60, (30, 30, 200), -1)    # red can from above
+    cv2.circle(frame, (365, 240), 60, (200, 120, 30), -1)   # blue can touching it
+    blobs = segment.segment(frame, mat_frame(), cfg.recognition.segment)
+    assert len(blobs) == 2
+    left = np.asarray(min(blobs, key=lambda b: b.bbox[0]).crop)
+    blue_px = ((left[..., 2] > 150) & (left[..., 0] < 80)).sum()   # RGB crop: blue can = high B, low R
+    red_px = ((left[..., 0] > 150) & (left[..., 2] < 80)).sum()
+    assert red_px > 20 * max(blue_px, 1)                           # the neighbour was painted out
+
+
+def test_boxes_overlapping_at_a_corner_are_split(cfg):
+    frame = mat_frame()
+    paint(frame, "coke-330", 150, 120)
+    paint(frame, "dumex-400", 225, 220)                            # overlaps the first box's corner
+    assert len(segment.segment(frame, mat_frame(), cfg.recognition.segment)) == 2
+
+
+def test_one_long_or_necked_item_stays_whole(cfg):
+    frame = mat_frame()
+    cv2.rectangle(frame, (120, 200), (440, 270), (40, 140, 60), -1)   # a bottle lying down
+    cv2.rectangle(frame, (440, 222), (500, 248), (40, 140, 60), -1)   # its neck
+    assert len(segment.segment(frame, mat_frame(), cfg.recognition.segment)) == 1
+
+
+def test_boxes_pushed_edge_to_edge_stay_merged(cfg):
+    # Known limit: no neck, no split. A trained detector is the fix, not more thresholds.
+    frame = mat_frame()
+    cv2.rectangle(frame, (150, 150), (240, 300), (30, 30, 200), -1)
+    cv2.rectangle(frame, (240, 150), (330, 300), (200, 120, 30), -1)
+    assert len(segment.segment(frame, mat_frame(), cfg.recognition.segment)) == 1
+
+
+def test_splitting_can_be_switched_off(cfg):
+    cfg.recognition.segment.split_touching = False
+    frame = mat_frame()
+    cv2.circle(frame, (250, 240), 60, (30, 30, 200), -1)
+    cv2.circle(frame, (365, 240), 60, (200, 120, 30), -1)
+    assert len(segment.segment(frame, mat_frame(), cfg.recognition.segment)) == 1
+
+
+def test_touching_products_are_recognised_separately(conn, cfg, stub_encoder):
+    rec = enroll_all(conn, cfg)
+    frame = mat_frame()
+    paint(frame, "coke-330", 150, 120)
+    paint(frame, "dumex-400", 225, 220)
+    found = sorted(d.record.pack_id for d in rec.recognize(conn, frame, "t9"))
+    assert found == sorted([pack_of(conn, "coke-330"), pack_of(conn, "dumex-400")])

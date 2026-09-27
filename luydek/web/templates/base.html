@@ -20,8 +20,9 @@
           {% if pending_count %}<span class="badge text-bg-warning ms-1">{{ pending_count }}</span>{% endif %}</a></li>
         <li class="nav-item"><a class="nav-link {% if active == 'counter' %}active{% endif %}" href="/counter">Counter</a></li>
         <li class="nav-item"><a class="nav-link {% if active in ('catalog', 'enroll') %}active{% endif %}" href="/catalog">Catalog</a></li>
-        <li class="nav-item"><a class="nav-link {% if active in ('invoices', 'invoice') %}active{% endif %}" href="/invoices">Invoices</a></li>
+        <li class="nav-item"><a class="nav-link {% if active in ('invoices', 'invoice') %}active{% endif %}" href="/invoices">Deliveries</a></li>
         <li class="nav-item"><a class="nav-link {% if active == 'orders' %}active{% endif %}" href="/orders">Order lists</a></li>
+        <li class="nav-item"><a class="nav-link {% if active == 'report' %}active{% endif %}" href="/report">Pilot report</a></li>
       </ul>
       <span class="navbar-text small">
         {% if bot %}<span class="dot dot-on"></span> Telegram bot on{% else %}<span class="dot dot-off"></span> Telegram bot off{% endif %}

@@ -23,8 +23,20 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+# Columns added after a table first shipped. CREATE TABLE IF NOT EXISTS never
+# alters an existing table, so databases from earlier versions get them here.
+MIGRATIONS = {
+    "transaction_items": {"label_text": "TEXT", "label_checked_at": "TEXT"},
+}
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    for table, columns in MIGRATIONS.items():
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, kind in columns.items():
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
     conn.commit()
 
 

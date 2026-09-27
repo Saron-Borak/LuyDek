@@ -32,6 +32,10 @@ recognition:
     min_area_frac: 0.004   # ignore specks smaller than 0.4% of the mat
     max_area_frac: 0.60    # a blob this big is a lighting change or an arm
     pad_frac: 0.08         # crop margin around each item
+    split_touching: true   # separate two items that touch (a narrow neck between them)
+    split_solidity: 0.93   # only a dented outline (less convex than this) can be two items
+    split_peak: 0.75
+    split_min_frac: 0.12
 
 verification:
   # Batched digests at quiet moments, never one message per sale.
@@ -56,6 +60,19 @@ forecast:
   expiry_warning_days: 30
   order_list_time: "18:00"       # sent the evening before each agent's visit
   observe_until: null            # e.g. "2026-10-12": no recommendations before this date
+
+labels:
+  # When the camera's best guesses are look-alikes (Paracetamol 250mg vs 500mg), send just
+  # the product crop to Claude to read the printed size or strength. Needs ANTHROPIC_API_KEY.
+  enabled: true
+  model: claude-opus-5
+  gap: 0.05                 # guesses within this score of the top one count as look-alikes
+  max_options: 4
+
+pilot:
+  start: null               # e.g. "2026-10-01"; empty = the first day stock was recorded
+  baseline_weeks: 2         # the observation weeks the pilot report compares against
+  report_weeks: 12          # at most this many weeks on the report
 
 invoices:
   model: claude-opus-5

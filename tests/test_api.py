@@ -114,7 +114,7 @@ def test_upload_without_api_key_explains_itself(client, conn, cfg, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     r = client.post("/invoices/upload", files={"image": ("i.jpg", jpeg(mat_frame()), "image/jpeg")})
     assert r.status_code == 200
-    assert "No ANTHROPIC_API_KEY" in r.text
+    assert "needs an ANTHROPIC_API_KEY" in r.text
 
 
 # --- catalog UX ------------------------------------------------------------------------------
@@ -215,3 +215,21 @@ def test_dashboard_names_what_needs_attention(client, conn):
     html = client.get("/").text
     assert "Out of stock" in html and "Dumex Dugro baby formula 400g" in html
     assert "Next agent visits" in html
+
+
+def test_order_lists_page_has_an_anchor_and_copyable_list_per_agent(client, conn):
+    stock.record(conn, pid(conn, "para-500"), 2, "opening")
+    conn.commit()
+    html = client.get("/orders").text
+    for sid in (1, 2, 3, 4):
+        assert f'id="supplier-{sid}"' in html
+    assert "How the numbers are worked out" in html
+
+
+def test_deliveries_list_puts_invoices_needing_an_ok_first(client, conn):
+    coke = pid(conn, "coke-330")
+    client.post("/invoices/manual", data={"supplier_id": "1", "product_0": str(coke), "qty_0": "1", "unit_0": "case",
+                                          "cost_0": "", "qty_1": "", "product_1": ""})
+    html = client.get("/invoices").text
+    waiting = html.split("Waiting for your OK")[1].split("Earlier deliveries")[0]
+    assert "Coca-Cola agent" in waiting

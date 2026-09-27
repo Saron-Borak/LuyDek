@@ -245,6 +245,26 @@ def resolve(
     return {"status": status, "already": False, "count": row["count"]}
 
 
+def settle_by_label(conn: sqlite3.Connection, item_id: int, pack_id: int, label_text: str,
+                    media_dir: Path | None = None, delete_photo: bool = False) -> bool:
+    """The label reader decided between look-alikes: record the sale without asking the owner.
+
+    It counts as automatic (method "label"), not as an owner check, so accuracy
+    figures keep meaning "the owner looked at it".
+    """
+    row = item(conn, item_id)
+    if row is None or row["status"] != "pending":
+        return False
+    conn.execute(
+        "UPDATE transaction_items SET status = 'auto', method = 'label', pack_id = ?, label_text = ?, "
+        "label_checked_at = ?, verified_by = 'label reader', verified_at = ? WHERE id = ?",
+        (pack_id, label_text, clock.stamp(), clock.stamp(), item_id),
+    )
+    _write_sale(conn, item_id, pack_id, row["count"], row["started_at"])
+    _maybe_finish(conn, row["txn_id"], media_dir, delete_photo)
+    return True
+
+
 def confirm_many(conn: sqlite3.Connection, item_ids: list[int], by: str, **kwargs) -> int:
     done = 0
     for item_id in item_ids:

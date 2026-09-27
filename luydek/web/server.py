@@ -25,8 +25,9 @@ from ..bot import app as bot_app
 from ..bot import digest
 from ..config import Config, get_config
 from ..i18n import t
-from ..recognition import pipeline, segment
-from ..services import catalog, forecast, invoices, metrics, stock, transactions
+from ..recognition import labels, pipeline, segment
+from ..services import catalog, forecast, invoices, metrics, report, stock, transactions
+from . import charts as charts_mod
 
 log = logging.getLogger("luydek.web")
 HERE = Path(__file__).parent
@@ -82,6 +83,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     app = FastAPI(title="LuyDek", lifespan=lifespan)
     app.state.cfg = cfg
     app.state.bot = None
+    app.state.tasks = set()
+
+    def read_labels_later(txn_id: int) -> None:
+        """Settle look-alikes in the background; the counter page never waits for it."""
+        task = asyncio.create_task(asyncio.to_thread(labels.settle, cfg, txn_id))
+        app.state.tasks.add(task)
+        task.add_done_callback(app.state.tasks.discard)
     cfg.media_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     app.mount("/media", StaticFiles(directory=cfg.media_dir), name="media")
@@ -270,7 +278,10 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     @app.post("/api/transactions/{txn_id}/close")
     async def api_close(txn_id: int):
-        return await run_in_threadpool(_close, txn_id)
+        summary = await run_in_threadpool(_close, txn_id)
+        if summary.get("pending"):
+            read_labels_later(txn_id)
+        return summary
 
     @app.post("/api/sale-photo")
     async def api_sale_photo(image: UploadFile = File(...), use_reference: bool = Form(False)):
@@ -280,7 +291,10 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             captured = await run_in_threadpool(_capture, data, None, "upload", use_reference)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
-        return {**captured, "summary": await run_in_threadpool(_close, captured["txn_id"])}
+        summary = await run_in_threadpool(_close, captured["txn_id"])
+        if summary.get("pending"):
+            read_labels_later(captured["txn_id"])
+        return {**captured, "summary": summary}
 
     # --- catalog & enrollment ---------------------------------------------------------------
 
@@ -505,10 +519,12 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     @app.get("/invoices", response_class=HTMLResponse)
     def invoices_page(request: Request):
         with db.session(cfg) as conn:
-            rows = invoices.recent(conn)
+            rows = invoices.recent(conn, 30)
             products = catalog.products(conn)
             suppliers = catalog.suppliers(conn)
-        return page(request, "invoices.html", invoices=rows, products=products, suppliers=suppliers,
+        waiting = [r for r in rows if r["status"] in ("extracted", "failed", "queued")]
+        done = [r for r in rows if r["status"] not in ("extracted", "failed", "queued")]
+        return page(request, "invoices.html", waiting=waiting, done=done, products=products, suppliers=suppliers,
                     key_present=cfg.anthropic_key_present)
 
     @app.post("/invoices/upload")
@@ -518,17 +534,20 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         with db.session(cfg) as conn:
             invoice_id = invoices.create_from_photo(conn, rel)
         status = await run_in_threadpool(invoices.process, cfg, invoice_id)
-        return RedirectResponse(f"/invoices/{invoice_id}?msg=" + quote(f"Invoice read: {status}"), status_code=303)
+        msg = {"extracted": "Invoice read. Check each line, then add it to stock.",
+               "queued": "No internet right now. It will be read when the connection is back.",
+               "failed": "Could not read this photo. Type the lines in instead."}[status]
+        return RedirectResponse(f"/invoices/{invoice_id}?msg=" + quote(msg), status_code=303)
 
     @app.post("/invoices/manual")
     async def manual_invoice(request: Request):
         form = await request.form()
         entries = []
-        for i in range(12):
-            pid, qty = form.get(f"product_{i}"), form.get(f"qty_{i}")
-            if pid and qty:
-                entries.append({"product_id": int(pid), "qty": float(qty), "unit": form.get(f"unit_{i}", "case"),
-                                "unit_cost": float(form[f"cost_{i}"]) if form.get(f"cost_{i}") else None,
+        for i in range(20):
+            pid, qty = _int(form.get(f"product_{i}")), _float(form.get(f"qty_{i}"))
+            if pid and qty and qty > 0:
+                entries.append({"product_id": pid, "qty": qty, "unit": form.get(f"unit_{i}") or "case",
+                                "unit_cost": _float(form.get(f"cost_{i}")),
                                 "expiry_date": form.get(f"expiry_{i}") or None,
                                 "is_free": bool(form.get(f"free_{i}"))})
         if not entries:
@@ -551,8 +570,12 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             products = catalog.products(conn)
             suppliers = catalog.suppliers(conn)
             preview = render.invoice_message(conn, invoice_id, "km")
+        names = {pr["id"]: pr["name_en"] for pr in products}
+        open_lines = [l for l in lines if l["product_id"] is None and not l["skipped"]]
+        total = sum(l["units_total"] or 0 for l in lines if not l["skipped"] and l["product_id"])
         return page(request, "invoice.html", inv=inv, lines=lines, products=products, suppliers=suppliers,
-                    suggestions=suggestions, preview=preview, extracted=invoices.extracted_json(inv))
+                    suggestions=suggestions, preview=preview, extracted=invoices.extracted_json(inv),
+                    names=names, open_lines=open_lines, total=total)
 
     @app.post("/invoices/{invoice_id}/lines/{line_id}")
     async def invoice_line(request: Request, invoice_id: int, line_id: int, product_id: str = Form("")):
@@ -599,6 +622,26 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if app.state.bot is not None:
             await digest.refresh_invoice(app.state.bot.bot, cfg, invoice_id, footer)
 
+    # --- pilot report --------------------------------------------------------------------------------
+
+    @app.get("/report", response_class=HTMLResponse)
+    def report_page(request: Request):
+        with db.session(cfg) as conn:
+            rep = report.build(conn, cfg)
+        charts = []
+        if rep is not None:
+            labels = [w.start.strftime("%d %b").lstrip("0") for w in rep.weeks]
+            phases = [w.phase for w in rep.weeks]
+            for key, title, better, kind in report.SERIES:
+                values = [getattr(w, key) for w in rep.weeks]
+                tips = [f"Week of {w.start.strftime('%d %b')}{' (so far)' if w.partial else ''}"
+                        f"{' · watching only' if w.phase == 'baseline' else ''}: {charts_mod.fmt(v, kind)}"
+                        for w, v in zip(rep.weeks, values, strict=True)]
+                charts.append({"key": key, "title": title, "better": better, "kind": kind,
+                               "svg": charts_mod.column_chart(values, labels, phases, kind, tips, title,
+                                                              [w.partial for w in rep.weeks])})
+        return page(request, "report.html", rep=rep, charts=charts, fmt=charts_mod.fmt)
+
     # --- orders -----------------------------------------------------------------------------------
 
     @app.get("/orders", response_class=HTMLResponse)
@@ -606,6 +649,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         with db.session(cfg) as conn:
             forecast.settle_follow_rate(conn)
             plans = forecast.build_plans(conn, cfg.forecast)
+            plans.sort(key=lambda p: (p.visit_date, p.name))
             follow = metrics.follow_rate(conn)
             simulated = stock.has_simulated(conn)
         previews = {p.supplier_id: render.order_message(p, lang, simulated) for p in plans}

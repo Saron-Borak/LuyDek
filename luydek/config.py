@@ -36,6 +36,10 @@ class SegmentCfg(BaseModel):
     min_area_frac: float = 0.004
     max_area_frac: float = 0.60
     pad_frac: float = 0.08
+    split_touching: bool = True
+    split_solidity: float = 0.93  # only outlines less convex than this can be two items
+    split_peak: float = 0.75     # an item's core: distance-to-edge above this x the highest
+    split_min_frac: float = 0.12  # a split piece smaller than this share of the blob is noise
 
 
 class RecognitionCfg(BaseModel):
@@ -70,6 +74,21 @@ class ForecastCfg(BaseModel):
     observe_until: str | None = None
 
 
+class LabelsCfg(BaseModel):
+    # Read the printed size/strength/flavour when the camera's top guesses are look-alikes.
+    enabled: bool = True
+    model: str = "claude-opus-5"
+    gap: float = 0.05            # candidates within this of the top score count as look-alikes
+    max_options: int = 4
+
+
+class PilotCfg(BaseModel):
+    # Day 0 of the pilot. Empty: the first day any stock was recorded.
+    start: str | None = None
+    baseline_weeks: int = 2      # "observe" weeks: no recommendations yet, the before-picture
+    report_weeks: int = 12       # at most this many weeks on the report
+
+
 class TelegramCfg(BaseModel):
     # Only one server may poll a bot token. A second copy (the synthetic demo
     # shop next to the real one) must turn this off.
@@ -90,6 +109,8 @@ class Config(BaseModel):
     forecast: ForecastCfg = Field(default_factory=ForecastCfg)
     invoices: InvoicesCfg = Field(default_factory=InvoicesCfg)
     telegram: TelegramCfg = Field(default_factory=TelegramCfg)
+    pilot: PilotCfg = Field(default_factory=PilotCfg)
+    labels: LabelsCfg = Field(default_factory=LabelsCfg)
     root: Path = ROOT
 
     def resolve(self, relative: str) -> Path:

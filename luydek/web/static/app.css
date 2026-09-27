@@ -143,6 +143,59 @@ a.stat:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.0
 .shutter:active { transform: scale(.95); }
 .shutter:disabled { background: #9aa1ad; }
 
+/* ---------- order lists ---------- */
+.supplier-card { scroll-margin-top: 1rem; }
+.date-block { width: 4.4rem; text-align: center; border: 1px solid var(--line); border-radius: .7rem; padding: .35rem 0; background: #faf9f6; }
+.date-block .d { font-weight: 750; font-size: 1.05rem; line-height: 1.1; } .date-block .s { font-size: .78rem; color: var(--muted); }
+.plan-section-title { font-weight: 700; font-size: .95rem; margin: 1rem 0 .4rem; text-transform: none; }
+.plan-section-title:first-child { margin-top: 0; }
+.order-line { display: flex; gap: 1rem; align-items: flex-start; padding: .8rem; border: 1px solid #d7ecdf; background: #f5fbf7; border-radius: .8rem; margin-bottom: .6rem; }
+.qty-big { min-width: 5.2rem; text-align: center; font-size: 1.9rem; font-weight: 800; line-height: 1; color: #146c43; }
+.qty-big small { display: block; font-size: .8rem; font-weight: 600; margin-top: .15rem; }
+.qty-big .u { font-size: .75rem; font-weight: 500; color: var(--muted); margin-top: .2rem; }
+.facts { display: flex; flex-wrap: wrap; gap: .35rem .9rem; font-size: .88rem; color: #3b4252; margin-top: .3rem; }
+.warn-line { font-size: .88rem; color: #9a3412; margin-top: .3rem; }
+.plan-row { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem .2rem; border-bottom: 1px solid var(--line); align-items: center; }
+.plan-row:last-child { border-bottom: 0; }
+.plan-row .muted { text-align: right; font-size: .88rem; }
+
+/* ---------- deliveries ---------- */
+.dropzone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .4rem; text-align: center;
+  border: 2px dashed #b9c0cb; border-radius: 1rem; background: #fff; padding: 2rem 1rem; cursor: pointer; min-height: 13rem; }
+.dropzone:hover, .dropzone.drag { border-color: var(--ink); background: #faf9f6; }
+.dropzone .big { font-size: 2.6rem; line-height: 1; }
+.dropzone img { max-height: 16rem; max-width: 100%; border-radius: .6rem; }
+.inv-row { display: flex; align-items: center; gap: .9rem; padding: .8rem 1rem; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+.inv-row:last-child { border-bottom: 0; } .inv-row:hover { background: #faf9f6; }
+.badge-words { font-size: .78rem; font-weight: 600; padding: .25rem .6rem; border-radius: 1rem; white-space: nowrap; }
+.bw-extracted { background: #fff3cd; color: #664d03; } .bw-confirmed { background: #d1e7dd; color: #0a3622; }
+.bw-queued { background: #e2e3e5; color: #41464b; } .bw-failed { background: #f8d7da; color: #58151c; }
+.bw-rejected { background: #e9ecef; color: #6c757d; }
+.line-card { border: 1px solid var(--line); border-radius: .8rem; padding: .85rem 1rem; margin-bottom: .6rem; background: #fff; }
+.line-card.open { border-color: #f0c36d; background: #fffaf0; }
+.line-card.skipped { opacity: .55; }
+.line-card .written { font-size: 1.05rem; font-weight: 600; }
+.line-card .units { font-size: 1.35rem; font-weight: 800; color: #146c43; white-space: nowrap; }
+.sticky-lg { position: sticky; top: 1rem; }
+
+/* ---------- pilot report ---------- */
+.delta { display: inline-block; margin-top: .45rem; font-size: .85rem; font-weight: 600; padding: .2rem .55rem; border-radius: .5rem; background: #f1f0ec; color: #1f2430; }
+.delta-good { background: #e3f4e3; } .delta-good::first-letter { color: #0ca30c; }
+.delta-bad { background: #fbe6e6; } .delta-bad::first-letter { color: #d03b3b; }
+.legend { display: flex; gap: 1.2rem; flex-wrap: wrap; font-size: .88rem; color: #3b4252; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: .4rem; vertical-align: -1px; }
+.mini-chart { width: 100%; height: auto; display: block; font-family: system-ui, sans-serif; }
+.mini-chart .hit { cursor: default; outline: none; }
+.mini-chart .hit:hover, .mini-chart .hit:focus { fill: rgba(42,120,214,.07); }
+.chart-tip { position: fixed; z-index: 1080; pointer-events: none; background: #1d2433; color: #fff; font-size: .85rem; font-weight: 600;
+  padding: .35rem .6rem; border-radius: .45rem; box-shadow: 0 4px 14px rgba(0,0,0,.18); white-space: nowrap; }
+@media print {
+  .navbar, .no-print, .alert-dismissible, .chart-tip { display: none !important; }
+  body { background: #fff; }
+  .card, .stat { box-shadow: none; break-inside: avoid; }
+  details.card { display: none; }
+}
+
 /* ---------- counter & other pages ---------- */
 .crop { width: 96px; height: 96px; object-fit: contain; background: #fff; border-radius: .5rem; border: 1px solid #e5e5e5; }
 .thumb { width: 72px; height: 72px; object-fit: contain; background: #fff; border-radius: .4rem; border: 1px solid #e5e5e5; }

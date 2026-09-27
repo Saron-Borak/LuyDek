@@ -145,3 +145,13 @@ def test_no_api_key_fails_cleanly(conn, cfg, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     invoice_id = queued_invoice(conn, cfg)
     assert invoices.process(cfg, invoice_id) == "failed"
+
+
+def test_supplier_comes_from_the_products_unless_the_name_is_near_exact(conn):
+    snack = conn.execute("SELECT id FROM suppliers WHERE name = 'Snack & drink distributor'").fetchone()[0]
+    coca = conn.execute("SELECT id FROM suppliers WHERE name = 'Coca-Cola agent'").fetchone()[0]
+    # "Snack agent" looks like "Coca-Cola agent" to a string matcher; the tea says otherwise.
+    assert invoices.match_supplier(conn, "Snack agent", [snack, snack]) == snack
+    assert invoices.match_supplier(conn, "COCA-COLA AGENT", [snack]) == coca
+    assert invoices.match_supplier(conn, "Coca-Cola agnt", []) == coca
+    assert invoices.match_supplier(conn, None, []) is None
