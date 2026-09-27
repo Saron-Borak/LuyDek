@@ -19,6 +19,9 @@ log = logging.getLogger("luydek.bot")
 
 
 def build(cfg: Config) -> Application | None:
+    if not cfg.telegram.enabled:
+        log.info("Telegram is switched off in this config; the dashboard review queue still works")
+        return None
     if not cfg.telegram_token:
         log.warning("TELEGRAM_BOT_TOKEN not set: the bot is off, the dashboard review queue still works")
         return None

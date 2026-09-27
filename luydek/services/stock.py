@@ -116,6 +116,7 @@ def stock_table(conn: sqlite3.Connection, expiry_warning_days: int = 30) -> list
                COALESCE(m.sold_7d, 0)  AS sold_7d,
                COALESCE(m.sold_28d, 0) AS sold_28d,
                m.last_sale,
+               m.product_id IS NOT NULL AS tracked,
                COALESCE(pend.units, 0) AS pending_units
         FROM products p
         LEFT JOIN suppliers s ON s.id = p.supplier_id
@@ -154,8 +155,24 @@ def stock_table(conn: sqlite3.Connection, expiry_warning_days: int = 30) -> list
         row["out"] = row["on_hand"] <= 0
         row["low"] = not row["out"] and daily > 0 and row["on_hand"] < daily * 3
         row["expiring"] = bool(row["expiry"] and row["expiry"] <= soon)
+        # One status per product, for the colour dot and the sort order.
+        if not row["tracked"]:
+            row["status"] = "new"          # never counted: nothing is known yet
+        elif row["out"]:
+            row["status"] = "out"
+        elif row["low"]:
+            row["status"] = "low"
+        elif row["expiring"]:
+            row["status"] = "expiring"
+        else:
+            row["status"] = "ok"
+        row["urgency"] = (STATUS_ORDER.index(row["status"]), not row["is_critical"],
+                          row["days_cover"] if row["days_cover"] is not None else 1e9)
         table.append(row)
     return table
+
+
+STATUS_ORDER = ("out", "low", "expiring", "new", "ok")
 
 
 def daily_series(

@@ -8,7 +8,7 @@
       "port": 8000
     },
     {
-      "name": "luydek-synthetic",
+      "name": "synthetic-shop",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "luydek", "--port", "8010", "--config", "configs/synthetic.yaml"],
       "port": 8010

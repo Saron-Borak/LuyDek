@@ -16,6 +16,7 @@ shop say nothing about a real counter. Use scripts/calibrate.py on real photos.
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -73,6 +74,10 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    if "synthetic" not in str(cfg.media_dir):
+        sys.exit(f"Refusing to wipe {cfg.media_dir}: this script only rebuilds the synthetic shop.")
+    for sub in ("gallery", "crops", "frames", "reference"):
+        shutil.rmtree(cfg.media_dir / sub, ignore_errors=True)  # the reset below orphans them otherwise
     with db.session(cfg) as conn:
         db.init_schema(conn)
         catalog.reset(conn)

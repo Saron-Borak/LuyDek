@@ -1,4 +1,4 @@
-"""python -m luydek [--host 0.0.0.0] [--port 8000] [--config configs/pharmacy.yaml]"""
+"""python -m luydek [--host 0.0.0.0] [--port 8000] [--config configs/synthetic.yaml]"""
 
 import argparse
 import logging

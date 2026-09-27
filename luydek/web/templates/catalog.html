@@ -1,100 +1,143 @@
 {% extends "base.html" %}
 {% block title %}Catalog{% endblock %}
 {% block content %}
-<div class="row g-3">
-  <div class="col-xl-8">
-    <div class="card mb-3">
-      <div class="card-header">Products and what the camera knows about them
-        <div class="small text-secondary fw-normal">Adding a product means taking 5–10 photos on the counter mat, not retraining a model.</div></div>
-      <div class="table-responsive">
-      <table class="table table-sm mb-0">
-        <thead class="table-light"><tr><th>Product</th><th>Supplier</th><th class="num">Case</th><th class="num">Cost</th><th>Packs the camera sees</th></tr></thead>
-        {% for r in table %}
-        <tr>
-          <td>{{ r.name_en }}{% if r.is_critical %} <span class="pill bg-dark text-white">critical</span>{% endif %}
-            <div class="km small text-secondary">{{ r.name_km }}</div></td>
-          <td class="small">{{ r.emoji }} {{ r.supplier_name }}</td>
-          <td class="num">{{ r.case_size }}</td>
-          <td class="num">${{ '%.2f'|format(r.unit_cost) }}</td>
-          <td>
-            {% for pk in packs_by_product.get(r.id, []) %}
-            <a href="/catalog/enroll?pack_id={{ pk.pack_id }}" class="btn btn-sm {% if pk.photos >= 5 %}btn-outline-success{% elif pk.photos %}btn-outline-warning{% else %}btn-outline-danger{% endif %} mb-1">
-              {{ pk.label }}{% if pk.units > 1 %} ×{{ pk.units }}{% endif %} · 📷 {{ pk.photos }}</a>
-            {% endfor %}
-          </td>
-        </tr>
-        {% endfor %}
-      </table>
-      </div>
-    </div>
+{% set need_photos = products|selectattr('photos', 'lt', min_photos)|list %}
+<div class="page-head">
+  <div>
+    <h1>Catalog</h1>
+    <div class="lead-line">{{ products|length }} products ·
+      {% if need_photos %}<b class="text-danger">{{ need_photos|length }} still need photos</b> before the camera can recognise them
+      {% else %}every product has enough photos ✓{% endif %}</div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="/catalog/new" class="btn btn-lg btn-dark">➕ Add product</a>
+    <button class="btn btn-lg btn-outline-dark" data-bs-toggle="collapse" data-bs-target="#count">🔢 Count stock</button>
+  </div>
+</div>
 
-    <div class="card mb-3">
-      <div class="card-header">Things to ignore on the counter
-        <div class="small text-secondary fw-normal">Enroll a few photos of each so they are never counted as sales. Owner "✖ Not an item" taps add to <i>other</i>.</div></div>
-      <div class="card-body d-flex flex-wrap gap-2">
-        {% for label in ignore_labels %}
-        <a href="/catalog/enroll?ignore={{ label }}" class="btn btn-sm btn-outline-secondary">{{ label.replace('_', ' ') }} · 📷 {{ ignore.get(label, 0) }}</a>
+<!-- whole-shop stock count (install day, or a monthly recount) -->
+<div class="collapse mb-3" id="count">
+  <div class="card">
+    <div class="card-header">🔢 Count what's on the shelf <div class="sub">Type the number you count. Leave a box empty to keep its current number.</div></div>
+    <form method="post" action="/catalog/opening-count" class="card-body">
+      <div class="row g-2">
+        {% for r in products %}
+        <div class="col-md-6 col-xxl-4"><label class="d-flex align-items-center gap-2 border rounded-3 p-2 bg-white">
+          <span class="flex-grow-1">{{ r.name_en }}<span class="d-block small muted">now {{ r.on_hand if r.tracked else 'not counted' }}</span></span>
+          <input name="count_{{ r.id }}" type="number" min="0" inputmode="numeric" class="form-control" style="width:6.5rem" placeholder="{{ r.on_hand if r.tracked else '' }}"></label></div>
         {% endfor %}
       </div>
-    </div>
+      <button class="btn btn-lg btn-dark mt-3">Save counts</button>
+    </form>
+  </div>
+</div>
 
-    <div class="card">
-      <div class="card-header">Day-0 opening count <span class="small text-secondary fw-normal">— done by the install team; sets each product to the counted level</span></div>
-      <form method="post" action="/catalog/opening-count" class="card-body">
-        <div class="row g-2">
-          {% for r in table %}
-          <div class="col-md-6 col-xxl-4"><div class="input-group input-group-sm">
-            <span class="input-group-text flex-grow-1 text-truncate" style="max-width:75%">{{ r.name_en }}</span>
-            <input name="count_{{ r.id }}" type="number" min="0" class="form-control" placeholder="{{ r.on_hand }}"></div></div>
-          {% endfor %}
-        </div>
-        <button class="btn btn-sm btn-dark mt-2">Save counts</button>
-      </form>
+<div class="card mb-4">
+  <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
+    <div class="chips" id="cat-filters">
+      <button class="chip active" data-filter="all">All {{ products|length }}</button>
+      <button class="chip" data-filter="photos">Needs photos {{ need_photos|length }}</button>
+      {% for s in suppliers %}<button class="chip" data-filter="sup:{{ s.id }}">{{ s.emoji }} {{ s.name }}</button>{% endfor %}
+    </div>
+    <input type="search" class="form-control search" id="cat-search" placeholder="🔍 Find a product">
+  </div>
+  {% if not products %}
+  <div class="p-5 text-center">
+    <div class="fs-5 mb-2">No products yet.</div>
+    <a href="/catalog/new" class="btn btn-lg btn-dark">➕ Add your first product</a>
+  </div>
+  {% endif %}
+  <div id="cat-list">
+  {% for r in products %}
+  {% set pct = [100, (r.photos / min_photos * 100)|int]|min %}
+  <div class="product-row" data-name="{{ (r.name_en ~ ' ' ~ r.name_km)|lower }}" data-sup="{{ r.supplier_id }}" data-photos="{{ 1 if r.photos < min_photos else 0 }}">
+    {% if r.thumb %}<img class="thumb-lg" src="/media/{{ r.thumb }}" alt="">{% else %}<div class="ph" title="no photos yet">📷</div>{% endif %}
+    <div class="flex-grow-1" style="min-width:12rem">
+      <a href="/catalog/{{ r.id }}" class="name text-decoration-none text-reset">{{ r.name_en }}</a>
+      {% if r.is_critical %}<span class="pill bg-dark text-white">must-have</span>{% endif %}
+      <div class="km small muted">{{ r.name_km if r.name_km != r.name_en }}</div>
+      <div class="meta">{{ r.emoji or '' }} {{ r.supplier_name or 'no supplier' }} · case of {{ r.case_size }} · ${{ '%.2f'|format(r.unit_cost) }} each ·
+        {% if not r.tracked %}<span class="text-warning-emphasis">not counted yet</span>{% elif r.on_hand < 0 %}<span class="text-danger">count is off — recount</span>{% else %}{{ r.on_hand }} on the shelf{% endif %}</div>
+    </div>
+    <div class="progress-photos">
+      <div class="bar"><span style="width:{{ pct }}%;background:{{ 'var(--ok)' if r.photos >= min_photos else ('var(--warn)' if r.photos else 'var(--bad)') }}"></span></div>
+      <div class="t {{ 'text-success' if r.photos >= min_photos }}">{% if r.photos >= min_photos %}✓ {{ r.photos }} photos{% else %}{{ r.photos }} / {{ min_photos }} photos{% endif %}</div>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="/catalog/{{ r.id }}#photos" class="btn {{ 'btn-primary' if r.photos < min_photos else 'btn-outline-primary' }}">📷 Photos</a>
+      <a href="/catalog/{{ r.id }}" class="btn btn-outline-secondary">Edit</a>
     </div>
   </div>
+  {% endfor %}
+  </div>
+  <div id="cat-empty" class="p-4 text-center muted d-none">No products match.</div>
+</div>
 
-  <div class="col-xl-4">
-    <div class="card mb-3">
-      <div class="card-header">Add a product</div>
-      <form method="post" action="/catalog/products" class="card-body row g-2">
-        <div class="col-6"><input name="sku" class="form-control form-control-sm" placeholder="sku, e.g. fanta-330" required></div>
-        <div class="col-6"><input name="barcode" class="form-control form-control-sm" placeholder="barcode (optional)"></div>
-        <div class="col-12"><input name="name_en" class="form-control form-control-sm" placeholder="English name, with size" required></div>
-        <div class="col-12"><input name="name_km" class="form-control form-control-sm km" placeholder="ឈ្មោះខ្មែរ" required></div>
-        <div class="col-4"><input name="unit" class="form-control form-control-sm" placeholder="unit" value="piece"></div>
-        <div class="col-4"><input name="case_size" type="number" min="1" class="form-control form-control-sm" placeholder="per case" value="24"></div>
-        <div class="col-4"><input name="unit_cost" type="number" step="0.01" min="0" class="form-control form-control-sm" placeholder="cost $"></div>
-        <div class="col-8"><select name="supplier_id" class="form-select form-select-sm">
-          {% for s in suppliers %}<option value="{{ s.id }}">{{ s.emoji }} {{ s.name }}</option>{% endfor %}</select></div>
-        <div class="col-4"><input name="shelf_life_days" type="number" min="1" class="form-control form-control-sm" placeholder="shelf life d"></div>
-        <div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" name="is_critical" value="true" id="crit">
-          <label class="form-check-label small" for="crit">Critical (must never run out)</label></div>
-        <div class="col-12 d-grid"><button class="btn btn-sm btn-dark">Add product</button></div>
-      </form>
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header">🚚 Suppliers and their visit days <div class="sub">Order lists are sent the evening before each visit.</div></div>
+      <div class="card-body">
+        {% for s in suppliers %}
+        <form method="post" action="/catalog/suppliers/{{ s.id }}" class="row g-2 align-items-center mb-2">
+          <div class="col-sm-5"><div class="input-group"><span class="input-group-text">{{ s.emoji }}</span>
+            <input name="name" value="{{ s.name }}" class="form-control" aria-label="supplier name"></div></div>
+          <div class="col-6 col-sm-3"><select name="visit_weekday" class="form-select" aria-label="visit day">
+            {% for d in weekdays %}<option value="{{ loop.index0 }}" {% if loop.index0 == s.visit_weekday %}selected{% endif %}>{{ d }}</option>{% endfor %}</select></div>
+          <div class="col-4 col-sm-2"><div class="input-group"><span class="input-group-text">min $</span>
+            <input name="min_order" value="{{ '%g'|format(s.min_order) }}" type="number" min="0" step="any" class="form-control"></div></div>
+          <div class="col-2 col-sm-2 d-grid"><button class="btn btn-outline-dark">Save</button></div>
+        </form>
+        {% endfor %}
+        <hr>
+        <form method="post" action="/catalog/suppliers" class="row g-2 align-items-center">
+          <div class="col-sm-5"><input name="name" class="form-control" placeholder="New supplier, e.g. Fresh bread agent" required></div>
+          <div class="col-6 col-sm-3"><select name="visit_weekday" class="form-select">
+            {% for d in weekdays %}<option value="{{ loop.index0 }}">{{ d }}</option>{% endfor %}</select></div>
+          <div class="col-6 col-sm-4 d-grid"><button class="btn btn-dark">➕ Add supplier</button></div>
+        </form>
+      </div>
     </div>
-    <div class="card mb-3">
-      <div class="card-header">Add a multipack or case the camera will see</div>
-      <form method="post" action="/catalog/packs" class="card-body row g-2">
-        <div class="col-12"><select name="product_id" class="form-select form-select-sm">
-          {% for r in table %}<option value="{{ r.id }}">{{ r.name_en }}</option>{% endfor %}</select></div>
-        <div class="col-5"><input name="label" class="form-control form-control-sm" placeholder="6-pack" required></div>
-        <div class="col-3"><input name="units" type="number" min="2" class="form-control form-control-sm" placeholder="units" required></div>
-        <div class="col-4 d-grid"><button class="btn btn-sm btn-dark">Add pack</button></div>
-      </form>
-    </div>
-    <div class="card">
-      <div class="card-header">Names this shop uses <span class="small text-secondary fw-normal">— "Coca 330", "Coke" → one product</span></div>
-      <form method="post" action="/catalog/aliases" class="card-body row g-2 pb-2">
-        <div class="col-12"><select name="product_id" class="form-select form-select-sm">
-          {% for r in table %}<option value="{{ r.id }}">{{ r.name_en }}</option>{% endfor %}</select></div>
-        <div class="col-8"><input name="alias" class="form-control form-control-sm" placeholder="name as written" required></div>
-        <div class="col-4 d-grid"><button class="btn btn-sm btn-dark">Add</button></div>
-      </form>
-      <ul class="list-group list-group-flush small">
-        {% for a in aliases %}<li class="list-group-item py-1">“{{ a.alias_norm }}” → {{ a.name_en }} <span class="text-secondary">({{ a.source }})</span></li>
-        {% else %}<li class="list-group-item py-1 text-secondary">Aliases learned from confirmed invoices appear here.</li>{% endfor %}
-      </ul>
+  </div>
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header">🙈 Things the camera should ignore <div class="sub">Take a few photos of each so they never count as sales.</div></div>
+      <div class="card-body d-flex flex-wrap gap-2">
+        {% for label in ignore_labels %}
+        <a href="/catalog/enroll?ignore={{ label }}" class="btn {{ 'btn-outline-success' if ignore.get(label, 0) >= 3 else 'btn-outline-secondary' }}">
+          {{ {'phone': '📱', 'cash': '💵', 'calculator': '🧮', 'plastic_bag': '🛍️', 'hand': '✋', 'other': '❔'}[label] }}
+          {{ label.replace('_', ' ') }} · {{ ignore.get(label, 0) }}</a>
+        {% endfor %}
+      </div>
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const rows = [...document.querySelectorAll("#cat-list .product-row")];
+  const search = document.getElementById("cat-search");
+  let filter = "all";
+  function apply() {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    for (const r of rows) {
+      const okFilter = filter === "all" || (filter === "photos" && r.dataset.photos === "1")
+        || (filter.startsWith("sup:") && r.dataset.sup === filter.slice(4));
+      const ok = okFilter && (!q || r.dataset.name.includes(q));
+      r.classList.toggle("d-none", !ok);
+      shown += ok;
+    }
+    document.getElementById("cat-empty").classList.toggle("d-none", shown > 0 || !rows.length);
+  }
+  document.querySelectorAll("#cat-filters .chip").forEach((c) => c.onclick = () => {
+    filter = c.dataset.filter;
+    document.querySelectorAll("#cat-filters .chip").forEach((x) => x.classList.toggle("active", x === c));
+    apply();
+  });
+  search.oninput = apply;
+})();
+</script>
 {% endblock %}

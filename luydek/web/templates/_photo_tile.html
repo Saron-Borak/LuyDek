@@ -1,0 +1,7 @@
+{# One gallery photo with a two-tap delete button and a select box. Needs static/photos.js. #}
+<div class="photo-tile" data-gid="{{ g.id }}">
+  {% if bulk_form %}<input type="checkbox" class="form-check-input pick" name="gid" value="{{ g.id }}" form="{{ bulk_form }}" aria-label="Select this photo">{% endif %}
+  <img src="/media/{{ g.crop_path }}" alt="product photo" loading="lazy">
+  <button type="button" class="del" title="Delete this photo" aria-label="Delete this photo">🗑</button>
+  <div class="tag">{{ 'taught by owner' if g.source == 'correction' else g.created_at[5:16] }}</div>
+</div>

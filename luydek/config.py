@@ -70,6 +70,12 @@ class ForecastCfg(BaseModel):
     observe_until: str | None = None
 
 
+class TelegramCfg(BaseModel):
+    # Only one server may poll a bot token. A second copy (the synthetic demo
+    # shop next to the real one) must turn this off.
+    enabled: bool = True
+
+
 class InvoicesCfg(BaseModel):
     model: str = "claude-opus-5"
     max_long_edge: int = 1568
@@ -83,6 +89,7 @@ class Config(BaseModel):
     verification: VerificationCfg = Field(default_factory=VerificationCfg)
     forecast: ForecastCfg = Field(default_factory=ForecastCfg)
     invoices: InvoicesCfg = Field(default_factory=InvoicesCfg)
+    telegram: TelegramCfg = Field(default_factory=TelegramCfg)
     root: Path = ROOT
 
     def resolve(self, relative: str) -> Path:
@@ -109,6 +116,8 @@ class Config(BaseModel):
 
     @property
     def telegram_token(self) -> str | None:
+        if not self.telegram.enabled:
+            return None
         return os.environ.get("TELEGRAM_BOT_TOKEN") or None
 
     @property

@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}{{ p.name_en }}{% endblock %}
+{% block content %}
+{% set total_photos = photos.values()|map('length')|sum %}
+<div class="mb-2"><a href="/catalog" class="text-decoration-none">← Catalog</a></div>
+<div class="page-head">
+  <div>
+    <h1>{{ p.name_en }} {% if p.is_critical %}<span class="pill bg-dark text-white align-middle fs-6">must-have</span>{% endif %}</h1>
+    <div class="lead-line"><span class="km">{{ p.name_km if p.name_km != p.name_en }}</span>
+      {{ p.emoji or '' }} {{ p.supplier_name or 'no supplier' }} · case of {{ p.case_size }} · ${{ '%.2f'|format(p.unit_cost) }} per {{ p.unit }}</div>
+  </div>
+  <div class="stat {{ 'bad' if level is not none and level <= 0 else 'ok' }}" style="height:auto;min-width:12rem">
+    <div class="n">{% if level is none %}–{% elif level < 0 %}0{% else %}{{ level }}{% endif %}</div>
+    <div class="l">on the shelf</div>
+    <div class="h">{% if level is none %}not counted yet{% elif level < 0 %}count is off — recount below{% else %}{{ p.unit }}s{% endif %}</div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- photos -->
+  <div class="col-xl-7" id="photos">
+    {% for pk in packs %}
+    {% set pk_photos = photos.get(pk.id, []) %}
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>📷 {% if pk.units == 1 %}Photos of one {{ p.unit }}{% else %}Photos of the {{ pk.label }} ({{ pk.units }} {{ p.unit }}s){% endif %}
+          <div class="sub">{% if pk_photos|length >= min_photos %}✓ {{ pk_photos|length }} photos — the camera knows it{% else %}{{ pk_photos|length }} of {{ min_photos }} photos — take {{ min_photos - pk_photos|length }} more{% endif %}</div></div>
+        <a href="/catalog/enroll?pack_id={{ pk.id }}" class="btn {{ 'btn-primary' if pk_photos|length < min_photos else 'btn-outline-primary' }}">📷 Take photos</a>
+      </div>
+      <div class="card-body">
+        {% if pk_photos %}
+        <form id="bulk-{{ pk.id }}" method="post" action="/catalog/gallery/delete" onsubmit="return confirm('Delete the selected photos?')"></form>
+        <div class="photo-grid">
+          {% for g in pk_photos %}{% with bulk_form = 'bulk-' ~ pk.id %}{% include "_photo_tile.html" %}{% endwith %}{% endfor %}
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+          <span class="small muted">Tap 🗑 twice to delete a blurry or wrong photo, or tick several and delete them together.</span>
+          <button form="bulk-{{ pk.id }}" class="btn btn-danger d-none" data-bulk-delete>🗑 Delete selected</button>
+        </div>
+        {% else %}
+        <div class="text-center py-4">
+          <div class="fs-1">📷</div>
+          <div class="mb-3 muted">No photos yet. The camera can't recognise this {{ 'pack' if pk.units > 1 else p.unit }} until it has some.</div>
+          <a href="/catalog/enroll?pack_id={{ pk.id }}" class="btn btn-lg btn-primary">Take the first photos</a>
+        </div>
+        {% endif %}
+      </div>
+      {% if pk.units > 1 %}
+      <div class="card-footer bg-white d-flex justify-content-end">
+        <form method="post" action="/catalog/packs/{{ pk.id }}/delete" onsubmit='return confirm({{ ("Stop recognising the " ~ pk.label ~ "? Its photos are deleted too.")|tojson }})'>
+          <button class="btn btn-sm btn-outline-danger">Remove this pack</button></form>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <div class="card mb-3">
+      <div class="card-header">📦 Sold as a multipack too? <div class="sub">A shrink-wrapped 6-pack looks different from one can. Add it so a whole pack counts as 6.</div></div>
+      <form method="post" action="/catalog/{{ p.id }}/packs" class="card-body row g-2 align-items-end">
+        <div class="col-sm-5"><label class="form-label" for="pk-label">Name</label><input id="pk-label" name="label" class="form-control" placeholder="6-pack" required></div>
+        <div class="col-6 col-sm-3"><label class="form-label" for="pk-units">{{ p.unit|capitalize }}s inside</label><input id="pk-units" name="units" type="number" min="2" class="form-control" placeholder="6" required></div>
+        <div class="col-6 col-sm-4 d-grid"><button class="btn btn-dark">➕ Add pack</button></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- details, stock, names -->
+  <div class="col-xl-5">
+    <div class="card mb-3">
+      <div class="card-header">🔢 Stock</div>
+      <div class="card-body">
+        <form method="post" action="/catalog/{{ p.id }}/stock" class="d-flex gap-2 align-items-end flex-wrap">
+          <div><label class="form-label" for="counted">I counted</label>
+            <input id="counted" name="counted" type="number" min="0" inputmode="numeric" class="form-control form-control-lg" style="width:9rem" placeholder="{{ level if level is not none and level >= 0 else '' }}" required></div>
+          <button class="btn btn-lg btn-dark">Set stock</button>
+        </form>
+        {% if moves %}
+        <div class="small muted mt-3 mb-1">Latest changes</div>
+        <table class="table table-sm mb-0 small">
+          {% for m in moves %}
+          <tr><td class="muted text-nowrap">{{ m.created_at[5:16] }}</td>
+            <td>{{ {'sale': 'sold', 'delivery': 'delivered', 'freebie': 'free from supplier', 'adjustment': 'adjusted', 'opening': 'counted', 'spot_check': 'recounted'}.get(m.type, m.type) }}
+              {% if m.simulated %}<span class="pill bg-warning-subtle text-warning-emphasis">simulated</span>{% endif %}</td>
+            <td class="num fw-semibold {{ 'text-success' if m.qty > 0 else 'text-danger' }}">{{ '%+d'|format(m.qty) }}</td></tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header">✏️ Details</div>
+      <form method="post" action="/catalog/{{ p.id }}/edit" class="card-body row g-3">
+        <div class="col-12"><label class="form-label" for="e-en">Name in English</label>
+          <input id="e-en" name="name_en" value="{{ p.name_en }}" class="form-control" required></div>
+        <div class="col-12"><label class="form-label" for="e-km">Name in Khmer</label>
+          <input id="e-km" name="name_km" value="{{ p.name_km }}" class="form-control km"></div>
+        <div class="col-12"><label class="form-label" for="e-sup">Supplier</label>
+          <select id="e-sup" name="supplier_id" class="form-select">
+            {% for s in suppliers %}<option value="{{ s.id }}" {% if s.id == p.supplier_id %}selected{% endif %}>{{ s.emoji }} {{ s.name }}</option>{% endfor %}</select></div>
+        <div class="col-6"><label class="form-label" for="e-unit">Sold as a</label>
+          <input id="e-unit" name="unit" value="{{ p.unit }}" class="form-control"></div>
+        <div class="col-6"><label class="form-label" for="e-case">Per case</label>
+          <input id="e-case" name="case_size" type="number" min="1" value="{{ p.case_size }}" class="form-control"></div>
+        <div class="col-6"><label class="form-label" for="e-cost">Cost each ($)</label>
+          <input id="e-cost" name="unit_cost" type="number" min="0" step="0.01" value="{{ '%.2f'|format(p.unit_cost) }}" class="form-control"></div>
+        <div class="col-6"><label class="form-label" for="e-life">Keeps for (days)</label>
+          <input id="e-life" name="shelf_life_days" type="number" min="1" value="{{ p.shelf_life_days or '' }}" class="form-control"></div>
+        <div class="col-12"><label class="form-label" for="e-bar">Barcode</label>
+          <input id="e-bar" name="barcode" value="{{ packs[0].barcode or '' }}" class="form-control" inputmode="numeric"></div>
+        <div class="col-12"><div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch" name="is_critical" value="1" id="e-crit" {% if p.is_critical %}checked{% endif %}>
+          <label class="form-check-label" for="e-crit">Must never run out</label></div></div>
+        <div class="col-12 d-grid"><button class="btn btn-lg btn-dark">Save changes</button></div>
+      </form>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header">🏷️ Other names for it <div class="sub">How invoices and people write it. Invoices teach new ones automatically.</div></div>
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          {% for a in aliases %}
+          <span class="d-inline-flex align-items-center gap-1 border rounded-pill ps-3 pe-1 py-1 bg-white">
+            <span class="km">{{ a.alias_norm }}</span>
+            {% if a.source != 'catalog' %}
+            <form method="post" action="/catalog/aliases/{{ a.id }}/delete"><button class="btn btn-sm btn-light rounded-circle" style="width:30px;min-height:30px;padding:0" title="remove">×</button></form>
+            {% else %}<span class="pe-2"></span>{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+        <form method="post" action="/catalog/{{ p.id }}/aliases" class="d-flex gap-2">
+          <input name="alias" class="form-control" placeholder='e.g. "Coca 330" or "កូកា"' required>
+          <button class="btn btn-outline-dark text-nowrap">Add name</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card border-danger-subtle">
+      <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="muted small">No longer sold? Removing hides it from the catalog and order lists. Its sales history is kept.</span>
+        <form method="post" action="/catalog/{{ p.id }}/archive" onsubmit='return confirm({{ ("Remove " ~ p.name_en ~ " from the catalog?")|tojson }})'>
+          <button class="btn btn-outline-danger">Remove product</button></form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('photos.js') }}"></script>{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Add a product{% endblock %}
+{% block content %}
+<div class="mb-2"><a href="/catalog" class="text-decoration-none">← Catalog</a></div>
+<div class="page-head">
+  <div>
+    <h1>Add a product</h1>
+    <div class="lead-line">Three quick steps. Next you'll take {{ min_photos }} photos so the camera learns what it looks like.</div>
+  </div>
+</div>
+
+<form method="post" action="/catalog/products" class="steps" style="max-width:52rem">
+  <div class="card mb-3"><div class="card-body p-4">
+    <h2 class="h5 mb-3"><span class="step-n">1</span>What is it?</h2>
+    <div class="mb-3">
+      <label class="form-label" for="name_en">Name in English, with the size</label>
+      <input id="name_en" name="name_en" class="form-control form-control-lg" required autofocus placeholder="e.g. Fanta orange can 330ml">
+      <div class="form-text">Include the size or strength (330ml, 1.5L, 500mg). It's how look-alikes and invoice lines are told apart.</div>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="name_km">Name in Khmer <span class="muted fw-normal">(optional)</span></label>
+      <input id="name_km" name="name_km" class="form-control form-control-lg km" placeholder="ឧ. ហ្វាន់តា ក្រូច កំប៉ុង 330ml">
+      <div class="form-text">Shown to the owner in Telegram. If empty, the English name is used.</div>
+    </div>
+    <div>
+      <label class="form-label" for="barcode">Barcode <span class="muted fw-normal">(optional)</span></label>
+      <input id="barcode" name="barcode" class="form-control" inputmode="numeric" placeholder="Scan it or type the numbers under the bars">
+      <div class="form-text">When the camera can read the barcode, the sale is recorded with no check needed.</div>
+    </div>
+  </div></div>
+
+  <div class="card mb-3"><div class="card-body p-4">
+    <h2 class="h5 mb-3"><span class="step-n">2</span>Who brings it, and how?</h2>
+    <div class="row g-3">
+      <div class="col-md-7">
+        <label class="form-label" for="supplier_id">Supplier (agent)</label>
+        <select id="supplier_id" name="supplier_id" class="form-select form-select-lg">
+          {% for s in suppliers %}<option value="{{ s.id }}">{{ s.emoji }} {{ s.name }} — visits {{ weekdays[s.visit_weekday] }}</option>{% endfor %}
+          <option value="">➕ A new supplier…</option>
+        </select>
+        <div id="new-supplier" class="row g-2 mt-1 d-none">
+          <div class="col-7"><input name="new_supplier" class="form-control" placeholder="Supplier name"></div>
+          <div class="col-5"><select name="new_supplier_day" class="form-select" aria-label="visit day">
+            {% for d in weekdays %}<option value="{{ loop.index0 }}">visits {{ d }}</option>{% endfor %}</select></div>
+        </div>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label" for="unit">Sold one at a time as a</label>
+        <select id="unit" name="unit" class="form-select form-select-lg">
+          {% for u in ('can', 'bottle', 'box', 'pack', 'bag', 'tin', 'sachet', 'tube', 'strip', 'piece') %}<option>{{ u }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-4">
+        <label class="form-label" for="case_size">How many in a case?</label>
+        <input id="case_size" name="case_size" type="number" min="1" value="24" class="form-control form-control-lg" inputmode="numeric">
+        <div class="form-text">The agent's case or carton.</div>
+      </div>
+      <div class="col-6 col-md-4">
+        <label class="form-label" for="unit_cost">Cost of <span class="unit-name">one can</span></label>
+        <div class="input-group input-group-lg"><span class="input-group-text">$</span>
+          <input id="unit_cost" name="unit_cost" type="number" min="0" step="0.01" class="form-control" inputmode="decimal" placeholder="0.40"></div>
+        <div class="form-text">What you pay, not the shelf price.</div>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="shelf_life_days">Keeps for <span class="muted fw-normal">(days, optional)</span></label>
+        <input id="shelf_life_days" name="shelf_life_days" type="number" min="1" class="form-control form-control-lg" placeholder="e.g. 270">
+        <div class="form-text">Stops ordering more than sells before it expires.</div>
+      </div>
+      <div class="col-12">
+        <div class="form-check form-switch fs-6">
+          <input class="form-check-input" type="checkbox" role="switch" name="is_critical" value="1" id="crit">
+          <label class="form-check-label" for="crit"><b>Must never run out</b> — e.g. baby formula, children's medicine. Keeps a bigger safety stock.</label>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="card mb-3"><div class="card-body p-4">
+    <h2 class="h5 mb-3"><span class="step-n">3</span>How many are on the shelf now?</h2>
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+      <input name="starting_stock" type="number" min="0" class="form-control form-control-lg" style="max-width:10rem" inputmode="numeric" placeholder="count">
+      <span class="muted">Count them now, including the storeroom. Leave empty to count later.</span>
+    </div>
+  </div></div>
+
+  <div class="d-flex gap-2 flex-wrap mb-5">
+    <button class="btn btn-xl btn-primary" name="then" value="photos">Save and take photos →</button>
+    <button class="btn btn-xl btn-outline-dark" name="then" value="another">Save and add another</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const sup = document.getElementById("supplier_id");
+  const unit = document.getElementById("unit");
+  sup.onchange = () => document.getElementById("new-supplier").classList.toggle("d-none", sup.value !== "");
+  unit.onchange = () => document.querySelectorAll(".unit-name").forEach((e) => e.textContent = "one " + unit.value);
+</script>
+{% endblock %}

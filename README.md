@@ -42,18 +42,34 @@ prefer a USB webcam or Iriun Webcam on the laptop.
 Verifiers (owner, family, staff) join by sending the bot `/start 2468` (the PIN is in
 `configs/config.yaml`). `/lang` switches between Khmer and English.
 
-## Enrolling real products
+## Adding your products
 
 1. Put a **plain, matte, dark or saturated mat** under the camera. White pharmacy boxes on a pale
-   mat differ only in brightness, which is the hardest case for segmentation.
+   mat differ only in brightness, the hardest case for spotting items.
 2. `/counter` → clear the mat → **Calibrate empty counter**.
-3. `/catalog` → edit products to match what you bought (or edit `data/seed_catalog.yaml` and re-seed)
-   → click each product's pack → **Snap** 5–10 times, turning the item a little each time. Also
-   enroll the things that sit on counters: phone, cash, calculator, plastic bag.
-4. `.venv/Scripts/python.exe scripts/calibrate.py` runs leave-one-out over your photos. It prints
+3. `/catalog` → **➕ Add product**. Three short steps: the name (with its size), who supplies it and
+   what it costs, and how many are on the shelf now. No SKU to invent.
+4. **Save and take photos** opens the camera page. Put the item on the mat and press the red
+   button 5 times, turning it a little each time. The progress bar turns green at 5 and a
+   **Done ✓** button appears.
+5. Also enroll the things that sit on counters (`/catalog` → *Things the camera should ignore*):
+   phone, cash, calculator, plastic bag.
+6. `.venv/Scripts/python.exe scripts/calibrate.py` runs leave-one-out over your photos. It prints
    top-1 accuracy, which products get confused, and the `t_high` / `m_high` / `t_low` values to
    paste into `configs/config.yaml`. **These are the accuracy numbers to quote**: real, from your
    own products, and slightly optimistic because the enrollment photos come from a single session.
+
+Each product has its own page (click it in the catalog or the stock table):
+- **Photos:** 🗑 on each photo deletes it after a second tap, or tick several and delete them
+  together.
+- **Details:** edit name, supplier, cost, case size and shelf life.
+- **Stock:** "I counted N" sets the level, with the latest changes listed underneath.
+- **Multipacks:** a 6-pack the camera should count as 6.
+- **Other names:** "Coca 330", "កូកា" and so on.
+- **Remove product:** hides it. Its history is kept.
+
+**🔢 Count stock** on the catalog page counts the whole shop at once (install day, monthly
+recount). Suppliers and their visit days are edited at the bottom of the same page.
 
 ## Demo script
 
@@ -72,7 +88,8 @@ Verifiers (owner, family, staff) join by sending the bot `/start 2468` (the PIN 
 **Backups.**
 - `scripts/synthetic_demo.py` builds a separate synthetic shop (painted look-alike products already
   enrolled, calibrated mat, history). Run it with
-  `python -m luydek --config configs/synthetic.yaml --port 8010`. It never touches `data/luydek.db`.
+  `python -m luydek --config configs/synthetic.yaml --port 8010`. It never touches `data/luydek.db`,
+  and its Telegram bot is off, so it can run next to the real shop without fighting over the bot.
 - The **Upload a photo** box on `/counter` (and `scripts/sale_from_photo.py`) treats one photo as
   one sale.
 - The dashboard's review queue does everything the Telegram digest does.
@@ -125,7 +142,7 @@ scripts/        seed_demo · simulate_history · calibrate · synthetic_demo · 
 configs/        config.yaml (thresholds, digest times, forecast rules) · synthetic.yaml
 ```
 
-`.venv/Scripts/python.exe -m pytest` runs 63 tests covering the ledger, forecast math, recognition,
+`.venv/Scripts/python.exe -m pytest` runs 74 tests covering the ledger, forecast math, recognition,
 transactions, invoices (mocked Claude), bot flows (fake Telegram) and the web app. The tests use a
 colour-histogram encoder, so they don't need CLIP.
 

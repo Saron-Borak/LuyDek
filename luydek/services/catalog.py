@@ -210,6 +210,127 @@ def add_pack(conn: sqlite3.Connection, product_id: int, label: str, units: int, 
     return cur.lastrowid
 
 
+def unique_sku(conn: sqlite3.Connection, name: str) -> str:
+    """A readable sku from the English name ("Fanta can 330ml" -> "fanta-can-330ml")."""
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40] or "product"
+    sku, n = base, 2
+    while conn.execute("SELECT 1 FROM products WHERE sku = ?", (sku,)).fetchone():
+        sku, n = f"{base}-{n}", n + 1
+    return sku
+
+
+def update_product(conn: sqlite3.Connection, product_id: int, **fields) -> None:
+    allowed = {"name_en", "name_km", "unit", "case_size", "supplier_id", "is_critical", "shelf_life_days", "unit_cost"}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if sets:
+        conn.execute(
+            f"UPDATE products SET {', '.join(f'{k} = ?' for k in sets)} WHERE id = ?",
+            (*sets.values(), product_id),
+        )
+    for key in ("name_en", "name_km"):
+        if fields.get(key):
+            add_alias(conn, product_id, fields[key], "catalog")
+    if "barcode" in fields:
+        conn.execute(
+            "UPDATE product_packs SET barcode = ? WHERE id = ?",
+            (fields["barcode"] or None, default_pack_id(conn, product_id)),
+        )
+
+
+def archive_product(conn: sqlite3.Connection, product_id: int) -> None:
+    """Hide a product from the catalog, pickers and forecasts. Its history stays."""
+    conn.execute("UPDATE products SET active = 0 WHERE id = ?", (product_id,))
+
+
+def delete_pack(conn: sqlite3.Connection, pack_id: int) -> bool:
+    """Remove a multipack the camera no longer needs to know. False if sales already used it."""
+    pk = conn.execute("SELECT units FROM product_packs WHERE id = ?", (pack_id,)).fetchone()
+    used = conn.execute("SELECT 1 FROM transaction_items WHERE pack_id = ? OR guess_pack_id = ? LIMIT 1",
+                        (pack_id, pack_id)).fetchone()
+    if pk is None or pk["units"] == 1 or used:
+        return False
+    conn.execute("DELETE FROM gallery_images WHERE pack_id = ?", (pack_id,))
+    conn.execute("DELETE FROM product_packs WHERE id = ?", (pack_id,))
+    return True
+
+
+def delete_alias(conn: sqlite3.Connection, alias_id: int) -> None:
+    conn.execute("DELETE FROM product_aliases WHERE id = ? AND source != 'catalog'", (alias_id,))
+
+
+def aliases(conn: sqlite3.Connection, product_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM product_aliases WHERE product_id = ? ORDER BY source = 'catalog', id DESC", (product_id,)
+    ).fetchall()
+
+
+def add_supplier(conn: sqlite3.Connection, name: str, visit_weekday: int, *, emoji: str = "🚚",
+                 min_order: float = 0, contact: str | None = None) -> int:
+    cur = conn.execute(
+        "INSERT INTO suppliers (name, emoji, visit_weekday, min_order, contact) VALUES (?, ?, ?, ?, ?)",
+        (name.strip(), emoji or "🚚", visit_weekday, min_order, contact or None),
+    )
+    return cur.lastrowid
+
+
+def update_supplier(conn: sqlite3.Connection, supplier_id: int, **fields) -> None:
+    allowed = {"name", "emoji", "visit_weekday", "min_order", "contact"}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if sets:
+        conn.execute(f"UPDATE suppliers SET {', '.join(f'{k} = ?' for k in sets)} WHERE id = ?",
+                     (*sets.values(), supplier_id))
+
+
+# --- gallery -----------------------------------------------------------------
+
+def catalog_rows(conn: sqlite3.Connection) -> list[dict]:
+    """Every active product with its stock, photo count and a thumbnail, for the catalog list."""
+    rows = conn.execute(
+        """
+        SELECT p.*, s.name AS supplier_name, s.emoji,
+               COALESCE(m.on_hand, 0) AS on_hand, m.product_id IS NOT NULL AS tracked,
+               COALESCE(g.photos, 0) AS photos, g.thumb,
+               (SELECT COUNT(*) FROM product_packs pk WHERE pk.product_id = p.id) AS packs
+        FROM products p
+        LEFT JOIN suppliers s ON s.id = p.supplier_id
+        LEFT JOIN (SELECT product_id, SUM(qty) AS on_hand FROM stock_movements GROUP BY product_id) m
+               ON m.product_id = p.id
+        LEFT JOIN (
+            -- SQLite takes the bare crop_path from the MIN(g.id) row: the first photo.
+            SELECT pk.product_id, COUNT(*) AS photos, g.crop_path AS thumb, MIN(g.id)
+            FROM gallery_images g JOIN product_packs pk ON pk.id = g.pack_id
+            GROUP BY pk.product_id
+        ) g ON g.product_id = p.id
+        WHERE p.active = 1
+        ORDER BY p.name_en
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def gallery(conn: sqlite3.Connection, product_id: int) -> dict[int, list[sqlite3.Row]]:
+    """Gallery photos of each of the product's packs, newest first."""
+    out: dict[int, list[sqlite3.Row]] = {}
+    for r in conn.execute(
+        """
+        SELECT g.id, g.pack_id, g.crop_path, g.source, g.created_at FROM gallery_images g
+        JOIN product_packs pk ON pk.id = g.pack_id WHERE pk.product_id = ? ORDER BY g.id DESC
+        """,
+        (product_id,),
+    ):
+        out.setdefault(r["pack_id"], []).append(r)
+    return out
+
+
+def delete_gallery_image(conn: sqlite3.Connection, media_dir: Path, gallery_id: int) -> bool:
+    row = conn.execute("SELECT crop_path FROM gallery_images WHERE id = ?", (gallery_id,)).fetchone()
+    if row is None:
+        return False
+    (media_dir / row["crop_path"]).unlink(missing_ok=True)
+    conn.execute("DELETE FROM gallery_images WHERE id = ?", (gallery_id,))
+    return True
+
+
 def load_seed(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
     """Load suppliers and products from the seed YAML. Returns sku -> product id."""
     data = yaml.safe_load(path.read_text(encoding="utf-8"))

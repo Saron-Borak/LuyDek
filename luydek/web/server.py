@@ -31,6 +31,23 @@ from ..services import catalog, forecast, invoices, metrics, stock, transactions
 log = logging.getLogger("luydek.web")
 HERE = Path(__file__).parent
 IGNORE_LABELS = ("phone", "cash", "calculator", "plastic_bag", "hand", "other")
+MIN_PHOTOS = 5  # enrollment photos per pack before recognition is dependable
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def _int(value) -> int | None:
+    """A form number that may be blank."""
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+def _float(value) -> float | None:
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 @asynccontextmanager
@@ -69,7 +86,14 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     app.mount("/media", StaticFiles(directory=cfg.media_dir), name="media")
     templates = Jinja2Templates(directory=HERE / "templates")
-    templates.env.globals.update(pack_label=catalog.pack_label, display_name=catalog.display_name, t=t)
+    def asset(path: str) -> str:
+        """A static URL that changes whenever the file does, so browsers never keep stale CSS/JS."""
+        try:
+            return f"/static/{path}?v={int((HERE / 'static' / path).stat().st_mtime)}"
+        except OSError:
+            return f"/static/{path}"
+
+    templates.env.globals.update(pack_label=catalog.pack_label, display_name=catalog.display_name, t=t, asset=asset)
 
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
         with db.session(cfg) as conn:
@@ -105,10 +129,31 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             plans = forecast.build_plans(conn, cfg.forecast)
             packs = catalog.packs(conn)
             users = conn.execute("SELECT COUNT(*) FROM bot_users").fetchone()[0]
-        sleeping = sum(p.sleeping_value for p in plans)
+        sleeping = round(sum(p.sleeping_value for p in plans), 2)
+        table.sort(key=lambda r: r["urgency"])
+
+        # "Needs attention", in the owner's words rather than as table flags.
+        next_visit = {p.supplier_id: p for p in plans}
+        attention = {
+            "out": [r for r in table if r["status"] == "out"],
+            "low": [r for r in table if r["status"] == "low"],
+            "expiring": sorted((r for r in table if r["expiring"]), key=lambda r: r["expiry"]),
+            "sleeping": sorted((l for p in plans for l in p.of("sleeping")), key=lambda l: -l.value),
+        }
+        visits = sorted(plans, key=lambda p: (p.visit_date, p.name))
+
+        summary = [f"{today['txns']} sale{'s' if today['txns'] != 1 else ''} recorded today"]
+        if pending:
+            summary.append(f"{len(pending)} item{'s' if len(pending) != 1 else ''} waiting for your check")
+        if attention["out"]:
+            summary.append(f"{len(attention['out'])} out of stock")
+        if attention["low"]:
+            summary.append(f"{len(attention['low'])} running low")
         return page(request, "dashboard.html", table=table, pending=pending, pending_cands=pending_cands,
                     recent=recent, today=today, trend=trend, taps=taps, follow=follow, sleeping=sleeping,
-                    packs=packs, users=users, reasons=list(stock.ADJUST_REASONS))
+                    packs=packs, users=users, reasons=list(stock.ADJUST_REASONS), attention=attention,
+                    visits=visits, next_visit=next_visit, summary=summary, now=clock.now(),
+                    suppliers=sorted({(r["supplier_name"] or "") for r in table}))
 
     @app.post("/items/{item_id}/resolve")
     async def resolve_item(request: Request, item_id: int, action: str = Form(...),
@@ -239,23 +284,57 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     # --- catalog & enrollment ---------------------------------------------------------------
 
+    def _product(conn, product_id: int):
+        row = conn.execute(
+            "SELECT p.*, s.name AS supplier_name, s.emoji FROM products p "
+            "LEFT JOIN suppliers s ON s.id = p.supplier_id WHERE p.id = ? AND p.active = 1", (product_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "No such product")
+        return row
+
     @app.get("/catalog", response_class=HTMLResponse)
     def catalog_page(request: Request):
         with db.session(cfg) as conn:
-            table = stock.stock_table(conn)
-            packs = catalog.packs(conn)
+            products = catalog.catalog_rows(conn)
             suppliers = catalog.suppliers(conn)
-            aliases = conn.execute(
-                "SELECT a.*, p.name_en FROM product_aliases a JOIN products p ON p.id = a.product_id "
-                "WHERE a.source != 'catalog' ORDER BY a.id DESC LIMIT 30").fetchall()
-            ignore = conn.execute(
+            ignore = {r["ignore_label"]: r["n"] for r in conn.execute(
                 "SELECT ignore_label, COUNT(*) AS n FROM gallery_images WHERE ignore_label IS NOT NULL "
-                "GROUP BY ignore_label").fetchall()
-        packs_by_product: dict[int, list] = {}
-        for pk in packs:
-            packs_by_product.setdefault(pk["product_id"], []).append(pk)
-        return page(request, "catalog.html", table=table, packs_by_product=packs_by_product, suppliers=suppliers,
-                    aliases=aliases, ignore={r["ignore_label"]: r["n"] for r in ignore}, ignore_labels=IGNORE_LABELS)
+                "GROUP BY ignore_label")}
+        return page(request, "catalog.html", products=products, suppliers=suppliers, ignore=ignore,
+                    ignore_labels=IGNORE_LABELS, min_photos=MIN_PHOTOS, weekdays=WEEKDAYS)
+
+    @app.get("/catalog/new", response_class=HTMLResponse)
+    def new_product_page(request: Request):
+        with db.session(cfg) as conn:
+            suppliers = catalog.suppliers(conn)
+        return page(request, "product_new.html", suppliers=suppliers, weekdays=WEEKDAYS, min_photos=MIN_PHOTOS)
+
+    @app.post("/catalog/products")
+    async def add_product(request: Request):
+        f = await request.form()
+        name_en = str(f.get("name_en", "")).strip()
+        if not name_en:
+            return back(request, "Give the product a name")
+        with db.session(cfg) as conn:
+            supplier_id = _int(f.get("supplier_id"))
+            if str(f.get("new_supplier", "")).strip():
+                supplier_id = catalog.add_supplier(conn, str(f["new_supplier"]), _int(f.get("new_supplier_day")) or 0)
+            product_id = catalog.add_product(
+                conn, sku=catalog.unique_sku(conn, name_en), name_en=name_en,
+                name_km=str(f.get("name_km", "")).strip() or name_en, unit=str(f.get("unit") or "piece").strip(),
+                case_size=_int(f.get("case_size")) or 1, supplier_id=supplier_id,
+                is_critical=bool(f.get("is_critical")), shelf_life_days=_int(f.get("shelf_life_days")),
+                unit_cost=_float(f.get("unit_cost")) or 0.0, barcode=str(f.get("barcode", "")).strip() or None,
+            )
+            starting = _int(f.get("starting_stock"))
+            if starting is not None and starting >= 0:
+                stock.opening_count(conn, {product_id: starting})
+            pack_id = catalog.default_pack_id(conn, product_id)
+        if f.get("then") == "another":
+            return RedirectResponse("/catalog/new?msg=" + quote(f"Added {name_en}. Add the next one."), status_code=303)
+        return RedirectResponse(f"/catalog/enroll?pack_id={pack_id}&msg=" + quote(
+            f"Added {name_en}. Now take {MIN_PHOTOS} photos of it on the counter mat."), status_code=303)
 
     @app.get("/catalog/enroll", response_class=HTMLResponse)
     def enroll_page(request: Request, pack_id: int | None = None, ignore: str | None = None):
@@ -264,9 +343,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             photos = conn.execute(
                 "SELECT * FROM gallery_images WHERE " + ("pack_id = ?" if pk else "ignore_label = ?")
                 + " ORDER BY id DESC", (pack_id if pk else ignore,)).fetchall()
+            reference = db.get_setting(conn, pipeline.REFERENCE_KEY)
         if pk is None and ignore not in IGNORE_LABELS:
             raise HTTPException(404)
-        return page(request, "enroll.html", pk=pk, ignore=ignore, photos=photos)
+        return page(request, "enroll.html", pk=pk, ignore=ignore, photos=photos, min_photos=MIN_PHOTOS,
+                    calibrated=bool(reference))
 
     @app.post("/api/enroll")
     async def api_enroll(image: UploadFile = File(...), pack_id: int | None = Form(None),
@@ -290,43 +371,131 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
-    @app.post("/catalog/gallery/{gid}/delete")
-    def delete_gallery(request: Request, gid: int):
+    @app.get("/catalog/{product_id}", response_class=HTMLResponse)
+    def product_page(request: Request, product_id: int):
         with db.session(cfg) as conn:
-            row = conn.execute("SELECT crop_path FROM gallery_images WHERE id = ?", (gid,)).fetchone()
-            if row:
-                (cfg.media_dir / row["crop_path"]).unlink(missing_ok=True)
-                conn.execute("DELETE FROM gallery_images WHERE id = ?", (gid,))
-        return back(request)
+            product = _product(conn, product_id)
+            packs = conn.execute(
+                "SELECT pk.*, (SELECT COUNT(*) FROM gallery_images g WHERE g.pack_id = pk.id) AS photos "
+                "FROM product_packs pk WHERE pk.product_id = ? ORDER BY pk.units, pk.id", (product_id,)).fetchall()
+            photos = catalog.gallery(conn, product_id)
+            aliases = catalog.aliases(conn, product_id)
+            suppliers = catalog.suppliers(conn)
+            level = stock.on_hand(conn).get(product_id)
+            moves = conn.execute(
+                "SELECT * FROM stock_movements WHERE product_id = ? ORDER BY created_at DESC, id DESC LIMIT 8",
+                (product_id,)).fetchall()
+        return page(request, "product.html", p=product, packs=packs, photos=photos, aliases=aliases,
+                    suppliers=suppliers, level=level, moves=moves, min_photos=MIN_PHOTOS)
 
-    @app.post("/catalog/products")
-    def add_product(request: Request, sku: str = Form(...), name_en: str = Form(...), name_km: str = Form(...),
-                    unit: str = Form("piece"), case_size: int = Form(1), supplier_id: int | None = Form(None),
-                    is_critical: bool = Form(False), shelf_life_days: int | None = Form(None),
-                    unit_cost: float = Form(0.0), barcode: str | None = Form(None)):
+    @app.post("/catalog/{product_id}/edit")
+    async def edit_product(request: Request, product_id: int):
+        f = await request.form()
+        name_en = str(f.get("name_en", "")).strip()
+        if not name_en:
+            return back(request, "The product needs a name")
         with db.session(cfg) as conn:
-            catalog.add_product(conn, sku=sku.strip(), name_en=name_en.strip(), name_km=name_km.strip(), unit=unit,
-                                case_size=case_size, supplier_id=supplier_id, is_critical=is_critical,
-                                shelf_life_days=shelf_life_days, unit_cost=unit_cost, barcode=barcode or None)
-        return back(request, f"Added {name_en}")
+            _product(conn, product_id)
+            catalog.update_product(
+                conn, product_id, name_en=name_en, name_km=str(f.get("name_km", "")).strip() or name_en,
+                unit=str(f.get("unit") or "piece").strip(), case_size=_int(f.get("case_size")) or 1,
+                supplier_id=_int(f.get("supplier_id")), is_critical=int(bool(f.get("is_critical"))),
+                shelf_life_days=_int(f.get("shelf_life_days")), unit_cost=_float(f.get("unit_cost")) or 0.0,
+                barcode=str(f.get("barcode", "")).strip() or None,
+            )
+        return back(request, "Saved")
 
-    @app.post("/catalog/packs")
-    def add_pack(request: Request, product_id: int = Form(...), label: str = Form(...), units: int = Form(...),
-                 barcode: str | None = Form(None)):
+    @app.post("/catalog/{product_id}/stock")
+    def count_product(request: Request, product_id: int, counted: str = Form("")):
+        n = _int(counted)
+        if n is None or n < 0:
+            return back(request, "Enter how many are on the shelf")
         with db.session(cfg) as conn:
-            catalog.add_pack(conn, product_id, label, units, barcode or None)
-        return back(request, f"Added pack {label}")
+            stock.opening_count(conn, {product_id: n})
+        return back(request, f"Stock set to {n}")
 
-    @app.post("/catalog/aliases")
-    def add_alias(request: Request, product_id: int = Form(...), alias: str = Form(...)):
+    @app.post("/catalog/{product_id}/archive")
+    def archive_product(request: Request, product_id: int):
+        with db.session(cfg) as conn:
+            name = _product(conn, product_id)["name_en"]
+            catalog.archive_product(conn, product_id)
+        return RedirectResponse("/catalog?msg=" + quote(f"Removed {name} from the catalog (its history is kept)"),
+                                status_code=303)
+
+    @app.post("/catalog/{product_id}/packs")
+    def add_pack(request: Request, product_id: int, label: str = Form(""), units: str = Form(""),
+                 barcode: str = Form("")):
+        n = _int(units)
+        if not label.strip() or not n or n < 2:
+            return back(request, "A multipack needs a name and 2 or more units")
+        with db.session(cfg) as conn:
+            catalog.add_pack(conn, product_id, label.strip(), n, barcode.strip() or None)
+        return back(request, f"Added {label}. Take photos of it so the camera knows it.")
+
+    @app.post("/catalog/packs/{pack_id}/delete")
+    def delete_pack(request: Request, pack_id: int):
+        with db.session(cfg) as conn:
+            ok = catalog.delete_pack(conn, pack_id)
+        return back(request, "Pack removed" if ok else "This pack is already in recorded sales, so it stays")
+
+    @app.post("/catalog/{product_id}/aliases")
+    def add_alias(request: Request, product_id: int, alias: str = Form("")):
+        if not alias.strip():
+            return back(request)
         with db.session(cfg) as conn:
             catalog.add_alias(conn, product_id, alias, "owner")
-        return back(request, f"Alias '{alias}' added")
+        return back(request, f"'{alias}' now means this product")
+
+    @app.post("/catalog/aliases/{alias_id}/delete")
+    def delete_alias(request: Request, alias_id: int):
+        with db.session(cfg) as conn:
+            catalog.delete_alias(conn, alias_id)
+        return back(request)
+
+    @app.post("/api/gallery/{gid}/delete")
+    def api_delete_gallery(gid: int):
+        with db.session(cfg) as conn:
+            if not catalog.delete_gallery_image(conn, cfg.media_dir, gid):
+                raise HTTPException(404, "No such photo")
+        return {"deleted": gid}
+
+    @app.post("/catalog/gallery/delete")
+    async def delete_gallery_many(request: Request):
+        ids = [int(v) for v in (await request.form()).getlist("gid") if str(v).isdigit()]
+        with db.session(cfg) as conn:
+            n = sum(catalog.delete_gallery_image(conn, cfg.media_dir, gid) for gid in ids)
+        return back(request, f"Deleted {n} photo(s)")
+
+    @app.post("/catalog/suppliers")
+    async def add_supplier(request: Request):
+        f = await request.form()
+        name = str(f.get("name", "")).strip()
+        if not name:
+            return back(request, "Give the supplier a name")
+        with db.session(cfg) as conn:
+            catalog.add_supplier(conn, name, _int(f.get("visit_weekday")) or 0,
+                                 emoji=str(f.get("emoji") or "🚚"), min_order=_float(f.get("min_order")) or 0,
+                                 contact=str(f.get("contact", "")).strip() or None)
+        return back(request, f"Added supplier {name}")
+
+    @app.post("/catalog/suppliers/{supplier_id}")
+    async def edit_supplier(request: Request, supplier_id: int):
+        f = await request.form()
+        with db.session(cfg) as conn:
+            catalog.update_supplier(conn, supplier_id, name=str(f.get("name", "")).strip() or "Supplier",
+                                    visit_weekday=_int(f.get("visit_weekday")) or 0,
+                                    min_order=_float(f.get("min_order")) or 0,
+                                    contact=str(f.get("contact", "")).strip() or None)
+        return back(request, "Supplier saved")
 
     @app.post("/catalog/opening-count")
     async def opening_count(request: Request):
         form = await request.form()
-        counts = {int(k[6:]): int(v) for k, v in form.items() if k.startswith("count_") and str(v).strip() != ""}
+        counts = {}
+        for key, value in form.items():
+            n = _int(value)
+            if key.startswith("count_") and n is not None and n >= 0:
+                counts[int(key[6:])] = n
         with db.session(cfg) as conn:
             stock.opening_count(conn, counts)
         return back(request, f"Counted {len(counts)} product(s)")

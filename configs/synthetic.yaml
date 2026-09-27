@@ -7,6 +7,10 @@ shop:
   name: "Synthetic demo shop"
   pin: "2468"
 
+telegram:
+  # The real shop's server already polls the bot in .env; two pollers conflict.
+  enabled: false
+
 paths:
   db: data/synthetic/luydek.db
   media: data/synthetic/media
