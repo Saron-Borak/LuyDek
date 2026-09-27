@@ -1,0 +1,13 @@
+# A separate, fully SYNTHETIC shop: painted look-alike products already enrolled,
+# a calibrated mat and simulated history. Built by scripts/synthetic_demo.py.
+# Use it as a backup demo or to try the pipeline before real products are enrolled:
+#   python -m luydek --config configs/synthetic.yaml --port 8010
+
+shop:
+  name: "Synthetic demo shop"
+  pin: "2468"
+
+paths:
+  db: data/synthetic/luydek.db
+  media: data/synthetic/media
+  seed_catalog: data/seed_catalog.yaml

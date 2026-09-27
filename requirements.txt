@@ -1,0 +1,27 @@
+# Recognition. The PyPI torch wheel is CPU-only on Windows, which is what this
+# runs on; CLIP ViT-B/32 embeds one product crop in ~50 ms on CPU.
+torch>=2.6
+torchvision>=0.21
+transformers>=4.49
+pillow>=11.0
+numpy>=2.0
+opencv-python-headless>=4.10
+zxing-cpp>=2.2
+
+# Web app + bot.
+fastapi>=0.115
+uvicorn[standard]>=0.34
+python-multipart>=0.0.20
+jinja2>=3.1
+python-telegram-bot[job-queue]>=21.0
+python-dotenv>=1.0
+pyyaml>=6.0
+tzdata>=2024.1
+
+# Invoice extraction (Claude vision).
+anthropic>=0.60
+pydantic>=2.8
+
+# Tests.
+pytest>=8.3
+httpx>=0.28

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Invoice #{{ inv.id }}{% endblock %}
+{% block content %}
+<div class="mb-3"><a href="/invoices">← Invoices</a></div>
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header">Invoice #{{ inv.id }} · {{ inv.received_at }} · <span class="pill status-{{ 'confirmed' if inv.status == 'confirmed' else 'pending' }}">{{ inv.status }}</span></div>
+      <div class="card-body">
+        {% if inv.photo_path %}<a href="/media/{{ inv.photo_path }}" target="_blank"><img src="/media/{{ inv.photo_path }}" class="img-fluid rounded border"></a>
+        {% else %}<p class="text-secondary">Entered by hand ({{ inv.source }}).</p>{% endif %}
+        {% if inv.error %}<div class="alert alert-warning small mt-2 mb-0">{{ 'No ANTHROPIC_API_KEY in .env.' if inv.error == 'no_key' else inv.error }}</div>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <form method="post" action="/invoices/{{ inv.id }}/supplier" class="d-flex gap-2 align-items-center">
+          <span>From</span>
+          <select name="supplier_id" class="form-select form-select-sm" onchange="this.form.submit()" {% if inv.status == 'confirmed' %}disabled{% endif %}>
+            {% if not inv.supplier_id %}<option value="">? {{ inv.supplier_name_raw or '' }}</option>{% endif %}
+            {% for s in suppliers %}<option value="{{ s.id }}" {% if s.id == inv.supplier_id %}selected{% endif %}>{{ s.emoji }} {{ s.name }}</option>{% endfor %}
+          </select>
+        </form>
+        {% if extracted and extracted.invoice_date %}<span class="small text-secondary">dated {{ extracted.invoice_date }} · {{ extracted.currency or '' }}</span>{% endif %}
+      </div>
+      <div class="table-responsive">
+      <table class="table table-sm mb-0 align-middle">
+        <thead class="table-light"><tr><th>As written</th><th>Product</th><th class="num">Qty</th><th class="num">= units</th><th class="num">Cost</th><th>Expiry</th></tr></thead>
+        {% for l in lines %}
+        <tr class="{% if l.skipped %}text-decoration-line-through text-secondary{% endif %}">
+          <td>{% if l.is_free %}🎁 {% endif %}<span class="km">{{ l.text_as_written }}</span>
+            {% if l.matched_by %}<div class="small text-secondary">matched by {{ l.matched_by }}</div>{% endif %}</td>
+          <td style="min-width:14rem">
+            {% if inv.status == 'confirmed' %}{{ l.name_en or '—' }}
+            {% else %}
+            <form method="post" action="/invoices/{{ inv.id }}/lines/{{ l.id }}">
+              <select name="product_id" class="form-select form-select-sm {% if not l.product_id and not l.skipped %}border-danger{% endif %}" onchange="this.form.submit()">
+                {% if not l.product_id %}<option value="">❓ which product?</option>{% endif %}
+                {% for pid in suggestions.get(l.id, []) %}{% for p in products if p.id == pid %}<option value="{{ p.id }}">★ {{ p.name_en }}</option>{% endfor %}{% endfor %}
+                {% for p in products %}<option value="{{ p.id }}" {% if p.id == l.product_id %}selected{% endif %}>{{ p.name_en }}</option>{% endfor %}
+                <option value="skip" {% if l.skipped %}selected{% endif %}>⏭ skip this line</option>
+              </select>
+            </form>
+            {% endif %}
+          </td>
+          <td class="num text-nowrap">{{ '%g'|format(l.qty) }} {{ l.unit }}</td>
+          <td class="num fw-semibold">{{ '+%d'|format(l.units_total) if l.units_total else '' }}</td>
+          <td class="num">{{ '$%.2f'|format(l.unit_cost) if l.unit_cost is not none else '' }}</td>
+          <td class="small">{{ l.expiry_date or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-secondary p-3">No lines{% if inv.status == 'queued' %} yet — waiting for a connection{% endif %}.</td></tr>
+        {% endfor %}
+      </table>
+      </div>
+      <div class="card-body d-flex gap-2 flex-wrap">
+        {% if inv.status in ('extracted', 'queued', 'failed') and lines %}
+        <form method="post" action="/invoices/{{ inv.id }}/confirm"><button class="btn btn-success">✅ Correct — add to stock</button></form>
+        <form method="post" action="/invoices/{{ inv.id }}/reject"><button class="btn btn-outline-danger">✖ Discard</button></form>
+        {% elif inv.status == 'confirmed' %}<span class="text-success fw-semibold">✅ Added to stock {{ inv.confirmed_at }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="card mb-3">
+      <div class="card-header">🎁 Free bonus stock not printed on the invoice</div>
+      <form method="post" action="/invoices/{{ inv.id }}/bonus" class="card-body row g-2">
+        <div class="col-7"><select name="product_id" class="form-select form-select-sm">
+          {% for p in products if not inv.supplier_id or p.supplier_id == inv.supplier_id %}<option value="{{ p.id }}">{{ p.name_en }}</option>{% endfor %}</select></div>
+        <div class="col-3"><input name="units" type="number" min="1" value="1" class="form-control form-control-sm"></div>
+        <div class="col-2 d-grid"><button class="btn btn-sm btn-dark">Add</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="card-header">What the owner sees in Telegram</div>
+      <div class="card-body"><div class="tg-preview">{{ preview|safe }}</div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

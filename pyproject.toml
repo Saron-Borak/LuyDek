@@ -1,0 +1,13 @@
+[project]
+name = "luydek"
+version = "0.1.0"
+description = "Camera-verified stock tracking for Cambodian mini-marts and pharmacies (hackathon MVP)"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::FutureWarning",
+]

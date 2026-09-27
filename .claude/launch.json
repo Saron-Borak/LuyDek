@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "luydek",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "luydek", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "luydek-synthetic",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "luydek", "--port", "8010", "--config", "configs/synthetic.yaml"],
+      "port": 8010
+    }
+  ]
+}

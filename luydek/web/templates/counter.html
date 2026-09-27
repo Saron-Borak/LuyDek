@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Counter{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span>📷 Counter camera <span class="text-secondary fw-normal small">— zero input at the moment of sale</span></span>
+        <span id="state" class="state-pill state-NOREF">starting…</span>
+      </div>
+      <div class="card-body">
+        <div class="stage mb-2">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <select id="camera" class="form-select form-select-sm" style="max-width:16rem"></select>
+          <button id="btn-calibrate" class="btn btn-sm btn-dark">1 · Calibrate empty counter</button>
+          <div class="form-check form-switch ms-1">
+            <input class="form-check-input" type="checkbox" id="auto" checked>
+            <label class="form-check-label small" for="auto">Automatic capture</label>
+          </div>
+          <button id="btn-capture" class="btn btn-sm btn-outline-primary">Capture now</button>
+          <button id="btn-close" class="btn btn-sm btn-outline-secondary">Close sale</button>
+        </div>
+        <div class="small text-secondary mt-2" id="hint">
+          Point the camera straight down at a plain, matte mat. Clear the counter and press <b>Calibrate</b>.
+          Then just sell: items that land and stay still are photographed; the sale closes when the counter is empty again.
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card mb-3">
+      <div class="card-header">Status</div>
+      <div class="card-body small">
+        <div>Recognizer: <span id="ready">loading CLIP…</span></div>
+        <div>Gallery photos: <span id="gallery">–</span> <a href="/catalog">enroll products</a></div>
+        <div>Open sale: <span id="txn">–</span></div>
+        <div class="mt-2"><img id="refimg" class="thumb d-none" alt="empty counter reference"></div>
+      </div>
+    </div>
+    <div class="card mb-3">
+      <div class="card-header">Last capture</div>
+      <ul class="list-group list-group-flush small" id="detections"><li class="list-group-item text-secondary">–</li></ul>
+    </div>
+    <div class="card mb-3">
+      <div class="card-header">Closed sales</div>
+      <div class="card-body small salelog" id="salelog"><span class="text-secondary">none yet</span></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Demo backup: upload a photo</div>
+      <div class="card-body">
+        <form id="upload" class="d-grid gap-2">
+          <input type="file" name="image" accept="image/*" class="form-control form-control-sm" required>
+          <div class="form-check small">
+            <input class="form-check-input" type="checkbox" name="use_reference" value="true" id="useref">
+            <label class="form-check-label" for="useref">Taken with this counter camera (use calibration)</label>
+          </div>
+          <button class="btn btn-sm btn-outline-dark">Recognize as one sale</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/counter.js"></script>{% endblock %}

@@ -1,0 +1,193 @@
+# Demo catalog: 15 products, 4 supplier agents, 3 look-alike pairs
+# (Ichitan / Oishi green tea, Dutch Lady chocolate / strawberry, Paracetamol 250 / 500).
+# Edit this to match the real products bought for the demo, then run
+#   python scripts/seed_demo.py --reset
+#
+# visit_weekday: 0 = Monday ... 6 = Sunday
+# sim: parameters for scripts/simulate_history.py only (SIMULATED history).
+#   rate           average units sold per day
+#   start_stock    units on the shelf at the start of the simulation
+#   feeling_cases  cases the owner orders "by feeling" at every agent visit
+#   trend          weekly growth of demand (1.15 = +15% a week, e.g. fever season)
+#   forget_visits  visits (counted from the end, 1 = most recent) where the owner forgot to order
+
+suppliers:
+  - name: Coca-Cola agent
+    emoji: "🥤"
+    visit_weekday: 1
+    min_order: 20
+    contact: "Agent Dara 012 345 678"
+  - name: Snack & drink distributor
+    emoji: "🍵"
+    visit_weekday: 3
+    min_order: 15
+  - name: Dairy & baby distributor
+    emoji: "🍼"
+    visit_weekday: 4
+    min_order: 25
+  - name: Pharma distributor
+    emoji: "💊"
+    visit_weekday: 0
+    min_order: 30
+
+products:
+  - sku: coke-330
+    name_en: Coca-Cola can 330ml
+    name_km: កូកាកូឡា កំប៉ុង 330ml
+    unit: can
+    case_size: 24
+    supplier: Coca-Cola agent
+    critical: true
+    shelf_life_days: 270
+    unit_cost: 0.38
+    packs:
+      - {label: "6-pack", units: 6}
+    aliases: [coke, coca 330, coca cola 330, កូកា, កូកាកំប៉ុង]
+    sim: {rate: 6.2, start_stock: 60, feeling_cases: 2}
+  - sku: coke-1500
+    name_en: Coca-Cola bottle 1.5L
+    name_km: កូកាកូឡា ដប 1.5L
+    unit: bottle
+    case_size: 12
+    supplier: Coca-Cola agent
+    shelf_life_days: 270
+    unit_cost: 0.85
+    aliases: [coca 1.5, coke 1.5l, កូកាធំ]
+    sim: {rate: 1.6, start_stock: 20, feeling_cases: 1}
+  - sku: sprite-1500
+    name_en: Sprite bottle 1.5L
+    name_km: ស្ព្រាយ ដប 1.5L
+    unit: bottle
+    case_size: 12
+    supplier: Coca-Cola agent
+    shelf_life_days: 270
+    unit_cost: 0.85
+    aliases: [sprite 1.5, sprite 1.5l, ស្ព្រាយ]
+    sim: {rate: 0.45, start_stock: 40, feeling_cases: 0}
+  - sku: sting-330
+    name_en: Sting energy drink 330ml
+    name_km: ស្ទីង 330ml
+    unit: bottle
+    case_size: 24
+    supplier: Snack & drink distributor
+    shelf_life_days: 365
+    unit_cost: 0.40
+    aliases: [sting, sting red, ស្ទីង]
+    sim: {rate: 4.5, start_stock: 48, feeling_cases: 1}
+  - sku: ichitan-420
+    name_en: Ichitan green tea 420ml
+    name_km: តែបៃតង អ៊ីជីតាន 420ml
+    unit: bottle
+    case_size: 24
+    supplier: Snack & drink distributor
+    shelf_life_days: 270
+    unit_cost: 0.55
+    aliases: [ichitan, ichitan tea, ichitan green tea 420, អ៊ីជីតាន]
+    # The $300 of green tea from the Chbar Ampov interview: bought big, barely sells.
+    sim: {rate: 0.04, start_stock: 72, feeling_cases: 0}
+  - sku: oishi-380
+    name_en: Oishi green tea 380ml
+    name_km: តែបៃតង អូអ៊ីស៊ី 380ml
+    unit: bottle
+    case_size: 24
+    supplier: Snack & drink distributor
+    shelf_life_days: 270
+    unit_cost: 0.50
+    aliases: [oishi, oishi tea, អូអ៊ីស៊ី]
+    sim: {rate: 2.4, start_stock: 30, feeling_cases: 1}
+  - sku: lays-50
+    name_en: Lay's classic 50g
+    name_km: ឡេយស៍ ដំឡូងបារាំង 50g
+    unit: bag
+    case_size: 30
+    supplier: Snack & drink distributor
+    shelf_life_days: 180
+    unit_cost: 0.45
+    aliases: [lays, lay's 50g, lays classic]
+    sim: {rate: 2.0, start_stock: 30, feeling_cases: 1}
+  - sku: mama-pork
+    name_en: Mama instant noodles pork
+    name_km: មីមាម៉ា រសជាតិសាច់ជ្រូក
+    unit: pack
+    case_size: 30
+    supplier: Snack & drink distributor
+    shelf_life_days: 240
+    unit_cost: 0.18
+    aliases: [mama, mama pork, មីមាម៉ា]
+    sim: {rate: 5.0, start_stock: 60, feeling_cases: 1}
+  - sku: dutchlady-choc
+    name_en: Dutch Lady UHT milk chocolate 180ml
+    name_km: ទឹកដោះគោ ដាច់ឡេឌី សូកូឡា 180ml
+    unit: box
+    case_size: 48
+    supplier: Dairy & baby distributor
+    shelf_life_days: 180
+    unit_cost: 0.30
+    packs:
+      - {label: "4-pack", units: 4}
+    aliases: [dutch lady choco, dutch lady chocolate 180, ដាច់ឡេឌីសូកូឡា]
+    sim: {rate: 3.5, start_stock: 48, feeling_cases: 1}
+  - sku: dutchlady-straw
+    name_en: Dutch Lady UHT milk strawberry 180ml
+    name_km: ទឹកដោះគោ ដាច់ឡេឌី ស្ត្របឺរី 180ml
+    unit: box
+    case_size: 48
+    supplier: Dairy & baby distributor
+    shelf_life_days: 180
+    unit_cost: 0.30
+    aliases: [dutch lady straw, dutch lady strawberry 180, ដាច់ឡេឌីស្ត្របឺរី]
+    sim: {rate: 1.1, start_stock: 48, feeling_cases: 1}
+  - sku: dumex-400
+    name_en: Dumex Dugro baby formula 400g
+    name_km: ទឹកដោះគោម្សៅទារក ឌូម៉ិច 400g
+    unit: tin
+    case_size: 12
+    supplier: Dairy & baby distributor
+    critical: true
+    shelf_life_days: 540
+    unit_cost: 7.50
+    aliases: [dumex, dugro 400, ឌូម៉ិច]
+    # The baby formula stockout: the owner forgot the last two visits.
+    sim: {rate: 1.2, start_stock: 8, feeling_cases: 1, forget_visits: [1, 2]}
+  - sku: para-250
+    name_en: Paracetamol 250mg children (10 tabs)
+    name_km: ប៉ារ៉ាសេតាម៉ុល 250mg កុមារ (10 គ្រាប់)
+    unit: box
+    case_size: 10
+    supplier: Pharma distributor
+    critical: true
+    shelf_life_days: 720
+    unit_cost: 0.70
+    aliases: [para 250, paracetamol 250, para kids, ប៉ារ៉ា250]
+    # Rainy-season fever: demand climbing week on week.
+    sim: {rate: 1.4, start_stock: 10, feeling_cases: 1, trend: 1.18}
+  - sku: para-500
+    name_en: Paracetamol 500mg (10 tabs)
+    name_km: ប៉ារ៉ាសេតាម៉ុល 500mg (10 គ្រាប់)
+    unit: box
+    case_size: 10
+    supplier: Pharma distributor
+    shelf_life_days: 720
+    unit_cost: 0.60
+    aliases: [para 500, paracetamol 500, ប៉ារ៉ា500]
+    sim: {rate: 1.8, start_stock: 20, feeling_cases: 2}
+  - sku: ors-sachet
+    name_en: ORS oral rehydration salts sachet
+    name_km: ម្សៅអំបិលរ៉ែ ORS
+    unit: sachet
+    case_size: 50
+    supplier: Pharma distributor
+    shelf_life_days: 730
+    unit_cost: 0.15
+    aliases: [ors, oresol]
+    sim: {rate: 1.5, start_stock: 40, feeling_cases: 1}
+  - sku: vitc-1000
+    name_en: Vitamin C 1000mg effervescent tube
+    name_km: វីតាមីន C 1000mg (គ្រាប់រលាយ)
+    unit: tube
+    case_size: 12
+    supplier: Pharma distributor
+    shelf_life_days: 365
+    unit_cost: 2.10
+    aliases: [vitamin c, vit c 1000, វីតាមីនសេ]
+    sim: {rate: 0.0, start_stock: 14, feeling_cases: 0}

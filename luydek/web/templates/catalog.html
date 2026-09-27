@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Catalog{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-xl-8">
+    <div class="card mb-3">
+      <div class="card-header">Products and what the camera knows about them
+        <div class="small text-secondary fw-normal">Adding a product means taking 5–10 photos on the counter mat, not retraining a model.</div></div>
+      <div class="table-responsive">
+      <table class="table table-sm mb-0">
+        <thead class="table-light"><tr><th>Product</th><th>Supplier</th><th class="num">Case</th><th class="num">Cost</th><th>Packs the camera sees</th></tr></thead>
+        {% for r in table %}
+        <tr>
+          <td>{{ r.name_en }}{% if r.is_critical %} <span class="pill bg-dark text-white">critical</span>{% endif %}
+            <div class="km small text-secondary">{{ r.name_km }}</div></td>
+          <td class="small">{{ r.emoji }} {{ r.supplier_name }}</td>
+          <td class="num">{{ r.case_size }}</td>
+          <td class="num">${{ '%.2f'|format(r.unit_cost) }}</td>
+          <td>
+            {% for pk in packs_by_product.get(r.id, []) %}
+            <a href="/catalog/enroll?pack_id={{ pk.pack_id }}" class="btn btn-sm {% if pk.photos >= 5 %}btn-outline-success{% elif pk.photos %}btn-outline-warning{% else %}btn-outline-danger{% endif %} mb-1">
+              {{ pk.label }}{% if pk.units > 1 %} ×{{ pk.units }}{% endif %} · 📷 {{ pk.photos }}</a>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header">Things to ignore on the counter
+        <div class="small text-secondary fw-normal">Enroll a few photos of each so they are never counted as sales. Owner "✖ Not an item" taps add to <i>other</i>.</div></div>
+      <div class="card-body d-flex flex-wrap gap-2">
+        {% for label in ignore_labels %}
+        <a href="/catalog/enroll?ignore={{ label }}" class="btn btn-sm btn-outline-secondary">{{ label.replace('_', ' ') }} · 📷 {{ ignore.get(label, 0) }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Day-0 opening count <span class="small text-secondary fw-normal">— done by the install team; sets each product to the counted level</span></div>
+      <form method="post" action="/catalog/opening-count" class="card-body">
+        <div class="row g-2">
+          {% for r in table %}
+          <div class="col-md-6 col-xxl-4"><div class="input-group input-group-sm">
+            <span class="input-group-text flex-grow-1 text-truncate" style="max-width:75%">{{ r.name_en }}</span>
+            <input name="count_{{ r.id }}" type="number" min="0" class="form-control" placeholder="{{ r.on_hand }}"></div></div>
+          {% endfor %}
+        </div>
+        <button class="btn btn-sm btn-dark mt-2">Save counts</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-xl-4">
+    <div class="card mb-3">
+      <div class="card-header">Add a product</div>
+      <form method="post" action="/catalog/products" class="card-body row g-2">
+        <div class="col-6"><input name="sku" class="form-control form-control-sm" placeholder="sku, e.g. fanta-330" required></div>
+        <div class="col-6"><input name="barcode" class="form-control form-control-sm" placeholder="barcode (optional)"></div>
+        <div class="col-12"><input name="name_en" class="form-control form-control-sm" placeholder="English name, with size" required></div>
+        <div class="col-12"><input name="name_km" class="form-control form-control-sm km" placeholder="ឈ្មោះខ្មែរ" required></div>
+        <div class="col-4"><input name="unit" class="form-control form-control-sm" placeholder="unit" value="piece"></div>
+        <div class="col-4"><input name="case_size" type="number" min="1" class="form-control form-control-sm" placeholder="per case" value="24"></div>
+        <div class="col-4"><input name="unit_cost" type="number" step="0.01" min="0" class="form-control form-control-sm" placeholder="cost $"></div>
+        <div class="col-8"><select name="supplier_id" class="form-select form-select-sm">
+          {% for s in suppliers %}<option value="{{ s.id }}">{{ s.emoji }} {{ s.name }}</option>{% endfor %}</select></div>
+        <div class="col-4"><input name="shelf_life_days" type="number" min="1" class="form-control form-control-sm" placeholder="shelf life d"></div>
+        <div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" name="is_critical" value="true" id="crit">
+          <label class="form-check-label small" for="crit">Critical (must never run out)</label></div>
+        <div class="col-12 d-grid"><button class="btn btn-sm btn-dark">Add product</button></div>
+      </form>
+    </div>
+    <div class="card mb-3">
+      <div class="card-header">Add a multipack or case the camera will see</div>
+      <form method="post" action="/catalog/packs" class="card-body row g-2">
+        <div class="col-12"><select name="product_id" class="form-select form-select-sm">
+          {% for r in table %}<option value="{{ r.id }}">{{ r.name_en }}</option>{% endfor %}</select></div>
+        <div class="col-5"><input name="label" class="form-control form-control-sm" placeholder="6-pack" required></div>
+        <div class="col-3"><input name="units" type="number" min="2" class="form-control form-control-sm" placeholder="units" required></div>
+        <div class="col-4 d-grid"><button class="btn btn-sm btn-dark">Add pack</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="card-header">Names this shop uses <span class="small text-secondary fw-normal">— "Coca 330", "Coke" → one product</span></div>
+      <form method="post" action="/catalog/aliases" class="card-body row g-2 pb-2">
+        <div class="col-12"><select name="product_id" class="form-select form-select-sm">
+          {% for r in table %}<option value="{{ r.id }}">{{ r.name_en }}</option>{% endfor %}</select></div>
+        <div class="col-8"><input name="alias" class="form-control form-control-sm" placeholder="name as written" required></div>
+        <div class="col-4 d-grid"><button class="btn btn-sm btn-dark">Add</button></div>
+      </form>
+      <ul class="list-group list-group-flush small">
+        {% for a in aliases %}<li class="list-group-item py-1">“{{ a.alias_norm }}” → {{ a.name_en }} <span class="text-secondary">({{ a.source }})</span></li>
+        {% else %}<li class="list-group-item py-1 text-secondary">Aliases learned from confirmed invoices appear here.</li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

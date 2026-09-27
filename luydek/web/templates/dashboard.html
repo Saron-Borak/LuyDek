@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg"><div class="card kpi h-100"><div class="card-body">
+    <div class="label">Sales today</div><div class="value">{{ today.txns }}</div>
+    <div class="hint">{{ today['items'] }} item(s) seen by the camera</div></div></div></div>
+  <div class="col-6 col-lg"><div class="card kpi h-100"><div class="card-body">
+    <div class="label">Auto-accepted</div><div class="value">{{ today.auto_rate if today.auto_rate is not none else '–' }}{% if today.auto_rate is not none %}%{% endif %}</div>
+    <div class="hint">no owner tap needed</div></div></div></div>
+  <div class="col-6 col-lg"><div class="card kpi h-100"><div class="card-body">
+    <div class="label">Waiting for owner</div><div class="value">{{ pending|length }}</div>
+    <div class="hint">sent in the next digest</div></div></div></div>
+  <div class="col-6 col-lg"><div class="card kpi h-100"><div class="card-body">
+    <div class="label">Taps per day</div><div class="value {% if taps > 10 %}text-danger{% endif %}">{{ taps }}</div>
+    <div class="hint">health: keep under ~10</div></div></div></div>
+  <div class="col-6 col-lg"><div class="card kpi h-100"><div class="card-body">
+    <div class="label">Accuracy (7 days)</div><div class="value">{{ trend[-1].accuracy if trend[-1].accuracy is not none else '–' }}{% if trend[-1].accuracy is not none %}%{% endif %}</div>
+    <div class="hint">auto + confirmed ÷ settled</div></div></div></div>
+  <div class="col-6 col-lg"><div class="card kpi h-100"><div class="card-body">
+    <div class="label">💤 Sleeping money</div><div class="value" style="color:var(--sleep)">${{ '%.2f'|format(sleeping) }}</div>
+    <div class="hint km">លុយដេកលើធ្នើ · at cost</div></div></div></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-8">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>⚠️ Needs a quick check <span class="text-secondary fw-normal small">— the same queue the Telegram digest shows</span></span>
+        <span class="badge text-bg-secondary">{{ pending|length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if not pending %}
+        <p class="text-secondary p-3 mb-0">Nothing waiting. High-confidence items are accepted automatically; unsure ones appear here and in the Telegram digest.</p>
+        {% endif %}
+        {% for it in pending %}
+        <div class="review-card d-flex gap-3 p-3">
+          {% if it.crop_path %}<img class="crop" src="/media/{{ it.crop_path }}" alt="">{% endif %}
+          <div class="flex-grow-1">
+            <div class="d-flex justify-content-between">
+              <div><span class="text-secondary">#{{ it.id }} · {{ it.started_at[11:16] }}</span>
+                <span class="pill tier-{{ it.tier }}">{{ it.tier }} · {{ '%.2f'|format(it.confidence) }}</span>
+                <span class="pill bg-light text-secondary">{{ it.method }}</span></div>
+              <form method="post" action="/items/{{ it.id }}/resolve" class="d-flex gap-1 align-items-center">
+                <input type="hidden" name="action" value="qty">
+                <button class="btn btn-sm btn-outline-secondary" name="delta" value="-1">−</button>
+                <span class="px-1">×{{ it.count }}</span>
+                <button class="btn btn-sm btn-outline-secondary" name="delta" value="1">+</button>
+              </form>
+            </div>
+            <div class="fs-6 my-1">{% if it.pack_id %}Is this <b>{{ pack_label(it, 'en') }}</b>? <span class="km text-secondary small">{{ it.name_km }}</span>{% else %}<b>Unknown item</b>{% endif %}</div>
+            <div class="d-flex flex-wrap gap-1 align-items-center">
+              {% if it.pack_id %}
+              <form method="post" action="/items/{{ it.id }}/resolve"><input type="hidden" name="action" value="yes">
+                <button class="btn btn-sm btn-success">✅ Yes</button></form>
+              {% endif %}
+              {% for pk, score in pending_cands[it.id] if pk and pk.pack_id != it.pack_id %}
+              <form method="post" action="/items/{{ it.id }}/resolve"><input type="hidden" name="action" value="pick">
+                <button class="btn btn-sm btn-outline-primary" name="pack_id" value="{{ pk.pack_id }}">{{ pack_label(pk, 'en') }} <span class="opacity-50">{{ '%.2f'|format(score) }}</span></button></form>
+              {% endfor %}
+              <form method="post" action="/items/{{ it.id }}/resolve" class="d-flex gap-1">
+                <input type="hidden" name="action" value="pick">
+                <select name="pack_id" class="form-select form-select-sm" style="max-width:14rem" required>
+                  <option value="">Other…</option>
+                  {% for pk in packs %}<option value="{{ pk.pack_id }}">{{ pack_label(pk, 'en') }}</option>{% endfor %}
+                </select>
+                <button class="btn btn-sm btn-outline-primary">Pick</button>
+              </form>
+              <form method="post" action="/items/{{ it.id }}/resolve"><input type="hidden" name="action" value="remove">
+                <button class="btn btn-sm btn-outline-danger">✖ Not an item</button></form>
+              <form method="post" action="/items/{{ it.id }}/resolve"><input type="hidden" name="action" value="unknown">
+                <button class="btn btn-sm btn-outline-secondary">❓ Not in catalog</button></form>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card mb-3">
+      <div class="card-header">Telegram &amp; demo controls</div>
+      <div class="card-body d-grid gap-2">
+        {% if not bot %}<div class="alert alert-secondary small mb-1">The bot is off. Put <code>TELEGRAM_BOT_TOKEN</code> in <code>.env</code> and restart. Verifiers join with <code>/start {{ cfg.shop.pin }}</code>.</div>
+        {% else %}<div class="small text-secondary">{{ users }} verifier(s) registered · join with <code>/start {{ cfg.shop.pin }}</code></div>{% endif %}
+        <form method="post" action="/actions/digest" class="d-grid"><button class="btn btn-primary" {% if not bot %}disabled{% endif %}>📨 Send digest now</button></form>
+        <form method="post" action="/actions/orders" class="d-grid"><button class="btn btn-outline-primary" {% if not bot %}disabled{% endif %}>📦 Send order lists</button></form>
+        <form method="post" action="/actions/week" class="d-grid"><button class="btn btn-outline-primary" {% if not bot %}disabled{% endif %}>📊 Send weekly summary</button></form>
+        <form method="post" action="/actions/end-of-day" class="d-grid" onsubmit="return confirm('Accept every unchecked item as its best guess?')">
+          <button class="btn btn-outline-secondary">🌙 Run end of day (accept best guesses)</button></form>
+        <div class="small text-secondary">Scheduled digests: {{ cfg.verification.digest_times|join(', ') }} · end of day {{ cfg.verification.end_of_day }}</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">➖ Adjust stock <span class="text-secondary fw-normal small">— sales the camera never sees</span></div>
+      <div class="card-body">
+        <form method="post" action="/adjust" class="row g-2">
+          <div class="col-12"><select name="product_id" class="form-select form-select-sm" required>
+            {% for r in table %}<option value="{{ r.id }}">{{ r.name_en }}</option>{% endfor %}</select></div>
+          <div class="col-7"><select name="reason" class="form-select form-select-sm">
+            {% for reason in reasons %}<option value="{{ reason }}">{{ t('en', 'reason_' + reason) }}</option>{% endfor %}</select></div>
+          <div class="col-3"><input name="qty" type="number" min="1" value="1" class="form-control form-control-sm"></div>
+          <div class="col-2 d-grid"><button class="btn btn-sm btn-dark">Save</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">Stock on hand <span class="text-secondary fw-normal small">— opening count + deliveries − confirmed sales ± adjustments</span></div>
+  <div class="table-responsive">
+  <table class="table table-sm table-hover mb-0">
+    <thead class="table-light"><tr><th>Product</th><th>Supplier</th><th class="num">On hand</th><th class="num">Unconfirmed</th>
+      <th class="num">Sold 7d</th><th class="num">Days cover</th><th class="num">Value</th><th>Expiry</th><th>Flags</th></tr></thead>
+    <tbody>
+    {% for r in table %}
+      <tr>
+        <td>{{ r.name_en }} <div class="km small text-secondary">{{ r.name_km }}</div></td>
+        <td class="small">{{ r.emoji }} {{ r.supplier_name }}</td>
+        <td class="num fw-semibold {% if r.negative %}text-danger{% endif %}">{% if r.negative %}?{% else %}{{ r.on_hand }}{% endif %}</td>
+        <td class="num text-secondary">{% if r.pending_units %}−{{ r.pending_units }}{% endif %}</td>
+        <td class="num">{{ r.sold_7d }}</td>
+        <td class="num">{{ r.days_cover if r.days_cover is not none else '' }}</td>
+        <td class="num">${{ '%.2f'|format(r.value) }}</td>
+        <td class="small {% if r.expiring %}text-danger fw-semibold{% endif %}">{{ r.expiry or '' }}</td>
+        <td>
+          {% if r.negative %}<span class="pill status-removed">negative {{ r.on_hand }} — investigate</span>{% endif %}
+          {% if r.out and not r.negative %}<span class="pill status-removed">out of stock</span>{% endif %}
+          {% if r.low %}<span class="pill status-pending">low</span>{% endif %}
+          {% if r.is_critical %}<span class="pill bg-dark text-white">critical</span>{% endif %}
+          {% if r.expiring %}<span class="pill status-removed">expiring</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header">Recent sales</div>
+      <div class="card-body p-0">
+        {% if not recent %}<p class="text-secondary p-3 mb-0">No camera sales yet. Open the <a href="/counter">Counter</a> page.</p>{% endif %}
+        <table class="table table-sm mb-0">
+          {% for r in recent %}
+          <tr>
+            <td class="text-nowrap small text-secondary" style="width:7rem">#{{ r.txn.id }} · {{ r.txn.started_at[5:16] }}</td>
+            <td><span class="pill status-{{ r.txn.status }}">{{ r.txn.status }}</span> <span class="small text-secondary">{{ r.txn.source }}</span></td>
+            <td>
+              {% for it in r['items'] %}
+              <span class="pill status-{{ it.status }}" title="{{ it.tier }} {{ '%.2f'|format(it.confidence) }} via {{ it.method }}">
+                {{ pack_label(it, 'en') if it.pack_id else '?' }}{% if it.count > 1 %} ×{{ it.count }}{% endif %}</span>
+              {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header">Recognition trend <span class="text-secondary fw-normal small">— real numbers from this store</span></div>
+      <table class="table table-sm mb-0">
+        <thead class="table-light"><tr><th>Week ending</th><th class="num">Items</th><th class="num">Auto</th><th class="num">Accuracy</th></tr></thead>
+        {% for w in trend %}
+        <tr><td>{{ w.week_end }}</td><td class="num">{{ w['items'] }}</td>
+          <td class="num">{{ w.auto_rate if w.auto_rate is not none else '–' }}{% if w.auto_rate is not none %}%{% endif %}</td>
+          <td class="num">{{ w.accuracy if w.accuracy is not none else '–' }}{% if w.accuracy is not none %}%{% endif %}</td></tr>
+        {% endfor %}
+      </table>
+      <div class="card-body small text-secondary">Recommendation follow-rate:
+        {% if follow.rate is not none %}<b>{{ follow.rate }}%</b> of {{ follow.settled }} settled lines{% else %}not enough deliveries yet{% endif %}.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

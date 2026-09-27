@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Enroll{% endblock %}
+{% block content %}
+<div class="mb-3"><a href="/catalog">← Catalog</a></div>
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        {% if pk %}📷 Enroll <b>{{ pack_label(pk, 'en') }}</b> <span class="km text-secondary">{{ pk.name_km }}</span>
+        {% else %}📷 Enroll ignore class <b>{{ ignore.replace('_', ' ') }}</b>{% endif %}
+      </div>
+      <div class="card-body">
+        <div class="stage mb-2"><video id="video" autoplay playsinline muted></video></div>
+        <div class="d-flex gap-2 flex-wrap align-items-center">
+          <select id="camera" class="form-select form-select-sm" style="max-width:16rem"></select>
+          <button id="snap" class="btn btn-dark">Snap</button>
+          <span id="status" class="small text-secondary"></span>
+        </div>
+        <p class="small text-secondary mt-2 mb-0">Put one item on the calibrated counter mat and press <b>Snap</b> 5–10 times,
+          turning it a little each time (front, back, side, lying down). The largest thing on the mat is cropped and added.
+          Same camera and same mat as real sales, so the photos match what the counter will see.</p>
+        <hr>
+        <form id="upload" class="d-flex gap-2 align-items-center flex-wrap">
+          <input type="file" id="files" accept="image/*" multiple class="form-control form-control-sm" style="max-width:20rem">
+          <div class="form-check small"><input class="form-check-input" type="checkbox" id="useref">
+            <label class="form-check-label" for="useref">taken with the counter camera</label></div>
+          <button class="btn btn-sm btn-outline-dark">Upload photos</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header">Gallery <span class="badge text-bg-secondary" id="count">{{ photos|length }}</span></div>
+      <div class="card-body d-flex flex-wrap gap-2" id="gallery">
+        {% for g in photos %}
+        <form method="post" action="/catalog/gallery/{{ g.id }}/delete" class="position-relative">
+          <img class="thumb" src="/media/{{ g.crop_path }}" title="{{ g.source }} {{ g.created_at }}">
+          <button class="btn btn-sm btn-light position-absolute top-0 end-0 py-0 px-1" title="remove">×</button>
+          {% if g.source == 'correction' %}<span class="pill status-corrected position-absolute bottom-0 start-0">owner</span>{% endif %}
+        </form>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const video = document.getElementById("video");
+  const target = {{ ({"pack_id": pk.pack_id} if pk else {"ignore_label": ignore})|tojson }};
+  const status = document.getElementById("status");
+
+  async function send(blob, useRef) {
+    const f = new FormData();
+    f.append("image", blob, "shot.jpg");
+    for (const [k, v] of Object.entries(target)) f.append(k, v);
+    f.append("use_reference", useRef ? "true" : "false");
+    const r = await fetch("/api/enroll", { method: "POST", body: f });
+    if (!r.ok) throw new Error(await r.text());
+    const res = await r.json();
+    const img = document.createElement("img");
+    img.className = "thumb"; img.src = res.crop;
+    document.getElementById("gallery").prepend(img);
+    document.getElementById("count").textContent = res.photos;
+    status.textContent = res.photos >= 5 ? "✓ enough photos — a few more angles never hurt" : `${res.photos} photo(s), aim for 5–10`;
+  }
+
+  async function start(deviceId) {
+    if (video.srcObject) video.srcObject.getTracks().forEach((t) => t.stop());
+    video.srcObject = await navigator.mediaDevices.getUserMedia({
+      video: deviceId ? { deviceId: { exact: deviceId }, width: { ideal: 1280 } } : { width: { ideal: 1280 } } });
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    const sel = document.getElementById("camera");
+    sel.innerHTML = devs.map((d, i) => `<option value="${d.deviceId}">${d.label || "Camera " + (i + 1)}</option>`).join("");
+    const active = video.srcObject.getVideoTracks()[0].getSettings().deviceId;
+    if (active) sel.value = active;
+  }
+
+  document.getElementById("camera").onchange = (e) => start(e.target.value);
+  document.getElementById("snap").onclick = async () => {
+    const c = document.createElement("canvas");
+    c.width = video.videoWidth; c.height = video.videoHeight;
+    c.getContext("2d").drawImage(video, 0, 0);
+    status.textContent = "adding…";
+    try { await send(await new Promise((r) => c.toBlob(r, "image/jpeg", 0.92)), true); }
+    catch (e) { status.textContent = e.message; }
+  };
+  document.getElementById("upload").onsubmit = async (e) => {
+    e.preventDefault();
+    const files = document.getElementById("files").files;
+    const useRef = document.getElementById("useref").checked;
+    for (const f of files) {
+      status.textContent = `adding ${f.name}…`;
+      try { await send(f, useRef); } catch (err) { status.textContent = err.message; }
+    }
+  };
+  start().catch((e) => { status.textContent = "Camera unavailable: " + e.message + " — upload photos instead."; });
+})();
+</script>
+{% endblock %}

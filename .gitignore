@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+# Runtime data: the database, counter photos, crops, invoices. Only the seed catalog is source.
+data/*
+!data/seed_catalog.yaml

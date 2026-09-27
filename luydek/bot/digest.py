@@ -1,0 +1,307 @@
+"""Outgoing Telegram messages.
+
+Used by the scheduled jobs, by bot commands and by the dashboard ("send now"),
+so everything here takes a plain `telegram.Bot` rather than a handler context.
+"""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+from datetime import datetime, timedelta
+
+from telegram import Bot, InputMediaPhoto
+from telegram.constants import ParseMode
+from telegram.error import BadRequest, TelegramError
+
+from .. import clock, db, render
+from ..config import Config
+from ..i18n import t
+from ..services import catalog, forecast, invoices, metrics, stock, transactions
+from . import keyboards
+
+log = logging.getLogger("luydek.bot")
+
+
+def users(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM bot_users ORDER BY created_at").fetchall()
+
+
+def remember(conn: sqlite3.Connection, kind: str, ref_id: int, chat_id: int, message_id: int) -> None:
+    conn.execute(
+        "INSERT INTO bot_messages (kind, ref_id, chat_id, message_id, created_at) VALUES (?, ?, ?, ?, ?)",
+        (kind, ref_id, chat_id, message_id, clock.stamp()),
+    )
+
+
+def _window(now: datetime) -> str:
+    if now.hour < 11:
+        return "window_morning"
+    if now.hour < 16:
+        return "window_midday"
+    return "window_evening"
+
+
+# --- items ---------------------------------------------------------------------------
+
+def item_caption(item: sqlite3.Row, lang: str) -> str:
+    name = catalog.pack_label(item, lang) if item["pack_id"] is not None else "?"
+    count = item["count"]
+    status = item["status"]
+    if status == "pending":
+        key = "ask_low" if item["tier"] == "low" else "ask_medium"
+        return t(lang, key, n=item["id"], time=item["started_at"][11:16], name=name, count=count)
+    head = f"#{item['id']} · {item['started_at'][11:16]}\n"
+    if status in ("confirmed", "corrected", "best_guess"):
+        return head + t(lang, status, name=name, count=count)
+    return head + t(lang, status)
+
+
+async def send_item(bot: Bot, cfg: Config, conn: sqlite3.Connection, chat_id: int, lang: str,
+                    item: sqlite3.Row) -> None:
+    markup = keyboards.item_keyboard(conn, item, transactions.candidates(item), lang)
+    caption = item_caption(item, lang)
+    crop = cfg.media_dir / item["crop_path"] if item["crop_path"] else None
+    if crop is not None and crop.exists():
+        with crop.open("rb") as fh:
+            msg = await bot.send_photo(chat_id, fh, caption=caption, reply_markup=markup)
+        remember(conn, "item", item["id"], chat_id, msg.message_id)
+    else:
+        msg = await bot.send_message(chat_id, caption, reply_markup=markup)
+        remember(conn, "item_text", item["id"], chat_id, msg.message_id)
+
+
+async def refresh_item(bot: Bot, cfg: Config, item_id: int) -> None:
+    """Re-render every copy of an item's message (all verifiers' phones), plus its grids."""
+    with db.session(cfg) as conn:
+        item = transactions.item(conn, item_id)
+        copies = conn.execute(
+            "SELECT m.*, u.lang FROM bot_messages m LEFT JOIN bot_users u ON u.chat_id = m.chat_id "
+            "WHERE m.kind IN ('item', 'item_text', 'grid') AND m.ref_id = ?",
+            (item_id,),
+        ).fetchall()
+        markups = {}
+        for c in copies:
+            lang = c["lang"] or cfg.shop.default_lang
+            if item["status"] == "pending" and lang not in markups:
+                markups[lang] = keyboards.item_keyboard(conn, item, transactions.candidates(item), lang)
+    for c in copies:
+        lang = c["lang"] or cfg.shop.default_lang
+        text = item_caption(item, lang)
+        markup = markups.get(lang) if item["status"] == "pending" else None
+        try:
+            if c["kind"] == "item":
+                await bot.edit_message_caption(c["chat_id"], c["message_id"], caption=text, reply_markup=markup)
+            elif c["kind"] == "item_text":
+                await bot.edit_message_text(text, c["chat_id"], c["message_id"], reply_markup=markup)
+            elif item["status"] != "pending":  # a grid question is only closed, never redrawn
+                await bot.edit_message_text(text, c["chat_id"], c["message_id"], reply_markup=None)
+        except BadRequest as exc:
+            if "not modified" not in str(exc).lower():
+                log.warning("could not update message %s: %s", c["message_id"], exc)
+        except TelegramError as exc:
+            log.warning("could not update message %s: %s", c["message_id"], exc)
+
+
+async def send_grid(bot: Bot, cfg: Config, chat_id: int, lang: str, item_id: int, page: int) -> None:
+    """"Other": numbered photos of likely products, then number buttons. No typing."""
+    with db.session(cfg) as conn:
+        item = transactions.item(conn, item_id)
+        ranked = [p for p, _ in transactions.candidates(item)]
+        all_packs = catalog.packs(conn)
+        by_id = {pk["pack_id"]: pk for pk in all_packs}
+        order = [p for p in ranked if p in by_id] + [pk["pack_id"] for pk in all_packs if pk["pack_id"] not in ranked]
+        chunk = [by_id[p] for p in order[page * 6:(page + 1) * 6]]
+        photos = {
+            r["pack_id"]: r["crop_path"]
+            for r in conn.execute(
+                # SQLite takes bare columns from the MIN(id) row: each pack's first enrollment photo.
+                "SELECT pack_id, crop_path, MIN(id) FROM gallery_images "
+                "WHERE source = 'enrollment' AND pack_id IS NOT NULL GROUP BY pack_id"
+            )
+        }
+    first = page * 6 + 1
+    media = []
+    handles = []
+    for i, pk in enumerate(chunk):
+        rel = photos.get(pk["pack_id"])
+        if rel and (cfg.media_dir / rel).exists():
+            fh = (cfg.media_dir / rel).open("rb")
+            handles.append(fh)
+            media.append(InputMediaPhoto(fh, caption=f"{first + i}. {catalog.pack_label(pk, lang)}"))
+    try:
+        if len(media) >= 2:
+            await bot.send_media_group(chat_id, media)
+        elif len(media) == 1:
+            await bot.send_photo(chat_id, media[0].media, caption=media[0].caption)
+    finally:
+        for fh in handles:
+            fh.close()
+    markup = keyboards.grid_keyboard(item_id, chunk, first, (page + 1) * 6 < len(order), page, lang)
+    msg = await bot.send_message(chat_id, t(lang, "which_one", n=item_id), reply_markup=markup)
+    with db.session(cfg) as conn:
+        remember(conn, "grid", item_id, chat_id, msg.message_id)
+
+
+# --- digests ---------------------------------------------------------------------------
+
+async def send_digest(bot: Bot, cfg: Config, resend: bool = False, manual: bool = False) -> int:
+    """Batched check at a quiet moment: a header, one photo per unsure item, confirm-all."""
+    now = clock.now()
+    with db.session(cfg) as conn:
+        transactions.close_stale(conn, cfg.verification.stale_transaction_minutes, cfg.media_dir,
+                                 cfg.verification.delete_photos_after_verify)
+        recipients = users(conn)
+        if not recipients:
+            return 0  # nobody registered yet: keep everything for the first verifier
+        items = transactions.pending_items(conn, unsent_only=not resend)
+        waiting = len(transactions.pending_items(conn)) - len(items)
+        since = db.get_setting(conn, "last_digest_at") or clock.stamp(now.replace(hour=0, minute=0, second=0))
+        stats = metrics.window_stats(conn, since)
+        digest_id = None
+        if items:
+            digest_id = conn.execute(
+                "INSERT INTO digests (sent_at, item_count) VALUES (?, ?)", (clock.stamp(now), len(items))
+            ).lastrowid
+            transactions.mark_sent(conn, [i["id"] for i in items], digest_id)
+        if not resend:
+            db.set_setting(conn, "last_digest_at", clock.stamp(now))
+    if not items and not waiting and not manual and not stats["txns"]:
+        return 0  # a quiet morning with no sales: say nothing
+
+    window = "window_now" if manual else _window(now)
+    for u in recipients:
+        lang = u["lang"]
+        try:
+            if items or resend:
+                await bot.send_message(u["chat_id"], t(lang, "digest_header", window=t(lang, window), txns=stats["txns"],
+                                                       auto=stats["auto"], pending=len(items)))
+            elif waiting:
+                await bot.send_message(u["chat_id"], t(lang, "digest_waiting", n=waiting),
+                                       reply_markup=keyboards.show_again(lang))
+            else:
+                await bot.send_message(u["chat_id"], t(lang, "digest_nothing", txns=stats["txns"]))
+            with db.session(cfg) as conn:
+                for item in items:
+                    await send_item(bot, cfg, conn, u["chat_id"], lang, transactions.item(conn, item["id"]))
+            if items and digest_id:
+                await bot.send_message(u["chat_id"], "👆", reply_markup=keyboards.confirm_all(digest_id, lang))
+            if waiting and items:
+                await bot.send_message(u["chat_id"], t(lang, "digest_waiting", n=waiting),
+                                       reply_markup=keyboards.show_again(lang))
+        except TelegramError as exc:
+            log.warning("digest to %s failed: %s", u["chat_id"], exc)
+    return len(items)
+
+
+async def end_of_day(bot: Bot | None, cfg: Config) -> int:
+    """Accept every unchecked guess as the best guess, and close the day's messages."""
+    with db.session(cfg) as conn:
+        transactions.close_stale(conn, 0, cfg.media_dir, cfg.verification.delete_photos_after_verify)
+        ids = transactions.best_guess_all(conn, cfg.media_dir, cfg.verification.delete_photos_after_verify)
+    if bot is not None:
+        for item_id in ids:
+            await refresh_item(bot, cfg, item_id)
+    return len(ids)
+
+
+# --- order lists -------------------------------------------------------------------------
+
+async def send_orders(bot: Bot, cfg: Config, *, only_visiting_tomorrow: bool = False,
+                      chat_id: int | None = None) -> int:
+    today = clock.today()
+    with db.session(cfg) as conn:
+        forecast.settle_follow_rate(conn)
+        plans = forecast.build_plans(conn, cfg.forecast)
+        if only_visiting_tomorrow:
+            plans = [p for p in plans if p.visit_date == today + timedelta(days=1)]
+        forecast.save(conn, plans)
+        simulated = stock.has_simulated(conn)
+        recipients = [u for u in users(conn) if chat_id is None or u["chat_id"] == chat_id]
+        if chat_id is not None and not recipients:
+            recipients = [{"chat_id": chat_id, "lang": cfg.shop.default_lang}]
+    for u in recipients:
+        for plan in plans:
+            try:
+                await bot.send_message(u["chat_id"], render.order_message(plan, u["lang"], simulated),
+                                       parse_mode=ParseMode.HTML)
+            except TelegramError as exc:
+                log.warning("order list to %s failed: %s", u["chat_id"], exc)
+    return len(plans)
+
+
+async def send_week_summary(bot: Bot, cfg: Config, chat_id: int | None = None) -> None:
+    today = clock.today()
+    with db.session(cfg) as conn:
+        week = metrics.accuracy(conn, today - timedelta(days=6), today + timedelta(days=1))
+        taps = metrics.taps_per_day(conn)
+        sleeping = sum(p.sleeping_value for p in forecast.build_plans(conn, cfg.forecast))
+        recipients = [u for u in users(conn) if chat_id is None or u["chat_id"] == chat_id]
+    for u in recipients:
+        acc = week["accuracy"] if week["accuracy"] is not None else "–"
+        await bot.send_message(u["chat_id"], t(u["lang"], "week_summary", acc=acc, taps=taps, txns=week["txns"],
+                                               sleeping=f"{sleeping:.2f}"))
+
+
+# --- invoices ------------------------------------------------------------------------------
+
+async def send_invoice(bot: Bot, cfg: Config, invoice_id: int, chat_id: int, lang: str) -> None:
+    """The extracted invoice for one-tap confirmation, plus a question per unmatched line."""
+    with db.session(cfg) as conn:
+        inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+        text = render.invoice_message(conn, invoice_id, lang)
+        if inv["supplier_id"] is None:
+            text += "\n\n" + t(lang, "invoice_unknown_supplier")
+        markup = keyboards.invoice_keyboard(conn, inv, lang)
+        open_lines = [(l, keyboards.line_keyboard(conn, l, lang)) for l in invoices.unresolved(conn, invoice_id)]
+    msg = await bot.send_message(chat_id, text, parse_mode=ParseMode.HTML, reply_markup=markup)
+    with db.session(cfg) as conn:
+        remember(conn, "invoice", invoice_id, chat_id, msg.message_id)
+    for line, line_markup in open_lines:
+        m = await bot.send_message(chat_id, t(lang, "invoice_line_unmatched", text=line["text_as_written"]),
+                                   reply_markup=line_markup)
+        with db.session(cfg) as conn:
+            remember(conn, "invoice_line", line["id"], chat_id, m.message_id)
+
+
+async def refresh_invoice(bot: Bot, cfg: Config, invoice_id: int, footer: str | None = None) -> None:
+    with db.session(cfg) as conn:
+        inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+        copies = conn.execute(
+            "SELECT m.*, u.lang FROM bot_messages m LEFT JOIN bot_users u ON u.chat_id = m.chat_id "
+            "WHERE m.kind = 'invoice' AND m.ref_id = ?",
+            (invoice_id,),
+        ).fetchall()
+        rendered = {}
+        for c in copies:
+            lang = c["lang"] or cfg.shop.default_lang
+            if lang not in rendered:
+                text = render.invoice_message(conn, invoice_id, lang)
+                if inv["supplier_id"] is None and inv["status"] != "rejected":
+                    text += "\n\n" + t(lang, "invoice_unknown_supplier")
+                markup = None if inv["status"] == "rejected" else keyboards.invoice_keyboard(conn, inv, lang)
+                rendered[lang] = (text, markup)
+    for c in copies:
+        lang = c["lang"] or cfg.shop.default_lang
+        text, markup = rendered[lang]
+        if footer:
+            text += "\n\n" + footer
+        try:
+            await bot.edit_message_text(text, c["chat_id"], c["message_id"], parse_mode=ParseMode.HTML,
+                                        reply_markup=markup)
+        except BadRequest as exc:
+            if "not modified" not in str(exc).lower():
+                log.warning("could not update invoice message: %s", exc)
+
+
+async def retry_queued_invoices(bot: Bot, cfg: Config) -> None:
+    """Invoices photographed while the internet was down are read once it is back."""
+    import asyncio
+
+    with db.session(cfg) as conn:
+        queued = invoices.queued(conn)
+        langs = {u["chat_id"]: u["lang"] for u in users(conn)}
+    for inv in queued:
+        status = await asyncio.to_thread(invoices.process, cfg, inv["id"])
+        if status == "extracted" and inv["chat_id"]:
+            await send_invoice(bot, cfg, inv["id"], inv["chat_id"], langs.get(inv["chat_id"], cfg.shop.default_lang))

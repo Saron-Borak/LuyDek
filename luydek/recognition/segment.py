@@ -1,0 +1,94 @@
+"""Find the items on the counter mat.
+
+The MVP stand-in for a trained product detector: compare the frame with a
+photo of the empty mat and take whatever differs as items. It relies on the
+counter mat from the hardware kit (plain, matte, one colour), and items that
+touch merge into one blob; a YOLO detector replaces this later without
+changing anything downstream.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import cv2
+import numpy as np
+from PIL import Image
+
+from ..config import SegmentCfg
+
+
+@dataclass
+class Blob:
+    bbox: tuple[int, int, int, int]   # x, y, w, h in full-resolution pixels
+    area_frac: float
+    crop: Image.Image
+
+
+def decode(data: bytes) -> np.ndarray:
+    """JPEG/PNG bytes -> BGR array."""
+    frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        raise ValueError("not an image")
+    return frame
+
+
+def synthetic_reference(frame: np.ndarray) -> np.ndarray:
+    """An 'empty mat' guessed from the frame's border colour, for uncalibrated photos."""
+    h, w = frame.shape[:2]
+    band = max(4, min(h, w) // 25)
+    border = np.concatenate([
+        frame[:band].reshape(-1, 3), frame[-band:].reshape(-1, 3),
+        frame[:, :band].reshape(-1, 3), frame[:, -band:].reshape(-1, 3),
+    ])
+    return np.full_like(frame, np.median(border, axis=0).astype(np.uint8))
+
+
+def segment(frame: np.ndarray, reference: np.ndarray | None, cfg: SegmentCfg) -> list[Blob]:
+    h, w = frame.shape[:2]
+    if reference is None:
+        reference = synthetic_reference(frame)
+    elif reference.shape[:2] != (h, w):
+        reference = cv2.resize(reference, (w, h), interpolation=cv2.INTER_AREA)
+
+    scale = min(1.0, cfg.work_width / w)
+    small = (max(1, int(w * scale)), max(1, int(h * scale)))
+    a = cv2.GaussianBlur(cv2.resize(frame, small, interpolation=cv2.INTER_AREA), (5, 5), 0)
+    b = cv2.GaussianBlur(cv2.resize(reference, small, interpolation=cv2.INTER_AREA), (5, 5), 0)
+
+    # Distance in LAB with lightness slightly down-weighted: soft shadows only
+    # change L, while most packaging also differs from the mat in colour. A
+    # white pharmacy box differs from a pale mat in L alone, which is why the
+    # kit's mat should be dark and saturated.
+    la = cv2.cvtColor(a, cv2.COLOR_BGR2LAB).astype(np.int16)
+    lb = cv2.cvtColor(b, cv2.COLOR_BGR2LAB).astype(np.int16)
+    diff = np.abs(la - lb)
+    dist = cfg.lightness_weight * diff[..., 0] + diff[..., 1] + diff[..., 2]
+    mask = (dist > cfg.diff_threshold).astype(np.uint8) * 255
+
+    k = max(3, int(round(small[0] / 160)) | 1)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((k, k), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((k * 3, k * 3), np.uint8), iterations=2)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    total = small[0] * small[1]
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    blobs = []
+    for c in contours:
+        area = cv2.contourArea(c) / total
+        if not cfg.min_area_frac <= area <= cfg.max_area_frac:
+            continue
+        x, y, bw, bh = cv2.boundingRect(c)
+        x, y, bw, bh = (int(v / scale) for v in (x, y, bw, bh))
+        pad = int(max(bw, bh) * cfg.pad_frac)
+        x0, y0 = max(0, x - pad), max(0, y - pad)
+        x1, y1 = min(w, x + bw + pad), min(h, y + bh + pad)
+        blobs.append(Blob((x0, y0, x1 - x0, y1 - y0), round(area, 4), Image.fromarray(rgb[y0:y1, x0:x1])))
+    blobs.sort(key=lambda bl: (bl.bbox[1] // 50, bl.bbox[0]))  # reading order, for stable numbering
+    return blobs
+
+
+def largest(frame: np.ndarray, reference: np.ndarray | None, cfg: SegmentCfg) -> Blob | None:
+    """The biggest item on the mat (enrollment: one product at a time)."""
+    blobs = segment(frame, reference, cfg)
+    return max(blobs, key=lambda bl: bl.area_frac) if blobs else None

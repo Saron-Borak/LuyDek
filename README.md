@@ -1,0 +1,143 @@
+# LuyDek · លុយដេក
+
+**Camera-verified stock tracking for Cambodian mini-marts and pharmacies.**
+A camera over the counter photographs every sale and identifies the items. The owner checks only
+the uncertain ones, a few taps at a time, in Telegram. Stock is kept from sales and supplier
+invoices, and every supplier gets a weekly list before the agent visits: **order**, **skip**,
+or **💤 sleeping money** (លុយដេក, "money sleeping on the shelf").
+
+Hackathon MVP for the *Dead Stock, Empty Shelf* challenge. It runs all four demo beats:
+
+| Demo beat | Where |
+|---|---|
+| 1. Live sale at the counter | `/counter`: webcam, automatic capture when items are still, sale closes when the counter clears |
+| 2. A judge verifies an item on their phone | Telegram digest: crop photo + ✅ / look-alike / 🔍 Other / ✖ buttons |
+| 3. A photographed invoice raises stock | Send the photo to the bot (or `/invoices`); Claude reads it, the owner confirms with one tap |
+| 4. Weekly order list per supplier | `/orders` and Telegram, built from **clearly labelled SIMULATED** history |
+
+---
+
+## Setup (Windows, ~2 minutes; CLIP weights come from the local HuggingFace cache)
+
+```bash
+uv venv --python 3.12 .venv
+uv pip install --python .venv/Scripts/python.exe -r requirements.txt
+cp .env.example .env            # then fill in the two keys below
+.venv/Scripts/python.exe scripts/seed_demo.py --reset
+.venv/Scripts/python.exe scripts/simulate_history.py --weeks 8
+.venv/Scripts/python.exe -m luydek
+```
+
+Open <http://localhost:8000>. For a phone as the counter camera, run with `--host 0.0.0.0`.
+Browsers only give camera access on `localhost` or HTTPS, so for the counter page itself
+prefer a USB webcam or Iriun Webcam on the laptop.
+
+**`.env`**
+- `TELEGRAM_BOT_TOKEN`: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`). The bot
+  uses long polling, so no public URL is needed. Without a token the dashboard still works and its
+  review queue replaces the bot.
+- `ANTHROPIC_API_KEY`: used only to read invoice photos (`claude-opus-5`, about 3 cents an invoice).
+  Without it, invoices are typed into the manual form on `/invoices`.
+
+Verifiers (owner, family, staff) join by sending the bot `/start 2468` (the PIN is in
+`configs/config.yaml`). `/lang` switches between Khmer and English.
+
+## Enrolling real products
+
+1. Put a **plain, matte, dark or saturated mat** under the camera. White pharmacy boxes on a pale
+   mat differ only in brightness, which is the hardest case for segmentation.
+2. `/counter` → clear the mat → **Calibrate empty counter**.
+3. `/catalog` → edit products to match what you bought (or edit `data/seed_catalog.yaml` and re-seed)
+   → click each product's pack → **Snap** 5–10 times, turning the item a little each time. Also
+   enroll the things that sit on counters: phone, cash, calculator, plastic bag.
+4. `.venv/Scripts/python.exe scripts/calibrate.py` runs leave-one-out over your photos. It prints
+   top-1 accuracy, which products get confused, and the `t_high` / `m_high` / `t_low` values to
+   paste into `configs/config.yaml`. **These are the accuracy numbers to quote**: real, from your
+   own products, and slightly optimistic because the enrollment photos come from a single session.
+
+## Demo script
+
+1. **Live sale.** On `/counter`, a teammate puts 2–3 items on the mat. Boxes appear: green means
+   auto-accepted, amber means it will ask. Take the items off and the sale closes.
+2. **Telegram check.** On the dashboard, click **Send digest now**. The judge's phone (registered
+   with `/start 2468`) gets the uncertain crop, "Is this Ichitan green tea 420ml?", and taps
+   **Oishi 380ml**. The dashboard, the stock and every other verifier's copy of the message update,
+   and the crop joins the gallery as a new training example.
+3. **Stock in.** Send the bot a photo of a supplier invoice → lines matched to products →
+   **✅ Correct, add to stock**. New spellings ("Coca 330") are remembered as aliases.
+4. **Order lists.** `/orders`, or tap 📦 in the bot. With the seeded history you get, for example, Coca-Cola 2 cases (reason shown), Sprite
+   SKIP, Ichitan 💤 $37.95 sleeping, Dumex ORDER "⚠️ was out 4 days, customers went across the
+   street". **Say that the history is simulated.** The page and the messages say it too.
+
+**Backups.**
+- `scripts/synthetic_demo.py` builds a separate synthetic shop (painted look-alike products already
+  enrolled, calibrated mat, history). Run it with
+  `python -m luydek --config configs/synthetic.yaml --port 8010`. It never touches `data/luydek.db`.
+- The **Upload a photo** box on `/counter` (and `scripts/sale_from_photo.py`) treats one photo as
+  one sale.
+- The dashboard's review queue does everything the Telegram digest does.
+- Record a full run as a video.
+
+## How it works
+
+```
+counter photo ─► segment (vs. empty-mat photo) ─► barcode pass (zxing) ─► CLIP ViT-B/32 embedding
+             ─► nearest packs in this store's gallery ─► multipack × units ─► tier
+   high  (barcode, or score ≥ t_high AND margin to runner-up ≥ m_high) → sale recorded now
+   medium (score ≥ t_low) → "Is this X?"      low → photo grid        ignore class → dropped
+```
+
+- **Tiers use the margin as well as the score.** Raw CLIP similarities sit in a narrow 0.75–0.95
+  band, so the handoff's 0.90/0.60 can't be used as-is. Look-alikes both score high, and it is the
+  small gap between them that sends an item to the owner.
+- **Transactions.** Every still frame is recognised on its own. At close, each product counts at
+  its maximum across frames, not the sum, because items get bagged while more arrive.
+- **Ledger.** `stock_movements` holds signed rows: opening, sale, delivery, freebie, adjustment.
+  Credit sales and phone orders count as sales (they are demand). Family use, damage and expiry
+  are adjustments. Negative stock is shown as "investigate", never as a number.
+- **Forecast** (`luydek/services/forecast.py`):
+
+  ```
+  avg_daily = weighted average of the last 4 weeks (weights 4-3-2-1), counting only days the item
+              was in stock, so a stockout never reads as zero demand
+  target    = avg × (days to visit + visit cycle + lead) + avg × safety days (3 critical, 2 others)
+  order     = ceil(max(0, target − stock) / case size), capped at what sells before expiry
+  ```
+
+  - **SKIP:** no sale in 30 days, or stock covers the cycle plus 14 days.
+  - **💤 SLEEPING:** no sale in 45 days, or more than 90 days of stock, valued at cost.
+  - **Market run:** a full case would expire before it sold.
+  - **Follow-rate** is settled automatically by comparing the next delivery with the
+    recommendation, with no taps.
+- **Privacy.** Once every item in a sale is settled, the full counter photo is deleted and only the
+  product crops are kept.
+
+## Layout
+
+```
+luydek/
+  services/     catalog · stock (ledger) · transactions · invoices (Claude) · forecast · metrics
+  recognition/  segment · barcode · encoder (CLIP) · matcher (gallery + tiers) · pipeline
+  bot/          app (jobs) · handlers · digest (outgoing messages) · keyboards
+  web/          server (FastAPI; the bot runs in its event loop) · templates · static
+  i18n.py       Khmer/English strings    render.py  owner-facing message text
+scripts/        seed_demo · simulate_history · calibrate · synthetic_demo · sale_from_photo
+configs/        config.yaml (thresholds, digest times, forecast rules) · synthetic.yaml
+```
+
+`.venv/Scripts/python.exe -m pytest` runs 63 tests covering the ledger, forecast math, recognition,
+transactions, invoices (mocked Claude), bot flows (fake Telegram) and the web app. The tests use a
+colour-histogram encoder, so they don't need CLIP.
+
+## Not built yet (and what to say if asked)
+
+- **Detector.** Segmentation against the empty mat stands in for a trained detector, so touching
+  items merge into one blob. Place them apart in the demo. A YOLO detector slots in behind
+  `segment.segment()`.
+- **Dosage and size text.** Paracetamol 250mg vs 500mg look the same to CLIP. They land in
+  *medium* and the owner picks. The next step is OCR on the crop when the top two candidates are
+  look-alikes.
+- **Multiple stores.** It is single-store (one database per shop). There is no weekly shelf-photo
+  spot check yet, no Croston's method or seasonality, and no warm start from distributor history.
+- **Khmer strings.** `luydek/i18n.py` was written by a non-native author. Have a native speaker
+  proofread it before a pilot.

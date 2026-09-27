@@ -1,0 +1,63 @@
+# LuyDek configuration. Paths are relative to the project root.
+# Secrets (TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY) live in .env, never here.
+
+shop:
+  name: "Demo Mini-Mart"
+  timezone: "Asia/Phnom_Penh"
+  currency: "USD"
+  # A Telegram user becomes a verifier by sending: /start 2468
+  pin: "2468"
+  default_lang: "km"
+
+paths:
+  db: data/luydek.db
+  media: data/media
+  seed_catalog: data/seed_catalog.yaml
+
+recognition:
+  model_name: openai/clip-vit-base-patch32
+  device: auto
+  # Confidence tiers over CLIP image-to-image cosine similarity.
+  # Raw CLIP scores sit in a narrow 0.75-0.95 band, so these are NOT the
+  # handoff's 0.90/0.60. Re-derive them from your own enrolled gallery with
+  # `python scripts/calibrate.py` and paste the suggested values here.
+  t_high: 0.88       # top-1 score for auto-accept ...
+  m_high: 0.03       # ... AND at least this far ahead of the runner-up
+  t_low: 0.76        # below this the owner gets the photo grid instead of a yes/no
+  top_k_per_pack: 3  # a pack's score is the mean of its best k gallery matches
+  segment:
+    work_width: 960        # frames are compared at this width
+    diff_threshold: 30     # LAB distance that counts as "something is here"
+    lightness_weight: 0.8  # <1 ignores soft shadows; white boxes on a pale mat need it near 1
+    min_area_frac: 0.004   # ignore specks smaller than 0.4% of the mat
+    max_area_frac: 0.60    # a blob this big is a lighting change or an arm
+    pad_frac: 0.08         # crop margin around each item
+
+verification:
+  # Batched digests at quiet moments, never one message per sale.
+  digest_times: ["09:30", "13:00", "20:30"]
+  # Anything still unchecked is accepted as the best guess and flagged.
+  end_of_day: "22:00"
+  weekly_summary_time: "20:45"   # Sundays
+  # Privacy: once every item in a sale is settled, the full counter photo is
+  # deleted and only the per-product crops are kept.
+  delete_photos_after_verify: true
+  stale_transaction_minutes: 10
+
+forecast:
+  history_days: 28
+  week_weights: [4, 3, 2, 1]     # most recent week first
+  safety_days: 2
+  safety_days_critical: 3
+  overstock_extra_days: 14       # SKIP when stock covers the cycle plus this
+  skip_no_sales_days: 30
+  sleeping_days: 45              # no sale in this long = sleeping money
+  sleeping_cover_days: 90        # ... or this many days of stock at the current pace
+  expiry_warning_days: 30
+  order_list_time: "18:00"       # sent the evening before each agent's visit
+  observe_until: null            # e.g. "2026-10-12": no recommendations before this date
+
+invoices:
+  model: claude-opus-5
+  max_long_edge: 1568       # images are downscaled to this before upload
+  khr_per_usd: 4100         # riel invoices are costed in dollars at this rate
