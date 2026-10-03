@@ -17,8 +17,8 @@ from telegram.error import BadRequest, TelegramError
 from .. import clock, db, render
 from ..config import Config
 from ..i18n import t
-from ..recognition import labels
-from ..services import catalog, forecast, invoices, metrics, stock, transactions
+from ..recognition import labels, tray
+from ..services import catalog, forecast, invoices, metrics, stock, summary, transactions
 from . import keyboards
 
 log = logging.getLogger("luydek.bot")
@@ -50,8 +50,14 @@ def item_caption(item: sqlite3.Row, lang: str) -> str:
     count = item["count"]
     status = item["status"]
     if status == "pending":
-        key = "ask_low" if item["tier"] == "low" else "ask_medium"
-        return t(lang, key, n=item["id"], time=item["started_at"][11:16], name=name, count=count)
+        if item["method"] == "tray":
+            key = "ask_tray_low" if item["pack_id"] is None else "ask_tray"
+        else:
+            key = "ask_low" if item["tier"] == "low" else "ask_medium"
+        text = t(lang, key, n=item["id"], time=item["started_at"][11:16], name=name, count=count)
+        if item["name_guess"]:
+            text += t(lang, "looks_new", name=item["name_guess"])
+        return text
     head = f"#{item['id']} · {item['started_at'][11:16]}\n"
     if status in ("confirmed", "corrected", "best_guess"):
         return head + t(lang, status, name=name, count=count)
@@ -150,12 +156,13 @@ async def send_digest(bot: Bot, cfg: Config, resend: bool = False, manual: bool 
     """Batched check at a quiet moment: a header, one photo per unsure item, confirm-all."""
     import asyncio
 
-    # Look-alikes whose label settles them never reach the owner.
+    # Look-alikes whose label settles them, and tray counts Claude can read, never reach the owner.
     await asyncio.to_thread(labels.settle, cfg)
+    await asyncio.to_thread(tray.settle, cfg)
     now = clock.now()
     with db.session(cfg) as conn:
         transactions.close_stale(conn, cfg.verification.stale_transaction_minutes, cfg.media_dir,
-                                 cfg.verification.delete_photos_after_verify)
+                                 cfg.verification.delete_photos_after_verify, cfg.recognition.tray)
         recipients = users(conn)
         if not recipients:
             return 0  # nobody registered yet: keep everything for the first verifier
@@ -175,8 +182,18 @@ async def send_digest(bot: Bot, cfg: Config, resend: bool = False, manual: bool 
         return 0  # a quiet morning with no sales: say nothing
 
     window = "window_now" if manual else _window(now)
+    app_url = cfg.telegram.miniapp_url
     for u in recipients:
         lang = u["lang"]
+        if app_url and (items or waiting):
+            # The Mini App: one message, one button; the items are checked by swiping.
+            try:
+                await bot.send_message(u["chat_id"], t(lang, "digest_header", window=t(lang, window), txns=stats["txns"],
+                                                       auto=stats["auto"], pending=len(items) + waiting),
+                                       reply_markup=keyboards.open_app(app_url, lang, len(items) + waiting, digest_id))
+            except TelegramError as exc:
+                log.warning("digest to %s failed: %s", u["chat_id"], exc)
+            continue
         try:
             if items or resend:
                 await bot.send_message(u["chat_id"], t(lang, "digest_header", window=t(lang, window), txns=stats["txns"],
@@ -202,7 +219,8 @@ async def send_digest(bot: Bot, cfg: Config, resend: bool = False, manual: bool 
 async def end_of_day(bot: Bot | None, cfg: Config) -> int:
     """Accept every unchecked guess as the best guess, and close the day's messages."""
     with db.session(cfg) as conn:
-        transactions.close_stale(conn, 0, cfg.media_dir, cfg.verification.delete_photos_after_verify)
+        transactions.close_stale(conn, 0, cfg.media_dir, cfg.verification.delete_photos_after_verify,
+                                 cfg.recognition.tray)
         ids = transactions.best_guess_all(conn, cfg.media_dir, cfg.verification.delete_photos_after_verify)
     if bot is not None:
         for item_id in ids:
@@ -246,6 +264,62 @@ async def send_week_summary(bot: Bot, cfg: Config, chat_id: int | None = None) -
         acc = week["accuracy"] if week["accuracy"] is not None else "–"
         await bot.send_message(u["chat_id"], t(u["lang"], "week_summary", acc=acc, taps=taps, txns=week["txns"],
                                                sleeping=f"{sleeping:.2f}"))
+
+
+# --- the day's summary and stock left ------------------------------------------------------------
+
+async def send_day_summary(bot: Bot, cfg: Config, chat_id: int | None = None, day=None) -> dict:
+    """What sold today and what is left: to everyone at the end of the day, or to one phone that asked."""
+    with db.session(cfg) as conn:
+        s = summary.day_summary(conn, day, cfg.forecast.expiry_warning_days)
+        recipients = [u for u in users(conn) if chat_id is None or u["chat_id"] == chat_id]
+    for u in recipients:
+        try:
+            await bot.send_message(u["chat_id"], render.day_summary_message(s, u["lang"]), parse_mode=ParseMode.HTML,
+                                   reply_markup=keyboards.summary_keyboard(u["lang"], cfg.telegram.miniapp_url))
+        except TelegramError as exc:
+            log.warning("day summary to %s failed: %s", u["chat_id"], exc)
+    return s
+
+
+def _stock_labels(conn: sqlite3.Connection, cfg: Config) -> dict[int, str]:
+    """What each picker button shows after the name: the count left, "?" if never counted, "!" below zero."""
+    labels = {}
+    for r in summary.stock_left(conn, cfg.forecast.expiry_warning_days):
+        labels[r["id"]] = "?" if not r["tracked"] else "!" if r["negative"] else str(max(r["on_hand"], 0))
+    return labels
+
+
+def stock_picker(cfg: Config, lang: str, page: int = 0, only: list[int] | None = None):
+    """The "Stock left" menu: every product (best-sellers first) or just `only`, each with its count."""
+    since = clock.stamp(clock.now() - timedelta(days=28))
+    with db.session(cfg) as conn:
+        products = catalog.products_by_recent_sales(conn, since)
+        if only is not None:
+            by_id = {p["id"]: p for p in products}
+            products = [by_id[i] for i in only if i in by_id]
+        labels = _stock_labels(conn, cfg)
+    return keyboards.stock_picker(products, labels, page, lang, paged=only is None)
+
+
+async def send_stock_picker(bot: Bot, cfg: Config, chat_id: int, lang: str) -> None:
+    await bot.send_message(chat_id, t(lang, "stock_pick"), reply_markup=stock_picker(cfg, lang))
+
+
+async def send_stock_list(bot: Bot, cfg: Config, chat_id: int, lang: str) -> int:
+    """Every product and what is left, as many messages as it takes."""
+    with db.session(cfg) as conn:
+        rows = summary.stock_left(conn, cfg.forecast.expiry_warning_days)
+    messages = render.stock_list_messages(rows, lang, clock.today())
+    for text in messages:
+        await bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
+    return len(messages)
+
+
+def product_stock_text(cfg: Config, product_id: int, lang: str) -> str | None:
+    with db.session(cfg) as conn:
+        row = summary.product_stock(conn, product_id, cfg.forecast.expiry_warning_days)
+    return render.product_stock_message(row, lang) if row else None
 
 
 # --- invoices ------------------------------------------------------------------------------

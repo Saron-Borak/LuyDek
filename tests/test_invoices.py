@@ -155,3 +155,125 @@ def test_supplier_comes_from_the_products_unless_the_name_is_near_exact(conn):
     assert invoices.match_supplier(conn, "COCA-COLA AGENT", [snack]) == coca
     assert invoices.match_supplier(conn, "Coca-Cola agnt", []) == coca
     assert invoices.match_supplier(conn, None, []) is None
+
+
+# --- new products from invoices -----------------------------------------------------------------
+
+
+
+def new_line(text, qty, unit="case", name=None, name_km=None, per=None, cost=None, unit_name=None, free=False):
+    return ExtractedLine(text_as_written=text, product_id=None, quantity=qty, unit=unit, units_per_case=per,
+                         unit_cost=cost, expiry_date=None, is_free=free, product_name=name,
+                         product_name_km=name_km, unit_name=unit_name)
+
+
+def read_invoice(conn, supplier="Snack & drink distributor", lines=()):
+    invoice_id = invoices.create_from_photo(conn, "invoices/x.jpg")
+    invoices.ingest(conn, invoice_id, ExtractedInvoice(supplier_name=supplier, invoice_date=None, currency="USD",
+                                                       lines=list(lines)))
+    conn.commit()
+    return invoice_id
+
+
+def test_an_invoice_line_becomes_a_product_with_its_supplier_case_and_price(conn):
+    snacks = conn.execute("SELECT id FROM suppliers WHERE name = 'Snack & drink distributor'").fetchone()[0]
+    invoice_id = read_invoice(conn, lines=[
+        new_line("Pocari 500 x24", 2, name="Pocari Sweat 500ml", per=24, cost=12.0, unit_name="bottle"),
+    ])
+    assert invoices.lines(conn, invoice_id)[0]["name_suggested"] == "Pocari Sweat 500ml"
+    line_id = invoices.lines(conn, invoice_id)[0]["id"]
+    new = invoices.new_product_for_line(conn, line_id)
+    p = conn.execute("SELECT * FROM products WHERE id = ?", (new,)).fetchone()
+    assert (p["name_en"], p["origin"], p["supplier_id"], p["case_size"], p["unit"]) == \
+        ("Pocari Sweat 500ml", "invoice", snacks, 24, "bottle")
+    assert p["unit_cost"] == pytest.approx(0.5)                                     # $12 a case of 24
+    line = invoices.lines(conn, invoice_id)[0]
+    assert (line["units_total"], line["matched_by"]) == (48, "new")
+    assert catalog.resolve_alias(conn, "Pocari 500 x24") == new                    # known next time
+    invoices.confirm(conn, invoice_id)
+    assert stock.on_hand(conn)[new] == 48
+    assert next(r for r in stock.stock_table(conn) if r["id"] == new)["status"] != "new"  # the delivery counts
+
+
+def test_a_case_with_no_size_printed_asks_for_it(conn):
+    invoice_id = read_invoice(conn, lines=[
+        new_line("Mama tom yum 60g", 1, name="Mama tom yum noodles 60g"),              # no size printed
+        new_line("Tiger balm 19g", 3, unit="piece", name="Tiger Balm 19g", cost=1.5),
+    ])
+    assert invoices.new_products_for_all(conn, invoice_id) == (1, 1)
+    open_line = invoices.unresolved(conn, invoice_id)[0]
+    assert invoices.needs_case_size(open_line)
+    with pytest.raises(ValueError, match="How many are in one case"):
+        invoices.new_product_for_line(conn, open_line["id"])
+    new = invoices.new_product_for_line(conn, open_line["id"], units_per_case=30)
+    assert conn.execute("SELECT case_size FROM products WHERE id = ?", (new,)).fetchone()[0] == 30
+    assert not invoices.unresolved(conn, invoice_id)
+
+
+def test_old_invoices_add_products_but_no_stock(conn):
+    invoice_id = read_invoice(conn, supplier="Chip Mong Trading", lines=[
+        new_line("Pocari 500 x24", 2, name="Pocari Sweat 500ml", per=24, cost=12.0),
+        new_line("CC can 330 x24", 1, name="Coca-Cola can 330ml", per=24, cost=9.12),  # a spelling not seen yet
+    ])
+    assert conn.execute("SELECT supplier_id FROM invoices WHERE id = ?", (invoice_id,)).fetchone()[0] is None
+    invoices.new_products_for_all(conn, invoice_id)
+    lines = invoices.lines(conn, invoice_id)
+    assert lines[1]["product_id"] == pid(conn, "coke-330")          # its clean name is a product already: no twin
+    supplier_id = invoices.add_supplier_from_invoice(conn, invoice_id, "Chip Mong Trading", 2)
+    pocari = lines[0]["product_id"]
+    assert conn.execute("SELECT supplier_id FROM products WHERE id = ?", (pocari,)).fetchone()[0] == supplier_id
+    assert invoices.products_only(conn, invoice_id) == 2
+    assert pocari not in stock.on_hand(conn)                        # no stock moved
+    assert conn.execute("SELECT status FROM invoices WHERE id = ?", (invoice_id,)).fetchone()[0] == "products"
+    assert conn.execute("SELECT unit_cost FROM products WHERE id = ?", (pid(conn, "coke-330"),)).fetchone()[0] == \
+        pytest.approx(0.38)
+
+
+def test_the_reader_is_asked_for_names_and_case_sizes(conn, cfg):
+    client = FakeClient(ExtractedInvoice(supplier_name="X", invoice_date=None, currency="USD", lines=[]))
+    invoice_id = queued_invoice(conn, cfg)
+    invoices.process(cfg, invoice_id, client)
+    text = client.calls[0]["messages"][0]["content"][1]["text"]
+    assert "product_name" in text and "units_per_case matters most" in text
+    schema = ExtractedLine.model_json_schema()["properties"]
+    assert {"product_name", "product_name_km", "unit_name"} <= set(schema)
+
+
+def test_the_delivery_page_adds_new_products(conn, cfg, stub_encoder, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from luydek.web.server import create_app
+    monkeypatch.setenv("LUYDEK_NO_PRELOAD", "1")
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    invoice_id = read_invoice(conn, supplier="Chip Mong Trading", lines=[
+        new_line("Pocari 500 x24", 2, name="Pocari Sweat 500ml", per=24, cost=12.0),
+        new_line("Oishi 380 x24", 1, name="Oishi green tea honey lemon 380ml", per=24, cost=11.0),
+        new_line("Mama 60g", 1, name="Mama tom yum noodles 60g"),
+    ])
+    with TestClient(create_app(cfg)) as client:
+        page = client.get(f"/invoices/{invoice_id}").text
+        assert "Add all 2 as new products" in page and "How many in one case?" in page
+        assert 'value="Chip Mong Trading"' in page and "Their agent comes on" in page
+        assert "Only add the products" in page
+        client.post(f"/invoices/{invoice_id}/new-products")
+        mama = invoices.unresolved(db.connect(cfg.db_path), invoice_id)[0]["id"]
+        client.post(f"/invoices/{invoice_id}/lines/{mama}/new", data={"name": "Mama tom yum 60g", "units_per_case": "30"})
+        client.post(f"/invoices/{invoice_id}/new-supplier", data={"name": "Chip Mong Trading", "visit_weekday": "2"})
+        r = client.post(f"/invoices/{invoice_id}/products-only", follow_redirects=False)
+        assert "No stock was added" in r.headers["location"].replace("%20", " ")
+        assert "Products added" in client.get("/invoices").text
+    check = db.connect(cfg.db_path)
+    names = {r["name_en"] for r in check.execute("SELECT name_en FROM products WHERE origin = 'invoice'")}
+    assert names == {"Pocari Sweat 500ml", "Oishi green tea honey lemon 380ml", "Mama tom yum 60g"}
+
+
+def test_telegram_adds_an_invoice_line_as_a_new_product(conn, cfg):
+    from luydek.bot import keyboards
+    from tests.test_bot import FakeBot, register, tap
+    register(conn)
+    invoice_id = read_invoice(conn, lines=[new_line("Pocari 500 x24", 2, name="Pocari Sweat 500ml", per=24)])
+    line = invoices.lines(conn, invoice_id)[0]
+    buttons = [b for row in keyboards.line_keyboard(conn, line, "en").inline_keyboard for b in row]
+    assert buttons[0].text == "➕ Add Pocari Sweat 500ml" and buttons[0].callback_data == f"il:{line['id']}:n"
+    tap(cfg, FakeBot(), f"il:{line['id']}:n")
+    assert invoices.lines(db.connect(cfg.db_path), invoice_id)[0]["matched_by"] == "new"

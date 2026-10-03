@@ -2,46 +2,110 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#26215C">
   <title>{% block title %}LuyDek{% endblock %} · {{ cfg.shop.name }}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Khmer:wght@400;600&display=swap">
+  <link rel="icon" href="{{ asset('brand/favicon.svg') }}" type="image/svg+xml">
+  <link rel="alternate icon" href="/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="{{ asset('brand/apple-touch-icon.png') }}">
+  <link rel="manifest" href="/manifest.webmanifest">
+  {# Everything is stored in static/vendor: the look never depends on the internet. #}
+  <link rel="stylesheet" href="{{ asset('vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ asset('vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
   <link rel="stylesheet" href="{{ asset('app.css') }}">
 </head>
 <body>
-<nav class="navbar navbar-expand-md navbar-dark bg-ink">
-  <div class="container-fluid">
-    <a class="navbar-brand fw-semibold" href="/">💤 LuyDek <span class="km small opacity-75">លុយដេក</span></a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav"><span class="navbar-toggler-icon"></span></button>
-    <div class="collapse navbar-collapse" id="nav">
-      <ul class="navbar-nav me-auto">
-        <li class="nav-item"><a class="nav-link {% if active == 'dashboard' %}active{% endif %}" href="/">Dashboard
-          {% if pending_count %}<span class="badge text-bg-warning ms-1">{{ pending_count }}</span>{% endif %}</a></li>
-        <li class="nav-item"><a class="nav-link {% if active == 'counter' %}active{% endif %}" href="/counter">Counter</a></li>
-        <li class="nav-item"><a class="nav-link {% if active in ('catalog', 'enroll') %}active{% endif %}" href="/catalog">Catalog</a></li>
-        <li class="nav-item"><a class="nav-link {% if active in ('invoices', 'invoice') %}active{% endif %}" href="/invoices">Deliveries</a></li>
-        <li class="nav-item"><a class="nav-link {% if active == 'orders' %}active{% endif %}" href="/orders">Order lists</a></li>
-        <li class="nav-item"><a class="nav-link {% if active == 'report' %}active{% endif %}" href="/report">Pilot report</a></li>
-      </ul>
-      <span class="navbar-text small">
-        {% if bot %}<span class="dot dot-on"></span> Telegram bot on{% else %}<span class="dot dot-off"></span> Telegram bot off{% endif %}
-        · {{ cfg.shop.name }}
-      </span>
+{% set nav = [
+  ('/', 'house', 'Today', ('dashboard',)),
+  ('/orders', 'cart3', 'Order lists', ('orders',)),
+  ('/invoices', 'truck', 'Deliveries', ('invoices', 'invoice')),
+  ('/catalog', 'box-seam', 'Products', ('catalog', 'enroll', 'product', 'product_new')),
+  ('/counter', 'camera-video', 'Counter camera', ('counter',)),
+  ('/log', 'journal-text', 'Camera log', ('log',)),
+  ('/setup', 'gear', 'Setup', ('setup',)),
+] + ([('/report', 'graph-up-arrow', 'Pilot report', ('report',))] if team else []) %}
+
+{% macro links() %}
+  {% for href, icon, label, keys in nav %}
+  <a class="side-link {{ 'active' if active in keys }}" href="{{ href }}"{% if active in keys %} aria-current="page"{% endif %}>
+    <i class="bi bi-{{ icon }}" aria-hidden="true"></i><span>{{ label }}</span>
+    {% if href == '/' %}<span class="badge rounded-pill text-bg-warning {{ 'd-none' if not pending_count }}" data-pending-badge>{{ pending_count }}</span>{% endif %}
+  </a>
+  {% endfor %}
+{% endmacro %}
+
+{% macro demo_menu(up=False) %}
+  {% if team %}
+  <div class="dropdown {{ 'dropup' if up }}">
+    <button class="btn btn-sm btn-outline-light dropdown-toggle w-100" data-bs-toggle="dropdown"><i class="bi bi-play-circle" aria-hidden="true"></i> Demo</button>
+    <div class="dropdown-menu p-2" style="min-width:17rem">
+      {% if not bot %}<div class="small muted px-2 pb-2">Telegram bot is off: add <code>TELEGRAM_BOT_TOKEN</code> to <code>.env</code> and restart.</div>{% endif %}
+      <form method="post" action="/actions/digest"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}><i class="bi bi-send" aria-hidden="true"></i> Send the check digest now</button></form>
+      <form method="post" action="/actions/orders"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}><i class="bi bi-box-seam" aria-hidden="true"></i> Send order lists now</button></form>
+      <form method="post" action="/actions/summary"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}><i class="bi bi-graph-up" aria-hidden="true"></i> Send today's summary now</button></form>
+      <form method="post" action="/actions/week"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}><i class="bi bi-bar-chart" aria-hidden="true"></i> Send weekly summary now</button></form>
+      <div class="dropdown-divider"></div>
+      <form method="post" action="/actions/end-of-day" onsubmit="return confirm('Accept every unchecked item as its best guess?')">
+        <button class="dropdown-item py-2"><i class="bi bi-moon" aria-hidden="true"></i> Run end of day now</button></form>
+      <div class="small muted px-2 pt-1">{% if bot %}{{ verifiers }} phone(s) answer checks · join with <code>/start {{ cfg.shop.pin }}</code>.{% endif %}
+        Digests go out at {{ cfg.verification.digest_times|join(', ') }}. Hide this menu with <code>team_tools: false</code>.</div>
     </div>
   </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro status_line() %}
+  <span>{% if bot %}<span class="dot dot-on"></span>Telegram on{% else %}<span class="dot dot-off"></span>Telegram off{% endif %} · {{ cfg.shop.name }}</span>
+{% endmacro %}
+
+<div class="shell">
+  <!-- laptops: the sidebar -->
+  <aside class="sidebar d-none d-lg-flex" aria-label="Main">
+    <a class="brand" href="/"><img src="{{ asset('brand/logo.svg') }}" alt="" width="32" height="32">LuyDek <span class="km">លុយដេក</span></a>
+    {{ links() }}
+    <div class="side-foot">
+      {{ demo_menu(up=True) }}
+      {{ status_line() }}
+    </div>
+  </aside>
+
+  <div class="main">
+    <!-- phones and tablets: a slim top bar, its menu folds out -->
+    <header class="topbar d-lg-none" id="top">
+      <div class="d-flex align-items-center justify-content-between">
+        <a class="brand" href="/"><img src="{{ asset('brand/logo.svg') }}" alt="" width="28" height="28">LuyDek <span class="km">លុយដេក</span></a>
+        <button class="navbar-toggler text-white" type="button" data-bs-toggle="collapse" data-bs-target="#nav" aria-controls="nav"
+                aria-expanded="false" aria-label="Menu"><i class="bi bi-list fs-4" aria-hidden="true"></i></button>
+      </div>
+      <nav class="collapse" id="nav" aria-label="Main">
+        <div class="top-links">{{ links() }}</div>
+        <div class="d-grid gap-2 pb-2 small" style="color:rgba(255,255,255,.65)">{{ demo_menu() }}{{ status_line() }}</div>
+      </nav>
+    </header>
+
+    {% if simulated %}
+    <div class="sim-banner"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Includes <b>simulated</b> sales history — order lists are partly built from it.</div>
+    {% endif %}
+    <main class="content">
+      {% if msg %}
+      <div class="alert alert-info alert-dismissible py-2 mb-3">{{ msg }}
+        <button type="button" class="btn-close py-2" data-bs-dismiss="alert" aria-label="Close"></button></div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+<!-- phones: the four places an owner goes, always one thumb away -->
+<nav class="bottom-bar d-md-none" aria-label="Quick">
+  <a href="/" class="{{ 'on' if active == 'dashboard' }}"><i class="i bi bi-house" aria-hidden="true"></i>Today</a>
+  <a href="/#check"><i class="i bi bi-check2-square" aria-hidden="true"></i>Check<span class="badge text-bg-warning {{ 'd-none' if not pending_count }}" data-pending-badge>{{ pending_count }}</span></a>
+  <a href="/orders" class="{{ 'on' if active == 'orders' }}"><i class="i bi bi-cart3" aria-hidden="true"></i>Orders</a>
+  <a href="#top" data-bs-toggle="collapse" data-bs-target="#nav" onclick="window.scrollTo({top: 0, behavior: 'instant'})"><i class="i bi bi-list" aria-hidden="true"></i>More</a>
 </nav>
-{% if simulated %}
-<div class="sim-banner">⚠️ This database includes <b>SIMULATED</b> sales history (scripts/simulate_history.py). Order lists are partly built from it.</div>
-{% endif %}
-{% if msg %}
-<div class="container-fluid pt-3"><div class="alert alert-info alert-dismissible py-2 mb-0">{{ msg }}
-  <button type="button" class="btn-close py-2" data-bs-dismiss="alert"></button></div></div>
-{% endif %}
-<main class="container-fluid py-3">
-{% block content %}{% endblock %}
-</main>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ asset('vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ asset('undo.js') }}"></script>
+<script src="{{ asset('ui.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

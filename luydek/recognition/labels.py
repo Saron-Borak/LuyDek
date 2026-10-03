@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import logging
 
 import anthropic
@@ -33,6 +34,20 @@ Decide ONLY from text printed on the package: size (ml, g, L), strength (mg), fl
 variant name, in Khmer or English. Colour and shape don't count; the options already share them.
 If the words or numbers that tell the options apart are not readable in this photo, answer
 with sure = false rather than guessing."""
+
+
+NAME_PROMPT = """This photo shows one product on a shop counter in Cambodia. The shop's product list
+doesn't have it yet. Read the package and give its name the way a shopkeeper would write it
+on a shelf label: brand, product, variant or flavour, and size, e.g. "Oishi green tea honey
+lemon 380ml" or "Paracetamol 500mg (10 tablets)". Only use what is printed or unmistakable
+(a well-known brand's logo); don't invent a size you can't read. If there is Khmer text naming
+it, give that too. If you can't tell what product it is, answer with sure = false."""
+
+
+class NameReading(BaseModel):
+    name_en: str = Field(description="Brand, product, variant and size, in English/Latin letters; empty if unknown")
+    name_km: str = Field(description="The Khmer name printed on the package, or empty")
+    sure: bool = Field(description="True only if the brand and product are readable or unmistakable")
 
 
 class LabelReading(BaseModel):
@@ -77,6 +92,74 @@ def read(crop: Image.Image, options: list[str], cfg: Config, client: anthropic.A
     return response.parsed_output
 
 
+def _image_block(crop: Image.Image) -> dict:
+    img = crop.convert("RGB")
+    img.thumbnail((768, 768))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                        "data": base64.standard_b64encode(buf.getvalue()).decode()}}
+
+
+def read_name(crop: Image.Image, cfg: Config, client: anthropic.Anthropic | None = None) -> NameReading:
+    """What a product the shop hasn't listed yet is called, read off its package."""
+    client = client or anthropic.Anthropic()
+    response = client.beta.messages.parse(
+        model=cfg.labels.model,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": [_image_block(crop), {"type": "text", "text": NAME_PROMPT}]}],
+        output_format=NameReading,
+        output_config={"effort": "low"},
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
+    )
+    if response.stop_reason == "refusal" or response.parsed_output is None:
+        return NameReading(name_en="", name_km="", sure=False)
+    return response.parsed_output
+
+
+def name_new(cfg: Config, txn_id: int | None = None, client: anthropic.Anthropic | None = None) -> int:
+    """Read a name for unanswered items the camera couldn't place (low confidence), so the owner can
+    add the product with one tap. Returns how many got a name.
+
+    If the name read is already a product ("Coca-Cola can 330ml"), that product becomes the item's
+    first suggestion instead: it was a known product in an unusual pose, not a new one.
+    """
+    if not cfg.labels.enabled or not cfg.labels.name_new or (client is None and not cfg.anthropic_key_present):
+        return 0
+    with db.session(cfg) as conn:
+        rows = [r for r in transactions.pending_items(conn)
+                if r["name_checked_at"] is None and r["crop_path"] and r["method"] != "tray" and r["tier"] == "low"
+                and (txn_id is None or r["txn_id"] == txn_id)]
+    named = 0
+    for r in rows:
+        try:
+            reading = read_name(Image.open(cfg.media_dir / r["crop_path"]), cfg, client)
+        except (anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError) as exc:
+            log.info("name reader offline, will retry later: %s", exc)
+            continue
+        except (anthropic.APIStatusError, OSError) as exc:
+            log.warning("name reader failed for item %s: %s", r["id"], exc)
+            reading = NameReading(name_en="", name_km="", sure=False)
+        with db.session(cfg) as conn:
+            guess = reading.name_en.strip() if reading.sure else ""
+            guess_km = reading.name_km.strip() if reading.sure else ""
+            known = catalog.resolve_alias(conn, guess) if guess else None
+            if known is None and guess:
+                scored = catalog.fuzzy_scored(conn, guess, 1)
+                known = scored[0][0] if scored and scored[0][1] >= cfg.labels.name_match else None
+            if known is not None:
+                pack_id = catalog.default_pack_id(conn, known)
+                cands = [(pack_id, r["confidence"])] + [(p, s) for p, s in transactions.candidates(r) if p != pack_id]
+                conn.execute("UPDATE transaction_items SET candidates_json = ?, name_checked_at = ? WHERE id = ?",
+                             (json.dumps([[p, round(s, 4)] for p, s in cands[:5]]), clock.stamp(), r["id"]))
+            else:
+                conn.execute("UPDATE transaction_items SET name_guess = ?, name_guess_km = ?, name_checked_at = ? "
+                             "WHERE id = ?", (guess or None, guess_km or None, clock.stamp(), r["id"]))
+                named += bool(guess)
+    return named
+
+
 def settle(cfg: Config, txn_id: int | None = None, client: anthropic.Anthropic | None = None) -> int:
     """Try the label reader on pending look-alike items not yet looked at. Returns how many it settled.
 
@@ -87,7 +170,8 @@ def settle(cfg: Config, txn_id: int | None = None, client: anthropic.Anthropic |
         return 0
     with db.session(cfg) as conn:
         rows = [r for r in transactions.pending_items(conn)
-                if r["label_checked_at"] is None and r["crop_path"] and (txn_id is None or r["txn_id"] == txn_id)]
+                if r["label_checked_at"] is None and r["crop_path"] and r["method"] != "tray"  # tray.settle's
+                and (txn_id is None or r["txn_id"] == txn_id)]
         jobs = []
         for r in rows:
             options = lookalikes(transactions.candidates(r), cfg.labels.gap, cfg.labels.max_options)

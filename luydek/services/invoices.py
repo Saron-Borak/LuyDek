@@ -1,10 +1,15 @@
-"""Stock-in from supplier invoices.
+"""Stock-in from supplier invoices, and new products from them.
 
 A photo of the paper invoice goes to Claude with the store's catalog; Claude
 returns structured lines (item as written, quantity, unit, cost, expiry, free
 or not) and its best product match for each. The alias table then overrides
 the model wherever the owner has already taught us a name, and the owner
 confirms the whole invoice with one tap before any stock moves.
+
+A line that isn't in the product list yet comes with a clean name, the case
+size and the price, so it becomes a product in one tap. On install day, a few
+past invoices build most of the product list without adding stock twice
+("only add the products").
 """
 
 from __future__ import annotations
@@ -34,6 +39,12 @@ class ExtractedLine(BaseModel):
     unit_cost: float | None = Field(description="Price per invoice unit (not the line total); null if not shown")
     expiry_date: str | None = Field(description="Expiry date as YYYY-MM-DD if written for this line")
     is_free: bool = Field(description="True for free, bonus or promotional lines")
+    product_name: str | None = Field(None, description=(
+        "For lines with product_id null: a clean shelf name in Latin letters, brand + product + variant + size, "
+        "e.g. 'Coca-Cola can 330ml'. Expand abbreviations only when sure; null if the line is unreadable"))
+    product_name_km: str | None = Field(None, description="The Khmer name if the line is written in Khmer, else null")
+    unit_name: str | None = Field(None, description=(
+        "What one single item is: can, bottle, sachet, box, strip, pack or piece; null if unclear"))
 
 
 class ExtractedInvoice(BaseModel):
@@ -63,7 +74,10 @@ Rules:
   shrink-wrapped multipacks; "piece" for single bottles, cans, tins, sachets or single boxes.
 - unit_cost: the price per invoice unit. If only a line total is shown, divide it by the quantity.
 - is_free: true for free goods, bonus or promotion lines (FOC, free, bonus, ថែម, ជូន).
-- If a number is hard to read, give your best reading rather than skipping the line."""
+- If a number is hard to read, give your best reading rather than skipping the line.
+- For lines with no catalog match, also give product_name (and product_name_km, unit_name) so the
+  shop can add the product in one tap. units_per_case matters most here: give it whenever the
+  invoice prints it (24x330ml, 12 btl/ctn, ១២ដប)."""
 
 
 class ExtractionError(Exception):
@@ -171,12 +185,16 @@ def ingest(conn: sqlite3.Connection, invoice_id: int, x: ExtractedInvoice, khr_p
         conn.execute(
             """
             INSERT INTO invoice_lines (invoice_id, product_id, text_as_written, qty, unit, units_total,
-                                       unit_cost, expiry_date, is_free, matched_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       unit_cost, expiry_date, is_free, matched_by,
+                                       name_suggested, name_suggested_km, units_per_case, unit_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (invoice_id, product_id, line.text_as_written, line.quantity, line.unit, units,
              round(line.unit_cost * to_usd, 4) if line.unit_cost is not None else None,
-             line.expiry_date, int(line.is_free), matched_by),
+             line.expiry_date, int(line.is_free), matched_by,
+             (line.product_name or "").strip() or None, (line.product_name_km or "").strip() or None,
+             line.units_per_case if line.units_per_case and line.units_per_case > 0 else None,
+             (line.unit_name or "").strip().lower() or None),
         )
         if product_id:
             sup = conn.execute("SELECT supplier_id FROM products WHERE id = ?", (product_id,)).fetchone()
@@ -249,12 +267,90 @@ def set_line_product(conn: sqlite3.Connection, line_id: int, product_id: int) ->
     )
 
 
+def needs_case_size(line: sqlite3.Row) -> bool:
+    """A case or pack line whose invoice doesn't say how many are in one: ask before making the product."""
+    return line["unit"] in ("case", "pack") and not line["units_per_case"]
+
+
+def new_product_for_line(conn: sqlite3.Connection, line_id: int, name: str | None = None,
+                         units_per_case: int | None = None) -> int:
+    """Make the product an unmatched line describes, with its supplier, case size and price. Returns its id.
+
+    A name that is already a product (or one of its other names) is matched to it instead.
+    """
+    line = conn.execute("SELECT * FROM invoice_lines WHERE id = ?", (line_id,)).fetchone()
+    if line is None:
+        raise KeyError(line_id)
+    inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (line["invoice_id"],)).fetchone()
+    name_en = " ".join((name or line["name_suggested"] or line["text_as_written"] or "").split())[:80]
+    if not name_en:
+        raise ValueError("Give the product a name.")
+    per = units_per_case or line["units_per_case"]
+    if line["unit"] in ("case", "pack") and not per:
+        raise ValueError(f"How many are in one {line['unit']} of {name_en}?")
+    existing = catalog.resolve_alias(conn, name_en)
+    if existing is not None:
+        set_line_product(conn, line_id, existing)
+        return existing
+    per_invoice_unit = per if line["unit"] in ("case", "pack") else 1
+    unit_cost = (round(line["unit_cost"] / per_invoice_unit, 4)
+                 if line["unit_cost"] is not None and not line["is_free"] else 0.0)
+    product_id = catalog.add_product(
+        conn, sku=catalog.unique_sku(conn, name_en), name_en=name_en,
+        name_km=" ".join((line["name_suggested_km"] or "").split()) or name_en,
+        unit=line["unit_name"] or "piece", case_size=per if line["unit"] == "case" else 1,
+        supplier_id=inv["supplier_id"], unit_cost=unit_cost, origin="invoice")
+    if line["unit"] == "pack":
+        catalog.add_pack(conn, product_id, "pack", per)
+    catalog.add_alias(conn, product_id, line["text_as_written"], "invoice")
+    conn.execute(
+        "UPDATE invoice_lines SET product_id = ?, units_total = ?, units_per_case = ?, skipped = 0, matched_by = 'new' "
+        "WHERE id = ?",
+        (product_id, units_total(conn, product_id, line["qty"], line["unit"], per), per, line_id),
+    )
+    return product_id
+
+
+def new_products_for_all(conn: sqlite3.Connection, invoice_id: int) -> tuple[int, int]:
+    """Every open line that says enough becomes a product. Returns (made, still open: they need a case size)."""
+    made = left = 0
+    for line in unresolved(conn, invoice_id):
+        if needs_case_size(line):
+            left += 1
+            continue
+        new_product_for_line(conn, line["id"])
+        made += 1
+    return made, left
+
+
+def add_supplier_from_invoice(conn: sqlite3.Connection, invoice_id: int, name: str, visit_weekday: int) -> int:
+    """The supplier printed on the invoice, added to the list; its new products join its order list."""
+    name = " ".join(name.split())[:60]
+    if not name:
+        raise ValueError("Give the supplier a name.")
+    row = conn.execute("SELECT id FROM suppliers WHERE name = ?", (name,)).fetchone()
+    supplier_id = row["id"] if row else catalog.add_supplier(conn, name, visit_weekday)
+    set_supplier(conn, invoice_id, supplier_id)
+    conn.execute(
+        "UPDATE products SET supplier_id = ? WHERE supplier_id IS NULL AND id IN "
+        "(SELECT product_id FROM invoice_lines WHERE invoice_id = ? AND matched_by = 'new')",
+        (supplier_id, invoice_id),
+    )
+    return supplier_id
+
+
 def skip_line(conn: sqlite3.Connection, line_id: int) -> None:
     conn.execute("UPDATE invoice_lines SET skipped = 1 WHERE id = ?", (line_id,))
 
 
 def set_supplier(conn: sqlite3.Connection, invoice_id: int, supplier_id: int) -> None:
     conn.execute("UPDATE invoices SET supplier_id = ? WHERE id = ?", (supplier_id, invoice_id))
+    # Products this invoice just added belong to whoever delivered it.
+    conn.execute(
+        "UPDATE products SET supplier_id = ? WHERE supplier_id IS NULL AND id IN "
+        "(SELECT product_id FROM invoice_lines WHERE invoice_id = ? AND matched_by = 'new')",
+        (supplier_id, invoice_id),
+    )
 
 
 def confirm(conn: sqlite3.Connection, invoice_id: int, by: str = "owner") -> tuple[int, int]:
@@ -275,6 +371,29 @@ def confirm(conn: sqlite3.Connection, invoice_id: int, by: str = "owner") -> tup
         posted += 1
     conn.execute("UPDATE invoices SET status = 'confirmed', confirmed_at = ? WHERE id = ?", (clock.stamp(), invoice_id))
     return added, posted
+
+
+def products_only(conn: sqlite3.Connection, invoice_id: int) -> int:
+    """An old invoice, read to set the shop up: keep its products, names and prices, add no stock.
+
+    Returns how many lines were used.
+    """
+    inv = conn.execute("SELECT status FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+    if inv["status"] in ("confirmed", "products"):
+        return 0
+    if unresolved(conn, invoice_id):
+        raise ValueError("every line needs a product or a skip first")
+    used = 0
+    for l in lines(conn, invoice_id):
+        if l["skipped"] or not l["product_id"]:
+            continue
+        catalog.add_alias(conn, l["product_id"], l["text_as_written"], "invoice")
+        if l["unit_cost"] is not None and not l["is_free"] and l["qty"] and l["units_total"]:
+            conn.execute("UPDATE products SET unit_cost = ? WHERE id = ?",
+                         (round(l["unit_cost"] * l["qty"] / l["units_total"], 4), l["product_id"]))
+        used += 1
+    conn.execute("UPDATE invoices SET status = 'products', confirmed_at = ? WHERE id = ?", (clock.stamp(), invoice_id))
+    return used
 
 
 def _post_line(conn: sqlite3.Connection, l: sqlite3.Row) -> None:

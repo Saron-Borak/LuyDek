@@ -21,6 +21,9 @@ class ShopCfg(BaseModel):
     currency: str = "USD"
     pin: str = "2468"
     default_lang: str = "km"
+    # Tools for the install team and demos: "send now" buttons, the photo upload box, the
+    # pilot report and the Telegram previews. Owners see a calmer app without them.
+    team_tools: bool = False
 
 
 class PathsCfg(BaseModel):
@@ -40,6 +43,18 @@ class SegmentCfg(BaseModel):
     split_solidity: float = 0.93  # only outlines less convex than this can be two items
     split_peak: float = 0.75     # an item's core: distance-to-edge above this x the highest
     split_min_frac: float = 0.12  # a split piece smaller than this share of the blob is noise
+    scene_change_frac: float = 0.85  # this much of the mat unlike the empty photo: camera moved or light changed
+
+
+class TrayCfg(BaseModel):
+    """The dispensing tray: a small black card where loose tablets are put down before bagging."""
+    diff_threshold: float = 40
+    lightness_weight: float = 1.0   # white tablets on a black card differ mostly in lightness
+    min_piece_frac: float = 0.002   # of the tray: smaller is a crumb or dust
+    max_piece_frac: float = 0.30    # of the tray: bigger is not tablets (a box put on the tray)
+    unit_tolerance: float = 0.35    # a piece must be within this many tablets of a whole number
+    min_unit_samples: int = 2       # checked counts needed before the tray trusts its tablet size
+    keep_unit_samples: int = 12
 
 
 class RecognitionCfg(BaseModel):
@@ -49,12 +64,35 @@ class RecognitionCfg(BaseModel):
     m_high: float = 0.03
     t_low: float = 0.76
     top_k_per_pack: int = 3
+    learn_cap: int = 20          # most photos learned from sales kept per product (oldest dropped)
+    # Hold-to-record: a photo this similar to one the product already has is skipped. Measured on
+    # the shop's gallery: near-copies of one frame score 0.97-0.995, genuinely new angles mostly below.
+    enroll_duplicate: float = 0.985
+    # Things the shop taught the camera to ignore (phone, cash, a hand) are only set aside when they
+    # clearly are one: that class must score this well AND beat every product by this much.
+    ignore_min: float = 0.85
+    ignore_margin: float = 0.03
+    # "other" (learned from "Not a sale" answers) can be a product or the background, so it is
+    # always asked about, never dropped. Only a patch of background this close to one the owner
+    # already said wasn't a sale is set aside, and even that is kept in the camera log.
+    junk_repeat: float = 0.95
+    # A "detection" that looks like the same spot of the empty mat is usually a shifted paper, a
+    # table edge or a patch of light: at or above this it is never recorded automatically, only
+    # asked about. Measured on the shop's own frames: background changes 0.90-0.97, products put
+    # down 0.57-0.74 (thin pens can reach 0.95, which is why it asks rather than drops).
+    background_sim: float = 0.9
+    ignored_keep_days: int = 14  # ignored detections (and their photos) stay reviewable this long
+    colour_tiebreak: bool = True
+    lookalike_gap: float = 0.05  # candidates within this CLIP score of the top one are look-alikes
+    colour_margin: float = 0.15  # colour must beat the runner-up look-alike by this much to decide
     segment: SegmentCfg = Field(default_factory=SegmentCfg)
+    tray: TrayCfg = Field(default_factory=TrayCfg)
 
 
 class VerificationCfg(BaseModel):
     digest_times: list[str] = ["09:30", "13:00", "20:30"]
     end_of_day: str = "22:00"
+    daily_summary: bool = True   # right after end_of_day: what sold today and what is running out
     weekly_summary_time: str = "20:45"
     delete_photos_after_verify: bool = True
     stale_transaction_minutes: int = 10
@@ -80,6 +118,9 @@ class LabelsCfg(BaseModel):
     model: str = "claude-opus-5"
     gap: float = 0.05            # candidates within this of the top score count as look-alikes
     max_options: int = 4
+    # Read the name off a product the camera couldn't place, so the owner can add it with one tap.
+    name_new: bool = True
+    name_match: float = 0.9      # a name read this close to an existing product's name is that product
 
 
 class PilotCfg(BaseModel):
@@ -93,6 +134,11 @@ class TelegramCfg(BaseModel):
     # Only one server may poll a bot token. A second copy (the synthetic demo
     # shop next to the real one) must turn this off.
     enabled: bool = True
+    # The Mini App (swipe to check items inside Telegram) needs an https address Telegram can open
+    # on the phone, e.g. from `tailscale serve`. Empty: the bot sends one photo message per item.
+    miniapp_url: str | None = None
+    # On a PUBLIC address (a tunnel), serve only the Mini App there: the dashboard has no login yet.
+    miniapp_host_only: bool = False
 
 
 class InvoicesCfg(BaseModel):
@@ -139,6 +185,12 @@ class Config(BaseModel):
     def telegram_token(self) -> str | None:
         if not self.telegram.enabled:
             return None
+        return os.environ.get("TELEGRAM_BOT_TOKEN") or None
+
+    @property
+    def bot_token(self) -> str | None:
+        """The bot's token even where this server doesn't poll it: checking the Mini App's signed
+        launch data needs only the token, not the bot."""
         return os.environ.get("TELEGRAM_BOT_TOKEN") or None
 
     @property

@@ -8,6 +8,9 @@ auto-accepted and how often those auto-accepts would be wrong.
     python scripts/calibrate.py                 # report + suggested config values
     python scripts/calibrate.py --precision 0.99
 
+It also shows what the colour tie-break changes: how many look-alike mix-ups
+colour fixes, and how many right answers it would turn wrong.
+
 Enrollment photos are taken in one sitting, so these numbers are optimistic.
 Re-run after a few days of owner corrections; those crops come from real sales.
 """
@@ -25,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from luydek import db  # noqa: E402
 from luydek.config import load_config  # noqa: E402
-from luydek.recognition.matcher import Gallery  # noqa: E402
+from luydek.recognition.matcher import Gallery, colour_tiebreak  # noqa: E402
 from luydek.services import catalog  # noqa: E402
 
 
@@ -33,26 +36,38 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--precision", type=float, default=0.98,
                         help="required share of auto-accepted items that are right")
+    parser.add_argument("--include-removed", action="store_true",
+                        help="also test photos of products removed from the catalog")
     args = parser.parse_args()
     cfg = load_config()
-    k = cfg.recognition.top_k_per_pack
+    rc = cfg.recognition
+    k = rc.top_k_per_pack
 
     with db.session(cfg) as conn:
-        gallery = Gallery.load(conn)
-        names = {pk["pack_id"]: catalog.pack_label(pk, "en") for pk in catalog.packs(conn)}
+        gallery = Gallery.load(conn, cfg.media_dir, active_only=not args.include_removed)
+        names = {r["pack_id"]: catalog.pack_label(r, "en") + ("" if r["active"] else " [removed]") for r in conn.execute(
+            "SELECT pk.id AS pack_id, pk.label, pk.units, p.name_en, p.name_km, p.active "
+            "FROM product_packs pk JOIN products p ON p.id = pk.product_id")}
     counts = Counter(gallery.labels)
     usable = [i for i, lab in enumerate(gallery.labels) if counts[lab] >= 2]
     if len(usable) < 4:
         sys.exit("Need at least 2 photos for several products. Enroll on the Catalog page first.")
 
-    rows = []  # (correct, score, margin, true_label, predicted_label)
+    def row(m, truth):
+        predicted = ("pack", m.pack_id) if m.pack_id is not None else ("ignore", m.ignore_label)
+        return (predicted == truth, m.score, m.margin, truth, predicted)
+
+    rows, plain_rows = [], []  # (correct, score, margin, true_label, predicted_label)
     for i in usable:
         keep = np.ones(len(gallery), bool)
         keep[i] = False
-        others = Gallery(gallery.vectors[keep], [lab for j, lab in enumerate(gallery.labels) if keep[j]])
+        others = Gallery(gallery.vectors[keep], [lab for j, lab in enumerate(gallery.labels) if keep[j]],
+                         gallery.colours[keep])
         m = others.match(gallery.vectors[i], k)
-        predicted = ("pack", m.pack_id) if m.pack_id is not None else ("ignore", m.ignore_label)
-        rows.append((predicted == gallery.labels[i], m.score, m.margin, gallery.labels[i], predicted))
+        plain_rows.append(row(m, gallery.labels[i]))
+        if rc.colour_tiebreak and m.pack_id is not None:
+            m = colour_tiebreak(others, m, gallery.colours[i], rc) or m
+        rows.append(row(m, gallery.labels[i]))
 
     correct = np.array([r[0] for r in rows])
     score = np.array([r[1] for r in rows])
@@ -60,7 +75,13 @@ def main() -> None:
     label = lambda lab: names.get(lab[1], str(lab[1])) if lab[0] == "pack" else f"[ignore] {lab[1]}"  # noqa: E731
 
     print(f"Gallery: {len(gallery)} photos, {len(counts)} classes; {len(usable)} tested leave-one-out")
-    print(f"Top-1 accuracy: {correct.mean():.1%}")
+    plain = np.array([r[0] for r in plain_rows])
+    if rc.colour_tiebreak:
+        fixed, broken = int((correct & ~plain).sum()), int((plain & ~correct).sum())
+        print(f"Top-1 accuracy: {correct.mean():.1%} with the colour tie-break, {plain.mean():.1%} without"
+              f" (colour fixed {fixed}, broke {broken})")
+    else:
+        print(f"Top-1 accuracy: {correct.mean():.1%} (colour tie-break off)")
     print(f"Scores: right {np.median(score[correct]):.3f} median"
           + (f", wrong {np.median(score[~correct]):.3f} median" if (~correct).any() else ""))
 

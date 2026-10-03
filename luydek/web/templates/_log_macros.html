@@ -1,0 +1,23 @@
+{# Plain words for what happened to one camera sighting, shared by the camera log and a product's history. #}
+{% macro outcome(it, name) -%}
+{% set by = it.verified_by if it.verified_by and it.verified_by not in ('end_of_day', 'label reader', 'tray reader') else none %}
+{%- if it.status == 'auto' -%}
+  {% if it.method == 'label' %}Recorded automatically: the label was read{% elif it.method == 'barcode' %}Recorded automatically: barcode{% else %}Recorded automatically{% endif %}
+{%- elif it.status == 'confirmed' -%}Checked: the camera was right{% if by %} · {{ by }}{% endif %}
+{%- elif it.status == 'corrected' -%}Corrected{% if it.guess_name and it.guess_name != name %}: the camera said {{ it.guess_name }}{% elif not it.guess_name %}: the camera didn't know it{% endif %}{% if by %} · {{ by }}{% endif %}
+{%- elif it.status == 'best_guess' -%}Nobody checked: recorded as the camera's guess at the end of the day
+{%- elif it.status == 'removed' -%}Not a sale{% if by %} · {{ by }}{% endif %}
+{%- elif it.status == 'unknown' -%}Not in your products yet: waiting for a name
+{%- elif it.status == 'pending' -%}Waiting for your check
+{%- else -%}{{ it.status }}{%- endif %}
+{%- endmacro %}
+
+{% macro kind(it) -%}
+{{ {'auto': 'auto', 'confirmed': 'checked', 'corrected': 'checked', 'removed': 'checked', 'best_guess': 'auto',
+    'pending': 'waiting', 'unknown': 'waiting'}.get(it.status, 'checked') }}
+{%- endmacro %}
+
+{% macro set_aside_words(i) -%}
+{% if i.reason == 'background' %}Set aside: looks like a patch of mat you already said wasn't a sale
+{%- else %}Set aside: looks like a {{ i.reason.replace('_', ' ') }}{% endif %}
+{%- endmacro %}

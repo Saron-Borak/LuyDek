@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Deliveries{% endblock %}
 {% block content %}
+{% from "_macros.html" import empty %}
 {% set words = {'extracted': 'Waiting for your OK', 'confirmed': 'In stock ✓', 'queued': 'Waiting for internet',
-                'failed': "Couldn't read it", 'rejected': 'Discarded'} %}
+                'failed': "Couldn't read it", 'rejected': 'Discarded', 'products': 'Products added'} %}
 <div class="page-head">
   <div>
     <h1>Deliveries</h1>
@@ -18,9 +19,9 @@
         <div class="alert alert-warning">Reading photos needs an <code>ANTHROPIC_API_KEY</code> in <code>.env</code>.
           Until then, <a href="#manual" data-bs-toggle="collapse">type the invoice in</a>.</div>
         {% endif %}
-        <form id="upload" method="post" action="/invoices/upload" enctype="multipart/form-data">
+        <form id="upload" method="post" action="/invoices/upload" enctype="multipart/form-data" data-busy="Reading the invoice… (up to a minute)">
           <label class="dropzone" id="drop" for="photo">
-            <span class="big">🧾</span>
+            <span class="big"><i class="bi bi-receipt" aria-hidden="true"></i></span>
             <span class="fs-5 fw-semibold">Take a photo of the invoice</span>
             <span class="muted">or drop a photo here · Khmer, English, printed or handwritten</span>
             <img id="preview" class="d-none mt-2" alt="chosen invoice photo">
@@ -28,17 +29,20 @@
           <input type="file" id="photo" name="image" accept="image/*" capture="environment" class="d-none" required>
           <div class="d-flex gap-2 mt-3 flex-wrap">
             <button class="btn btn-xl btn-primary flex-grow-1" id="read-btn" disabled>Read invoice</button>
-            <button type="button" class="btn btn-xl btn-outline-dark" data-bs-toggle="collapse" data-bs-target="#manual">⌨️ Type it in</button>
+            <button type="button" class="btn btn-xl btn-outline-dark" data-bs-toggle="collapse" data-bs-target="#manual"><i class="bi bi-keyboard" aria-hidden="true"></i> Type it in</button>
           </div>
           <div class="small muted mt-2">Takes up to a minute. Nothing is added to stock until you press <b>Add to stock</b>.</div>
         </form>
+        <div class="tip mt-3"><i class="bi bi-lightbulb" aria-hidden="true"></i> <span><b>Setting up the shop?</b> Photograph a few
+          recent invoices, one at a time. Each line not in your products yet becomes one in a tap, with its name, case
+          size, price and supplier. Then choose <b>Only add the products</b>, so no stock is added twice.</span></div>
       </div>
     </div>
 
     <div class="collapse {{ 'show' if not key_present }}" id="manual">
       <div class="card">
-        <div class="card-header">⌨️ Type an invoice in <div class="sub">One row per line on the invoice. You'll check it on the next page.</div></div>
-        <form method="post" action="/invoices/manual" class="card-body">
+        <div class="card-header"><i class="bi bi-keyboard" aria-hidden="true"></i> Type an invoice in <div class="sub">One row per line on the invoice. You'll check it on the next page.</div></div>
+        <form method="post" action="/invoices/manual" class="card-body" data-busy="Saving…">
           <label class="form-label" for="m-sup">From</label>
           <select id="m-sup" name="supplier_id" class="form-select form-select-lg mb-3">
             {% for s in suppliers %}<option value="{{ s.id }}">{{ s.emoji }} {{ s.name }}</option>{% endfor %}</select>
@@ -58,13 +62,13 @@
               <div class="col-8 col-md-5"><label class="form-label small">Expires</label>
                 <input name="expiry_{{ i }}" type="date" class="form-control"></div>
               <div class="col-4 col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="free_{{ i }}" value="1" id="free-{{ i }}">
-                <label class="form-check-label" for="free-{{ i }}">🎁 free</label></div></div>
+                <label class="form-check-label" for="free-{{ i }}"><i class="bi bi-gift" aria-hidden="true"></i> free</label></div></div>
             </div>
           </div>
           {% endfor %}
           </div>
           <div class="d-flex gap-2 flex-wrap">
-            <button type="button" class="btn btn-outline-dark" id="add-row">➕ Add a line</button>
+            <button type="button" class="btn btn-outline-dark" id="add-row"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add a line</button>
             <button class="btn btn-lg btn-dark ms-auto">Continue to check →</button>
           </div>
         </form>
@@ -74,7 +78,7 @@
 
   <div class="col-lg-5">
     <div class="card mb-3">
-      <div class="card-header">⏳ Waiting for your OK <span class="badge rounded-pill {{ 'text-bg-warning' if waiting else 'text-bg-success' }}">{{ waiting|length }}</span></div>
+      <div class="card-header"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Waiting for your OK <span class="badge rounded-pill {{ 'text-bg-warning' if waiting else 'text-bg-success' }}">{{ waiting|length }}</span></div>
       {% for i in waiting %}
       <a class="inv-row" href="/invoices/{{ i.id }}">
         <div class="flex-grow-1"><div class="fw-semibold">{{ i.supplier or i.supplier_name_raw or 'Unknown supplier' }}</div>
@@ -82,7 +86,7 @@
         <span class="badge-words bw-{{ i.status }}">{{ words[i.status] }}</span><span class="muted">›</span>
       </a>
       {% else %}
-      <div class="p-3 text-success">✓ Nothing waiting</div>
+      {{ empty('check2-circle', 'Nothing waiting for your OK', 'Every delivery so far is in stock.') }}
       {% endfor %}
     </div>
     <div class="card">
@@ -94,7 +98,7 @@
         <span class="badge-words bw-{{ i.status }}">{{ words[i.status] }}</span><span class="muted">›</span>
       </a>
       {% else %}
-      <div class="p-3 muted">No deliveries yet.</div>
+      {{ empty('truck', 'No deliveries yet', 'Photograph the next invoice when the agent comes; the lines are read for you.') }}
       {% endfor %}
     </div>
   </div>
@@ -115,7 +119,6 @@
   ["dragenter", "dragover"].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.add("drag"); }));
   ["dragleave", "drop"].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.remove("drag"); }));
   drop.addEventListener("drop", (ev) => { if (ev.dataTransfer.files.length) { input.files = ev.dataTransfer.files; chosen(); } });
-  document.getElementById("upload").addEventListener("submit", () => { btn.disabled = true; btn.textContent = "Reading… (up to a minute)"; });
   document.getElementById("add-row").addEventListener("click", () => {
     const next = document.querySelector(".manual-row.d-none");
     if (next) next.classList.remove("d-none");

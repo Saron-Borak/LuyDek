@@ -6,6 +6,7 @@
 shop:
   name: "Synthetic demo shop"
   pin: "2468"
+  team_tools: true
 
 telegram:
   # The real shop's server already polls the bot in .env; two pollers conflict.

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>LuyDek</title>
+  <link rel="stylesheet" href="{{ asset('vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
+  <link rel="stylesheet" href="{{ asset('tg.css') }}">
+  {# Telegram's own script: theme colours, haptics, the back button. The page also works without it. #}
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="tabs" role="tablist">
+    <button role="tab" data-tab="check" class="on"><span data-t="to_check">To check</span> <b id="n-check">0</b></button>
+    <button role="tab" data-tab="recorded"><span data-t="recorded">Recorded today</span> <b id="n-rec">0</b></button>
+    <button role="tab" data-tab="stock"><span data-t="stock">Stock</span> <b id="n-stock" class="warn" hidden>0</b></button>
+  </div>
+  <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
+</header>
+
+<main>
+  <section id="check-view">
+    <p class="how" id="how" data-t="how">Swipe right if the camera is right, left to correct it.</p>
+    <div class="stack" id="stack" aria-live="polite"></div>
+    <div class="actions" id="actions">
+      <button class="round wrong" id="btn-wrong" aria-label="Wrong: correct it"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+      <button class="round undo" id="btn-undo" aria-label="Undo" disabled><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></button>
+      <button class="round right" id="btn-right" aria-label="Right"><i class="bi bi-check-lg" aria-hidden="true"></i></button>
+    </div>
+    <button class="link-btn" id="btn-all" hidden></button>
+    <div class="done" id="done" hidden>
+      <div class="done-ico"><i class="bi bi-check2-circle" aria-hidden="true"></i></div>
+      <div class="done-t" data-t="all_done">All checked</div>
+      <div class="done-s" id="done-s"></div>
+    </div>
+    <div class="state" id="state" hidden></div>
+  </section>
+
+  <section id="recorded-view" hidden>
+    <p class="how" data-t="rec_how">Everything recorded today. Tap one that's wrong to fix it.</p>
+    <div class="rec-list" id="rec-list"></div>
+  </section>
+
+  <section id="stock-view" hidden>
+    <div class="today" id="today">
+      <div class="today-head"><span data-t="today">Today</span> <span id="today-date"></span></div>
+      <div class="stats">
+        <div><b id="st-sales">–</b><span data-t="sales">sales</span></div>
+        <div><b id="st-units">–</b><span data-t="items_sold">items sold</span></div>
+        <div><b id="st-watch">–</b><span data-t="running_low">running low</span></div>
+      </div>
+      <div class="today-note" id="today-note" hidden></div>
+    </div>
+    <div class="filters" role="group">
+      <button type="button" data-f="all" class="on" data-t="f_all">All</button>
+      <button type="button" data-f="watch" data-t="f_watch">Low or out</button>
+      <button type="button" data-f="sold" data-t="f_sold">Sold today</button>
+    </div>
+    <input id="stock-search" type="search" autocomplete="off" data-tp="search" placeholder="Search your products">
+    <div class="stock-list" id="stock-list"></div>
+    <p class="stock-foot" id="stock-foot"></p>
+  </section>
+</main>
+
+<div class="sheet-back" id="sheet-back" hidden></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden>
+  <div class="grab" aria-hidden="true"></div>
+  <div class="sheet-head">
+    <img id="sheet-photo" alt="">
+    <div><div class="sheet-title" id="sheet-title"></div><div class="sheet-sub" id="sheet-sub"></div></div>
+  </div>
+  <div class="count-row" id="count-row">
+    <span data-t="how_many">How many?</span>
+    <button type="button" id="c-minus" aria-label="one fewer">−</button><b id="c-n">1</b><button type="button" id="c-plus" aria-label="one more">+</button>
+  </div>
+  <div class="quick" id="quick"></div>
+  <input id="search" type="search" autocomplete="off" data-tp="search" placeholder="Search your products">
+  <div class="plist" id="plist"></div>
+  <div class="several-bar" id="several-bar" hidden>
+    <div class="chips" id="several-chips"></div>
+    <button type="button" class="primary" id="several-save" data-t="record_them">Record them</button>
+  </div>
+  <form id="new-form" class="new-form" hidden>
+    <input id="new-name" maxlength="80" data-tp="name_ph" placeholder="Its name and size (e.g. Oishi 380ml)" required>
+    <button class="primary" data-t="add">Add</button>
+  </form>
+  <div class="sheet-foot" id="sheet-foot">
+    <button type="button" id="s-several"><i class="bi bi-grid-3x3-gap" aria-hidden="true"></i> <span data-t="several">Several items</span></button>
+    <button type="button" id="s-new"><i class="bi bi-plus-square" aria-hidden="true"></i> <span data-t="new">New product</span></button>
+    <button type="button" id="s-notsale" class="danger"><i class="bi bi-x-circle" aria-hidden="true"></i> <span data-t="not_sale">Not a sale</span></button>
+    <button type="button" id="s-later"><i class="bi bi-clock" aria-hidden="true"></i> <span data-t="later">Not now</span></button>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="{{ asset('tg.js') }}"></script>
+</body>
+</html>

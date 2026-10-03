@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from .. import clock
+
 _NON_WORD = re.compile(r"[^0-9a-zក-៿]+")  # keep Latin, digits and the Khmer block
 
 
@@ -130,8 +132,51 @@ def add_alias(conn: sqlite3.Connection, product_id: int, text: str, source: str)
         )
 
 
+def search(conn: sqlite3.Connection, text: str, limit: int = 8) -> list[int]:
+    """Products whose name (English, Khmer, any alias or the SKU) holds every word typed, best-sellers
+    first; failing that, the closest names ("coca" finds Coca-Cola 330ml, "oishi" both Oishi teas)."""
+    words = normalize(text).split()
+    if not words:
+        return []
+    rows = conn.execute(
+        """
+        SELECT p.id, p.sku, p.name_en, p.name_km, GROUP_CONCAT(a.alias_norm, ' ') AS aliases,
+               COALESCE((SELECT -SUM(qty) FROM stock_movements m WHERE m.product_id = p.id AND m.type = 'sale'), 0) AS sold
+        FROM products p LEFT JOIN product_aliases a ON a.product_id = p.id
+        WHERE p.active = 1 GROUP BY p.id ORDER BY sold DESC, p.name_en
+        """
+    ).fetchall()
+    hits = [r["id"] for r in rows
+            if all(w in normalize(f"{r['name_en']} {r['name_km']} {r['aliases'] or ''} {r['sku'] or ''}") for w in words)]
+    return hits[:limit] if hits else likely_products(conn, text, limit=min(limit, 3))
+
+
 def fuzzy_candidates(conn: sqlite3.Connection, text: str, limit: int = 3) -> list[int]:
     """Best-guess products for an unrecognised name, most similar first."""
+    return [pid for pid, _ in fuzzy_scored(conn, text, limit)]
+
+
+def likely_products(conn: sqlite3.Connection, text: str, limit: int = 3) -> list[int]:
+    """Products worth offering for a name written on an invoice ("Oishi 380 x24").
+
+    Letter similarity alone offers Paracetamol for "Pocari 500", so a product must also
+    share the brand word (the first word written, or its start) unless it is a near-exact match.
+    """
+    words = [w for w in normalize(text).split() if len(w) >= 3 and not w[0].isdigit()]
+    brand = words[0] if words else ""
+    keep = []
+    for pid, score in fuzzy_scored(conn, text, limit * 3):
+        names = conn.execute(
+            "SELECT name_en AS n FROM products WHERE id = ? UNION ALL SELECT alias_norm FROM product_aliases "
+            "WHERE product_id = ?", (pid, pid)).fetchall()
+        tokens = {t for r in names for t in normalize(r["n"]).split()}
+        if score >= 0.75 or (brand and any(t.startswith(brand) or brand.startswith(t) for t in tokens if len(t) >= 3)):
+            keep.append(pid)
+    return keep[:limit]
+
+
+def fuzzy_scored(conn: sqlite3.Connection, text: str, limit: int = 3) -> list[tuple[int, float]]:
+    """(product id, similarity 0-1) for an unrecognised name, most similar first."""
     target = normalize(text)
     names = conn.execute(
         """
@@ -145,7 +190,7 @@ def fuzzy_candidates(conn: sqlite3.Connection, text: str, limit: int = 3) -> lis
         score = difflib.SequenceMatcher(None, target, normalize(row["name"])).ratio()
         best[row["product_id"]] = max(score, best.get(row["product_id"], 0.0))
     ranked = sorted(best, key=best.get, reverse=True)
-    return ranked[:limit]
+    return [(pid, best[pid]) for pid in ranked[:limit]]
 
 
 def catalog_for_prompt(conn: sqlite3.Connection) -> str:
@@ -183,14 +228,18 @@ def add_product(
     shelf_life_days: int | None = None,
     unit_cost: float = 0.0,
     barcode: str | None = None,
+    origin: str = "catalog",
 ) -> int:
+    """`origin` says where the product came from: "catalog" (typed in or seeded), "counter" (named by
+    the owner at a sale the camera didn't know) or "invoice" (read off a supplier invoice)."""
     cur = conn.execute(
         """
         INSERT INTO products (sku, name_en, name_km, unit, case_size, supplier_id,
-                              is_critical, shelf_life_days, unit_cost)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              is_critical, shelf_life_days, unit_cost, origin, added_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (sku, name_en, name_km, unit, case_size, supplier_id, int(is_critical), shelf_life_days, unit_cost),
+        (sku, name_en, name_km, unit, case_size, supplier_id, int(is_critical), shelf_life_days, unit_cost,
+         origin, clock.stamp()),
     )
     product_id = cur.lastrowid
     conn.execute(
@@ -231,10 +280,12 @@ def update_product(conn: sqlite3.Connection, product_id: int, **fields) -> None:
         if fields.get(key):
             add_alias(conn, product_id, fields[key], "catalog")
     if "barcode" in fields:
-        conn.execute(
-            "UPDATE product_packs SET barcode = ? WHERE id = ?",
-            (fields["barcode"] or None, default_pack_id(conn, product_id)),
-        )
+        target = default_pack_id(conn, product_id)
+        if conn.execute("SELECT sold_loose FROM products WHERE id = ?", (product_id,)).fetchone()["sold_loose"]:
+            # Sold by the tablet: the barcode is printed on the box, never on a tablet.
+            target = conn.execute("SELECT id FROM product_packs WHERE product_id = ? ORDER BY units DESC, id LIMIT 1",
+                                  (product_id,)).fetchone()["id"]
+        conn.execute("UPDATE product_packs SET barcode = ? WHERE id = ?", (fields["barcode"] or None, target))
 
 
 def archive_product(conn: sqlite3.Connection, product_id: int) -> None:
@@ -288,12 +339,14 @@ def catalog_rows(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         """
         SELECT p.*, s.name AS supplier_name, s.emoji,
-               COALESCE(m.on_hand, 0) AS on_hand, m.product_id IS NOT NULL AS tracked,
+               COALESCE(m.on_hand, 0) AS on_hand,
+               (m.product_id IS NOT NULL AND (p.origin = 'catalog' OR m.counted)) AS tracked,
                COALESCE(g.photos, 0) AS photos, g.thumb,
                (SELECT COUNT(*) FROM product_packs pk WHERE pk.product_id = p.id) AS packs
         FROM products p
         LEFT JOIN suppliers s ON s.id = p.supplier_id
-        LEFT JOIN (SELECT product_id, SUM(qty) AS on_hand FROM stock_movements GROUP BY product_id) m
+        LEFT JOIN (SELECT product_id, SUM(qty) AS on_hand, MAX(type != 'sale') AS counted
+                   FROM stock_movements GROUP BY product_id) m
                ON m.product_id = p.id
         LEFT JOIN (
             -- SQLite takes the bare crop_path from the MIN(g.id) row: the first photo.
@@ -320,6 +373,21 @@ def gallery(conn: sqlite3.Connection, product_id: int) -> dict[int, list[sqlite3
     ):
         out.setdefault(r["pack_id"], []).append(r)
     return out
+
+
+def photo_ids(conn: sqlite3.Connection) -> tuple[dict[int, int], dict[int, int]]:
+    """The photo that stands for each product and for each pack in lists: its first
+    enrollment photo (a clean shot on the mat), else the first learned one.
+    Returns ({product_id: gallery_id}, {pack_id: gallery_id})."""
+    by_product: dict[int, int] = {}
+    by_pack: dict[int, int] = {}
+    for r in conn.execute(
+        "SELECT g.id, g.pack_id, pk.product_id FROM gallery_images g JOIN product_packs pk ON pk.id = g.pack_id "
+        "ORDER BY g.source != 'enrollment', pk.units DESC, g.id"
+    ):
+        by_pack.setdefault(r["pack_id"], r["id"])
+        by_product.setdefault(r["product_id"], r["id"])
+    return by_product, by_pack
 
 
 def delete_gallery_image(conn: sqlite3.Connection, media_dir: Path, gallery_id: int) -> bool:
@@ -365,6 +433,8 @@ def load_seed(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
         )
         for extra in p.get("packs", []):
             add_pack(conn, product_id, extra["label"], extra["units"], extra.get("barcode"))
+        if p.get("sold_loose"):
+            conn.execute("UPDATE products SET sold_loose = 1 WHERE id = ?", (product_id,))
         for alias in p.get("aliases", []):
             add_alias(conn, product_id, str(alias), "catalog")
         skus[p["sku"]] = product_id

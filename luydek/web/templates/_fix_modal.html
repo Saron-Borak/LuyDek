@@ -1,0 +1,35 @@
+{# Fixing what the camera did: a recorded sale (another product, another count, not a sale) or
+   something it set aside (it was a sale: which product, or a new one). Needs static/fix.js and
+   a <script id="picker-data"> with the picker items. #}
+<div class="modal fade" id="fix-modal" tabindex="-1" aria-labelledby="fix-title">
+  <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title" id="fix-title">What was it?</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    </div>
+    <div class="modal-body">
+      <div class="d-flex gap-3 align-items-start mb-3">
+        <img id="fix-photo" class="fix-photo" alt="what the camera saw">
+        <div class="small muted" id="fix-said"></div>
+      </div>
+      <div data-only="item" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <span class="fw-semibold me-1">How many?</span>
+        <button type="button" class="btn btn-outline-secondary" id="fix-minus" aria-label="one fewer">−</button>
+        <span class="fs-5 fw-bold px-2" id="fix-count">1</span>
+        <button type="button" class="btn btn-outline-secondary" id="fix-plus" aria-label="one more">+</button>
+        <button type="button" class="btn btn-outline-dark" id="fix-count-save">Save the count</button>
+        <button type="button" class="btn btn-outline-danger ms-auto" id="fix-remove"><i class="bi bi-x-lg" aria-hidden="true"></i> Not a sale</button>
+      </div>
+      <div class="fw-semibold mb-1">It was:</div>
+      <div id="fix-picker"></div>
+      <form id="fix-new" data-only="ignored" class="new-product mt-3">
+        <label class="form-label fw-semibold mb-1" for="fix-new-name">Or a product that isn't in your list yet</label>
+        <div class="d-flex gap-2 flex-wrap">
+          <input id="fix-new-name" class="form-control" style="max-width:22rem" maxlength="80" placeholder="Its name and size" required>
+          <button class="btn btn-dark"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add it</button>
+        </div>
+      </form>
+      <div class="small mt-2" id="fix-status" role="status"></div>
+    </div>
+  </div></div>
+</div>

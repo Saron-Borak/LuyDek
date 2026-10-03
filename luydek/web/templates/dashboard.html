@@ -1,172 +1,148 @@
 {% extends "base.html" %}
 {% block title %}Today{% endblock %}
 {% block content %}
+{% from "_macros.html" import pic, empty %}
 {% set n_alerts = attention.out|length + attention.low|length %}
+{% set n_attention = n_alerts + attention.expiring|length %}
 
 <div class="page-head">
   <div>
     <h1>Today · {{ now.strftime('%A %d %B') }}</h1>
     <div class="lead-line">{{ summary|join(' · ') }}.</div>
   </div>
-  <div class="d-flex gap-2 flex-wrap">
-    <button class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#adjust">➖ Adjust stock</button>
-    <div class="dropdown">
-      <button class="btn btn-outline-dark dropdown-toggle" data-bs-toggle="dropdown">📨 Telegram</button>
-      <div class="dropdown-menu dropdown-menu-end p-2" style="min-width:17rem">
-        {% if not bot %}<div class="small muted px-2 pb-2">Bot is off: add <code>TELEGRAM_BOT_TOKEN</code> to <code>.env</code> and restart.</div>{% endif %}
-        <form method="post" action="/actions/digest"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}>📨 Send the check digest now</button></form>
-        <form method="post" action="/actions/orders"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}>📦 Send order lists</button></form>
-        <form method="post" action="/actions/week"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}>📊 Send weekly summary</button></form>
-        <div class="dropdown-divider"></div>
-        <form method="post" action="/actions/end-of-day" onsubmit="return confirm('Accept every unchecked item as its best guess?')">
-          <button class="dropdown-item py-2">🌙 End of day: accept best guesses</button></form>
-        <div class="small muted px-2 pt-1">{% if bot %}{{ users }} verifier(s) · join with <code>/start {{ cfg.shop.pin }}</code>{% endif %}
-          Digests go out at {{ cfg.verification.digest_times|join(', ') }}.</div>
-      </div>
-    </div>
-  </div>
+  <button class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#adjust"><i class="bi bi-sliders" aria-hidden="true"></i> Adjust stock</button>
 </div>
 
+<!-- what needs the owner comes first -->
+{% include "_checks.html" %}
+{% if set_aside_today %}
+<div class="alert alert-light d-flex flex-wrap gap-2 align-items-center mb-3">
+  <i class="bi bi-eye-slash" aria-hidden="true"></i>
+  <span class="flex-grow-1">The camera set aside {{ set_aside_today }} thing{{ 's' if set_aside_today != 1 }} today as clutter or background.
+    Nothing is lost: if one was a sale, say so in the camera log.</span>
+  <a href="/log#aside" class="btn btn-sm btn-outline-dark">Look</a>
+</div>
+{% endif %}
+{% if unfinished %}
+<div class="alert alert-light d-flex flex-wrap gap-2 align-items-center mb-3">
+  <i class="bi bi-truck" aria-hidden="true"></i>
+  <span class="flex-grow-1">{{ unfinished|length }} new product{{ 's' if unfinished|length != 1 }} ({{ unfinished[:3]|map(attribute='name_en')|join(', ') }}{{ '…' if unfinished|length > 3 }})
+    {{ 'have' if unfinished|length != 1 else 'has' }} no supplier yet, so no order list includes {{ 'them' if unfinished|length != 1 else 'it' }}.</span>
+  <a href="/catalog#learned" class="btn btn-sm btn-outline-dark">Add suppliers</a>
+</div>
+{% endif %}
+
 <!-- the four numbers that matter -->
-<div class="row g-3 mb-3">
-  <div class="col-6 col-lg-3"><div class="stat {{ 'ok' if today.txns else '' }}">
-    <div class="n">{{ today.txns }}</div><div class="l">Sales today</div>
-    <div class="h">{{ today['items'] }} items · {{ today.auto_rate if today.auto_rate is not none else '–' }}{% if today.auto_rate is not none %}%{% endif %} recognised automatically</div></div></div>
+<div class="row g-2 g-md-3 mb-3 stats">
+  <div class="col-6 col-lg-3"><div class="stat hero">
+    <div class="n" data-stat-sales>{{ today.txns }}</div><div class="l">Sales today</div>
+    <div class="h">{% if not today.txns %}No sales yet today{% else %}{{ today['items'] }} items{% if today.auto_rate is not none %} · {{ today.auto_rate }}% automatic{% endif %}{% endif %}</div>
+    {% if week.this or week.last %}<div class="h week">This week {{ week.this }} sold
+      {%- if week.pct is not none %} · <span class="{{ 'up' if week.pct >= 0 else 'down' }}"><i class="bi bi-arrow-{{ 'up' if week.pct >= 0 else 'down' }}-short" aria-hidden="true"></i>{{ week.pct|abs }}%</span> vs last week{% endif %}</div>{% endif %}
+    {% if sales_spark %}<div class="spark-wrap">{{ sales_spark }}</div>{% endif %}</div></div>
   <div class="col-6 col-lg-3"><a href="#check" class="stat {{ 'warn' if pending else 'ok' }}">
-    <div class="n">{{ pending|length }}</div><div class="l">Waiting for your check</div>
-    <div class="h">{% if pending %}tap to check them below{% else %}all caught up ✓{% endif %}</div></a></div>
+    <div class="n" data-stat-check>{{ pending|length }}</div><div class="l">To check</div>
+    <div class="h" data-stat-check-sub>{% if pending %}waiting above{% else %}all caught up ✓{% endif %}</div></a></div>
   <div class="col-6 col-lg-3"><a href="#stock" class="stat {{ 'bad' if attention.out else ('warn' if attention.low else 'ok') }}" data-filter-link="attention">
     <div class="n">{{ n_alerts }}</div><div class="l">Stock alerts</div>
-    <div class="h">{{ attention.out|length }} out · {{ attention.low|length }} running low</div></a></div>
+    <div class="h">{{ attention.out|length }} out · {{ attention.low|length }} low</div></a></div>
   <div class="col-6 col-lg-3"><a href="/orders" class="stat sleep">
-    <div class="n">${{ '%.0f'|format(sleeping) }}</div><div class="l">💤 Sleeping money</div>
-    <div class="h km">លុយដេកលើធ្នើ · {{ attention.sleeping|length }} slow item(s)</div></a></div>
+    <div class="n">${{ '%.0f'|format(sleeping) }}</div><div class="l"><i class="bi bi-moon-stars" aria-hidden="true"></i> Sleeping money</div>
+    <div class="h"><span class="km">លុយដេកលើធ្នើ</span> · {{ attention.sleeping|length }} slow</div></a></div>
 </div>
 
 <!-- needs attention + next agent visits -->
 <div class="row g-3">
-  <div class="col-xl-8">
+  <div class="col-12">
     <div class="row g-3">
       <div class="col-md-6"><div class="attn out">
-        <h3>🔴 Out of stock <span class="badge rounded-pill text-bg-danger">{{ attention.out|length }}</span></h3>
+        <h3><i class="bi bi-x-octagon-fill" aria-hidden="true"></i> Out of stock <span class="badge rounded-pill text-bg-danger">{{ attention.out|length }}</span></h3>
         {% if attention.out %}<ul>{% for r in attention.out[:6] %}
-          <li><span class="what">{{ r.name_en }}{% if r.is_critical %} <span class="pill bg-dark text-white">must-have</span>{% endif %}</span>
+          <li><span class="what">{{ pic(photos.product.get(r.id), 28) }} <span>{{ r.name_en }}{% if r.is_critical %} <span class="pill must">must-have</span>{% endif %}</span></span>
             <span class="why">{% if r.negative %}count is off — recount{% elif next_visit.get(r.supplier_id) %}{{ r.emoji }} next visit {{ next_visit[r.supplier_id].visit_date.strftime('%a') }}{% endif %}</span></li>
-        {% endfor %}</ul>{% else %}<div class="empty">✓ Nothing is out of stock</div>{% endif %}
+        {% endfor %}</ul>{% else %}<div class="empty"><i class="bi bi-check-circle" aria-hidden="true"></i> Nothing is out of stock</div>{% endif %}
       </div></div>
       <div class="col-md-6"><div class="attn low">
-        <h3>🟠 Running low <span class="badge rounded-pill text-bg-warning">{{ attention.low|length }}</span></h3>
+        <h3><i class="bi bi-arrow-down-circle-fill" aria-hidden="true"></i> Running low <span class="badge rounded-pill text-bg-warning">{{ attention.low|length }}</span></h3>
         {% if attention.low %}<ul>{% for r in attention.low[:6] %}
-          <li><span class="what">{{ r.name_en }}</span><span class="why">{{ r.on_hand }} left · ~{{ '%.0f'|format(r.days_cover) }} day{{ 's' if r.days_cover >= 1.5 }}</span></li>
-        {% endfor %}</ul>{% else %}<div class="empty">✓ Nothing is running low</div>{% endif %}
+          <li><span class="what">{{ pic(photos.product.get(r.id), 28) }} {{ r.name_en }}</span><span class="why">{{ r.on_hand }} left · ~{{ '%.0f'|format(r.days_cover) }} day{{ 's' if r.days_cover >= 1.5 }}</span></li>
+        {% endfor %}</ul>{% else %}<div class="empty"><i class="bi bi-check-circle" aria-hidden="true"></i> Nothing is running low</div>{% endif %}
       </div></div>
       <div class="col-md-6"><div class="attn sleep">
-        <h3>💤 Money sleeping on the shelf <a href="/orders" class="small fw-normal">order lists →</a></h3>
+        <h3><i class="bi bi-moon-stars-fill" aria-hidden="true"></i> Money sleeping on the shelf <a href="/orders" class="small fw-normal">order lists →</a></h3>
         {% if attention.sleeping %}<ul>{% for l in attention.sleeping[:5] %}
-          <li><span class="what">{{ l.name_en }}</span><span class="why">{{ l.stock }} left · <b style="color:var(--sleep)">${{ '%.2f'|format(l.value) }}</b></span></li>
-        {% endfor %}</ul>{% else %}<div class="empty">✓ No slow stock</div>{% endif %}
+          <li><span class="what">{{ pic(photos.product.get(l.product_id), 28) }} {{ l.name_en }}</span><span class="why">{{ l.stock }} left · <b style="color:var(--sleep)">${{ '%.2f'|format(l.value) }}</b></span></li>
+        {% endfor %}</ul>{% else %}<div class="empty"><i class="bi bi-check-circle" aria-hidden="true"></i> No slow stock</div>{% endif %}
       </div></div>
       <div class="col-md-6"><div class="attn exp">
-        <h3>⌛ Expiring within {{ cfg.forecast.expiry_warning_days }} days</h3>
+        <h3><i class="bi bi-hourglass-split" aria-hidden="true"></i> Expiring within {{ cfg.forecast.expiry_warning_days }} days</h3>
         {% if attention.expiring %}<ul>{% for r in attention.expiring[:5] %}
-          <li><span class="what">{{ r.name_en }}</span><span class="why">{{ r.expiry }}</span></li>
-        {% endfor %}</ul>{% else %}<div class="empty">✓ Nothing expiring soon</div>{% endif %}
+          <li><span class="what">{{ pic(photos.product.get(r.id), 28) }} {{ r.name_en }}</span><span class="why">{{ r.expiry }}</span></li>
+        {% endfor %}</ul>{% else %}<div class="empty"><i class="bi bi-check-circle" aria-hidden="true"></i> Nothing expiring soon</div>{% endif %}
       </div></div>
     </div>
   </div>
-  <div class="col-xl-4">
-    <div class="card h-100">
-      <div class="card-header">🚚 Next agent visits <div class="sub">what to order from each, before they come</div></div>
+  <div class="col-12">
+   <div class="row g-3">
+    <div class="col-md-6"><div class="card h-100">
+      <div class="card-header"><i class="bi bi-truck" aria-hidden="true"></i> Next agent visits <div class="sub">what to order from each, before they come</div></div>
       {% for v in visits %}
       <a class="visit" href="/orders#supplier-{{ v.supplier_id }}">
         <div class="when"><div class="d">{% if v.days_to_visit == 0 %}Today{% elif v.days_to_visit == 1 %}Tmrw{% else %}{{ v.visit_date.strftime('%a') }}{% endif %}</div>
           <div class="s">{{ v.visit_date.strftime('%d %b') }}</div></div>
         <div class="who">{{ v.emoji }} {{ v.name }}
-          <div class="s">{% set o = v.of('order')|length %}{% if o %}order {{ o }} item{{ 's' if o != 1 }} · ${{ '%.0f'|format(v.order_value) }}{% else %}nothing to order{% endif %}{% if v.of('sleeping') %} · 💤 {{ v.of('sleeping')|length }} to skip{% endif %}</div></div>
+          <div class="s">{% set o = v.of('order')|length %}{% if o %}order {{ o }} item{{ 's' if o != 1 }} · ${{ '%.0f'|format(v.order_value) }}{% else %}nothing to order{% endif %}{% if v.of('sleeping') %} · <i class="bi bi-moon-stars" aria-hidden="true"></i> {{ v.of('sleeping')|length }} to skip{% endif %}</div></div>
         <span class="muted">›</span>
       </a>
       {% endfor %}
-    </div>
+    </div></div>
+    <div class="col-md-6"><div class="card h-100">
+      <div class="card-header"><i class="bi bi-clock" aria-hidden="true"></i> Busy hours <div class="sub">sales per hour on a usual day, last 4 weeks</div></div>
+      {% if busy_chart %}
+      <div class="card-body pb-2">
+        {{ busy_chart }}
+        <div class="small muted mt-1">Busiest around <b class="text-body">{{ busy_peak }}</b>. Restock and plan breaks before then.</div>
+      </div>
+      {% else %}
+      {{ empty('clock', 'Not enough sales yet', 'The busy hours show once the camera has recorded a few days of sales.') }}
+      {% endif %}
+    </div></div>
+   </div>
   </div>
-</div>
-
-<!-- review queue -->
-<div class="section-title" id="check">⚠️ Check these items
-  <span class="badge rounded-pill {{ 'text-bg-warning' if pending else 'text-bg-success' }}">{{ pending|length }}</span>
-  <span class="muted fw-normal small">— the camera wasn't sure. The same questions go to Telegram.</span></div>
-<div class="card">
-  {% if not pending %}
-  <div class="p-4 text-center muted">✓ All caught up. Items the camera is sure about are recorded automatically.</div>
-  {% endif %}
-  {% for it in pending %}
-  <div class="check-item">
-    {% if it.crop_path %}<img class="crop-lg" src="/media/{{ it.crop_path }}" alt="item on the counter">{% endif %}
-    <div class="flex-grow-1">
-      <div class="d-flex justify-content-between flex-wrap gap-2">
-        <span class="muted">Sale at {{ it.started_at[11:16] }} · <span class="pill tier-{{ it.tier }}">{{ 'fairly sure' if it.tier == 'medium' else 'not sure' }} {{ '%.0f'|format(it.confidence * 100) }}%</span></span>
-        <form method="post" action="/items/{{ it.id }}/resolve" class="qty"><input type="hidden" name="action" value="qty">
-          <span class="muted small">How many?</span>
-          <button class="btn btn-outline-secondary" name="delta" value="-1" aria-label="one fewer">−</button>
-          <span class="val">{{ it.count }}</span>
-          <button class="btn btn-outline-secondary" name="delta" value="1" aria-label="one more">+</button></form>
-      </div>
-      {% if it.label_text %}<div class="small muted">🔎 Label reads “{{ it.label_text }}”, not clear enough to decide alone</div>{% endif %}
-      <div class="question">{% if it.pack_id %}Is this <b>{{ pack_label(it, 'en') }}</b>? <span class="km muted small">{{ it.name_km }}</span>{% else %}What is this item?{% endif %}</div>
-      <div class="choices">
-        {% if it.pack_id %}
-        <form method="post" action="/items/{{ it.id }}/resolve"><input type="hidden" name="action" value="yes">
-          <button class="btn btn-lg btn-success px-4">✅ Yes</button></form>
-        {% endif %}
-        {% for pk, score in pending_cands[it.id] if pk and pk.pack_id != it.pack_id %}{% if loop.index <= 2 %}
-        <form method="post" action="/items/{{ it.id }}/resolve"><input type="hidden" name="action" value="pick">
-          <button class="btn btn-lg btn-outline-primary" name="pack_id" value="{{ pk.pack_id }}">No, it's {{ pack_label(pk, 'en') }}</button></form>
-        {% endif %}{% endfor %}
-      </div>
-      <div class="choices mt-2">
-        <form method="post" action="/items/{{ it.id }}/resolve" class="d-flex gap-2"><input type="hidden" name="action" value="pick">
-          <select name="pack_id" class="form-select" style="max-width:17rem" required onchange="this.form.submit()">
-            <option value="">Something else…</option>
-            {% for pk in packs %}<option value="{{ pk.pack_id }}">{{ pack_label(pk, 'en') }}</option>{% endfor %}
-          </select></form>
-        <form method="post" action="/items/{{ it.id }}/resolve"><input type="hidden" name="action" value="remove">
-          <button class="btn btn-outline-danger">✖ Not a sale</button></form>
-        <form method="post" action="/items/{{ it.id }}/resolve"><input type="hidden" name="action" value="unknown">
-          <button class="btn btn-outline-secondary">❓ Not in catalog</button></form>
-      </div>
-    </div>
-  </div>
-  {% endfor %}
 </div>
 
 <!-- stock -->
-<div class="section-title" id="stock">📦 Stock on the shelf</div>
+<div class="section-title" id="stock"><i class="bi bi-box-seam" aria-hidden="true"></i> Stock on the shelf</div>
 <div class="card">
   <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
     <div class="chips" id="stock-filters">
-      <button class="chip active" data-filter="all">All {{ table|length }}</button>
-      <button class="chip" data-filter="attention">Needs attention {{ n_alerts + attention.expiring|length }}</button>
+      {% if n_attention %}<button class="chip active" data-filter="attention">Needs attention {{ n_attention }}</button>{% endif %}
+      <button class="chip {{ 'active' if not n_attention }}" data-filter="all">All {{ table|length }}</button>
       {% for s in suppliers if s %}<button class="chip" data-filter="sup:{{ s }}">{{ s }}</button>{% endfor %}
     </div>
-    <input type="search" class="form-control search" id="stock-search" placeholder="🔍 Find a product">
+    <input type="search" class="form-control search" id="stock-search" placeholder="Find a product" aria-label="find a product">
   </div>
   <div class="table-responsive">
   <table class="table table-hover mb-0" id="stock-table">
     <thead class="table-light"><tr><th>Product</th><th>Status</th><th class="num">On shelf</th>
-      <th class="num hide-xs">Sold (7 days)</th><th class="num hide-xs">Worth</th><th class="hide-xs">Expires</th></tr></thead>
+      <th class="num hide-xs">Sold · 14 days</th><th class="num hide-xs">Worth</th><th class="hide-xs">Expires</th></tr></thead>
     <tbody>
     {% for r in table %}
       {% set pct = [100, ((r.days_cover or 0) / 14 * 100)|int]|min %}
       <tr data-name="{{ (r.name_en ~ ' ' ~ r.name_km)|lower }}" data-sup="{{ r.supplier_name }}"
           data-attention="{{ 1 if r.status in ('out', 'low', 'expiring') else 0 }}" onclick="location='/catalog/{{ r.id }}'" style="cursor:pointer">
-        <td><div class="fw-semibold">{{ r.name_en }}{% if r.is_critical %} <span class="pill bg-dark text-white">must-have</span>{% endif %}</div>
-          <div class="km small muted">{{ r.name_km }}</div></td>
+        <td><div class="d-flex align-items-center gap-2">{{ pic(photos.product.get(r.id), 40) }}<div>
+          <div class="fw-semibold">{{ r.name_en }}{% if r.is_critical %} <span class="pill must">must-have</span>{% endif %}</div>
+          <div class="km small muted">{{ r.name_km }}</div></div></div></td>
         <td><span class="status status-{{ r.status }}">{{ {'out': 'Out of stock', 'low': 'Running low', 'expiring': 'Expiring soon', 'new': 'Not counted yet', 'ok': 'OK'}[r.status] }}</span>
           {% if r.negative %}<div class="small text-danger">count is off by {{ -r.on_hand }} — recount</div>{% endif %}</td>
-        <td class="num"><span class="fs-6 fw-bold">{% if r.negative %}0{% else %}{{ r.on_hand }}{% endif %}</span>
+        <td class="num">{% if r.sold_uncounted is defined %}<span class="fs-6 fw-bold">–</span>
+          <div class="small muted">not counted · {{ r.sold_uncounted }} sold</div>{% else %}<span class="fs-6 fw-bold">{% if r.negative %}0{% else %}{{ r.on_hand }}{% endif %}</span>{% endif %}
+          {% if r.breakdown and not r.negative %}<div class="small muted">= {{ r.breakdown }}</div>{% endif %}
           {% if r.pending_units %}<div class="small muted">{{ r.pending_units }} more may be sold</div>{% endif %}
           {% if r.days_cover is not none %}<div class="cover ms-auto" title="{{ r.days_cover }} days at the current pace"><span style="width:{{ pct }}%;background:{{ {'out': 'var(--bad)', 'low': 'var(--warn)'}.get(r.status, 'var(--ok)') }}"></span></div>
-          <div class="small muted">~{{ '%.0f'|format(r.days_cover) }} days</div>{% endif %}</td>
-        <td class="num hide-xs">{{ r.sold_7d }}</td>
+          <div class="small muted">~{{ '%.0f'|format(r.days_cover) }} day{{ 's' if r.days_cover >= 1.5 }}</div>{% endif %}</td>
+        <td class="num hide-xs"><div class="d-flex align-items-center justify-content-end gap-2">{{ r.spark }}<span class="spark-n">{{ r.sold_14d }}</span></div></td>
         <td class="num hide-xs">${{ '%.2f'|format(r.value) }}</td>
         <td class="hide-xs {{ 'text-danger fw-semibold' if r.expiring }}">{{ r.expiry or '' }}</td>
       </tr>
@@ -177,29 +153,27 @@
   </div>
 </div>
 
-<!-- how the camera is doing -->
-<div class="row g-3 mt-1">
-  <div class="col-lg-8">
-    <div class="section-title">🧾 Recent sales</div>
-    <div class="card">
-      {% if not recent %}<p class="muted p-4 mb-0 text-center">No camera sales yet. Open the <a href="/counter">Counter</a> page.</p>{% endif %}
+<!-- history, folded away: useful now and then, not every day -->
+<details class="card mt-3 fold">
+  <summary class="card-header"><i class="bi bi-receipt" aria-hidden="true"></i> Recent sales and how the camera is doing
+    <a href="/log" class="small fw-normal ms-2">full camera log →</a></summary>
+  <div class="row g-0">
+    <div class="col-lg-8">
+      {% if not recent %}{{ empty('camera-video', 'No camera sales yet', 'Sales appear here as the counter camera records them.', '/counter', 'Open the counter camera') }}{% endif %}
       <table class="table mb-0">
         {% for r in recent %}
         <tr>
           <td class="text-nowrap muted" style="width:6rem">{{ r.txn.started_at[11:16] }}<div class="small">{{ r.txn.started_at[5:10] }}</div></td>
           <td><div class="d-flex flex-wrap gap-1">{% for it in r['items'] %}
             <span class="pill status-{{ it.status }}" title="{{ it.status }} · {{ it.tier }} {{ '%.2f'|format(it.confidence) }} via {{ it.method }}">
-              {{ pack_label(it, 'en') if it.pack_id else '?' }}{% if it.count > 1 %} ×{{ it.count }}{% endif %}</span>
+              {% if it.method == 'tray' %}<i class="bi bi-capsule" aria-hidden="true"></i> {% endif %}{{ pack_label(it, 'en') if it.pack_id else '?' }}{% if it.count > 1 %} ×{{ it.count }}{% endif %}</span>
           {% endfor %}</div></td>
           <td class="text-end small muted hide-xs">{{ {'auto': 'automatic', 'pending': 'waiting for check', 'verified': 'checked', 'best_guess': 'best guess'}.get(r.txn.status, r.txn.status) }}</td>
         </tr>
         {% endfor %}
       </table>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="section-title">📷 How the camera is doing</div>
-    <div class="card">
+    <div class="col-lg-4 border-start">
       <ul class="list-group list-group-flush">
         <li class="list-group-item d-flex justify-content-between py-3"><span>Right without help (7 days)</span>
           <b>{{ trend[-1].accuracy if trend[-1].accuracy is not none else '–' }}{% if trend[-1].accuracy is not none %}%{% endif %}</b></li>
@@ -213,20 +187,34 @@
         <div class="d-flex gap-2 align-items-end" style="height:70px">
           {% for w in trend %}{% set a = w.accuracy or 0 %}
           <div class="flex-fill text-center small" title="week ending {{ w.week_end }}: {{ w['items'] }} items">
-            <div style="height:{{ (a * 0.5)|int + 4 }}px;background:{{ 'var(--ok)' if w.accuracy is not none else '#e5e2d9' }};border-radius:4px 4px 0 0"></div>
+            <div style="height:{{ (a * 0.5)|int + 4 }}px;background:{{ 'var(--violet-600)' if w.accuracy is not none else 'var(--n-100)' }};border-radius:4px 4px 0 0"></div>
             <div class="muted">{{ w.accuracy ~ '%' if w.accuracy is not none else '–' }}</div>
           </div>{% endfor %}
         </div>
       </div>
     </div>
   </div>
+</details>
+
+<!-- "something else": the product picker -->
+<div class="modal fade" id="pick-modal" tabindex="-1" aria-labelledby="pick-title">
+  <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="pick-title">Which product is it?</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body"><div id="pick-picker"></div></div>
+    <div class="modal-footer d-none" id="several-bar">
+      <div class="flex-grow-1"><div class="small muted mb-1">In this photo (tap one to take it off):</div><div class="chips" id="several-list"></div></div>
+      <button type="button" class="btn btn-lg btn-success" id="several-save" disabled>Record them</button>
+    </div>
+  </div></div>
 </div>
+<script type="application/json" id="picker-data">{{ picker|tojson }}</script>
 
 <!-- adjust stock -->
 <div class="modal fade" id="adjust" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
     <form method="post" action="/adjust">
-      <div class="modal-header"><h5 class="modal-title">➖ Adjust stock</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-header"><h5 class="modal-title"><i class="bi bi-sliders" aria-hidden="true"></i> Adjust stock</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
       <div class="modal-body">
         <p class="muted">For stock that changed without passing the camera.</p>
         <label class="form-label">Why?</label>
@@ -236,11 +224,20 @@
           <label class="btn btn-outline-dark" for="r-{{ reason }}">{{ t('en', 'reason_' + reason) }}</label>
           {% endfor %}
         </div>
-        <label class="form-label" for="adj-product">Which product?</label>
-        <select name="product_id" id="adj-product" class="form-select mb-3" required>
-          {% for r in table|sort(attribute='name_en') %}<option value="{{ r.id }}">{{ r.name_en }}</option>{% endfor %}</select>
-        <label class="form-label" for="adj-qty">How many?</label>
-        <input name="qty" id="adj-qty" type="number" min="1" value="1" class="form-control form-control-lg" required>
+        <label class="form-label">Which product?</label>
+        <div class="adjust-chosen d-none" id="adjust-chosen"><b></b>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="adjust-change">Change</button></div>
+        <div id="adjust-picker"></div>
+        <input type="hidden" name="product_id" id="adj-product">
+        <div class="text-danger small mt-1 d-none" id="adjust-need">Pick a product first.</div>
+        <label class="form-label mt-3">How many?</label>
+        <div class="qty-buttons">
+          {% for n in (1, 2, 3, 6, 12, 24) %}
+          <input type="radio" class="btn-check" name="qty" id="q-{{ n }}" value="{{ n }}" {% if n == 1 %}checked{% endif %}>
+          <label class="btn btn-outline-dark" for="q-{{ n }}">{{ n }}</label>
+          {% endfor %}
+          <input type="number" min="1" inputmode="numeric" class="form-control" id="q-other" placeholder="other" aria-label="another amount">
+        </div>
       </div>
       <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
         <button class="btn btn-dark btn-lg">Save</button></div>
@@ -250,16 +247,48 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ asset('picker.js') }}"></script>
+<script src="{{ asset('checks.js') }}"></script>
 <script>
+// Adjust stock: pick a product (best sellers first, or type), then a quantity button.
+(() => {
+  const items = JSON.parse(document.getElementById("picker-data").textContent);
+  const chosen = document.getElementById("adjust-chosen"), hidden = document.getElementById("adj-product");
+  const pickerBox = document.getElementById("adjust-picker"), need = document.getElementById("adjust-need");
+  const picker = LuyDek.picker(pickerBox, items, {
+    baseOnly: true, top: 6,
+    onPick(i) {
+      hidden.value = i.product;
+      chosen.querySelector("b").textContent = i.label;
+      chosen.classList.remove("d-none"); pickerBox.classList.add("d-none"); need.classList.add("d-none");
+    },
+  });
+  document.getElementById("adjust-change").onclick = () => {
+    chosen.classList.add("d-none"); pickerBox.classList.remove("d-none"); picker.reset(); picker.focus();
+  };
+  const other = document.getElementById("q-other");
+  other.addEventListener("input", () => {
+    // Typing a number replaces the buttons' choice; tapping a button clears the number.
+    document.querySelectorAll(".qty-buttons .btn-check").forEach((b) => (b.checked = false));
+    other.name = other.value ? "qty" : "";
+  });
+  document.querySelectorAll(".qty-buttons .btn-check").forEach((b) => b.addEventListener("change", () => { other.value = ""; other.name = ""; }));
+  document.querySelector('#adjust form').addEventListener("submit", (e) => {
+    if (!hidden.value) { e.preventDefault(); need.classList.remove("d-none"); }
+  });
+  document.getElementById("adjust").addEventListener("shown.bs.modal", () => picker.focus());
+})();
+
 (() => {
   const rows = [...document.querySelectorAll("#stock-table tbody tr")];
   const search = document.getElementById("stock-search");
-  let filter = "all";
+  let filter = (document.querySelector("#stock-filters .chip.active") || {}).dataset?.filter || "all";
   function apply() {
     const q = search.value.trim().toLowerCase();
     let shown = 0;
     for (const r of rows) {
-      const okFilter = filter === "all" || (filter === "attention" && r.dataset.attention === "1")
+      // A search looks through every product, whatever chip is on.
+      const okFilter = q || filter === "all" || (filter === "attention" && r.dataset.attention === "1")
         || (filter.startsWith("sup:") && r.dataset.sup === filter.slice(4));
       const ok = okFilter && (!q || r.dataset.name.includes(q));
       r.classList.toggle("d-none", !ok);
@@ -268,6 +297,7 @@
     document.getElementById("stock-empty").classList.toggle("d-none", shown > 0);
   }
   function setFilter(f) {
+    if (!document.querySelector(`#stock-filters .chip[data-filter="${f}"]`)) f = "all";
     filter = f;
     document.querySelectorAll("#stock-filters .chip").forEach((c) => c.classList.toggle("active", c.dataset.filter === f));
     apply();
@@ -275,6 +305,8 @@
   document.querySelectorAll("#stock-filters .chip").forEach((c) => c.onclick = () => setFilter(c.dataset.filter));
   document.querySelectorAll("[data-filter-link]").forEach((a) => a.addEventListener("click", () => setFilter(a.dataset.filterLink)));
   search.oninput = apply;
+  apply();
 })();
 </script>
+<script src="{{ asset('tips.js') }}"></script>
 {% endblock %}

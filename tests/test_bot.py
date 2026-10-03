@@ -149,7 +149,7 @@ def test_other_opens_a_numbered_grid(conn, cfg, stub_encoder):
     assert question[2] == f"Which one is #{item_id}?"
     labels = [b.text for row in question[3].inline_keyboard for b in row]
     assert labels[0].startswith("1. Ichitan") and labels[1].startswith("2. Oishi")
-    assert "▶ More" in labels and "❓ Not in the list" in labels
+    assert "▶ More" in labels and "🆕 New product" in labels
 
 
 def test_adjustment_is_three_taps(conn, cfg):

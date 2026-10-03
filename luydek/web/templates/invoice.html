@@ -2,7 +2,7 @@
 {% block title %}Delivery #{{ inv.id }}{% endblock %}
 {% block content %}
 {% set words = {'extracted': 'Waiting for your OK', 'confirmed': 'In stock ✓', 'queued': 'Waiting for internet',
-                'failed': "Couldn't read it", 'rejected': 'Discarded'} %}
+                'failed': "Couldn't read it", 'rejected': 'Discarded', 'products': 'Products added'} %}
 {% set editable = inv.status in ('extracted', 'queued', 'failed') %}
 <div class="mb-2"><a href="/invoices" class="text-decoration-none">← Deliveries</a></div>
 <div class="page-head">
@@ -18,6 +18,9 @@
 {# what to do next, in one sentence #}
 {% if inv.status == 'confirmed' %}
 <div class="alert alert-success fs-6">✓ Added <b>+{{ total }}</b> to stock on {{ inv.confirmed_at[:16] }}.</div>
+{% elif inv.status == 'products' %}
+<div class="alert alert-success fs-6"><i class="bi bi-box-seam" aria-hidden="true"></i> The products on this old invoice are in your
+  product list, with their prices. No stock was added. <a href="/catalog#learned">See them</a></div>
 {% elif inv.status == 'rejected' %}
 <div class="alert alert-secondary">This delivery was discarded. Nothing was added to stock.</div>
 {% elif inv.status == 'failed' and not lines %}
@@ -26,11 +29,18 @@
 {% elif inv.status == 'queued' and not lines %}
 <div class="alert alert-secondary">No internet when this was photographed. It will be read automatically when the connection is back.</div>
 {% elif open_lines %}
-<div class="alert alert-warning fs-6">Pick the product for <b>{{ open_lines|length }}</b> line{{ 's' if open_lines|length != 1 }} below, then add the delivery to stock.</div>
+<div class="alert alert-warning d-flex align-items-center justify-content-between gap-3 flex-wrap">
+  <span class="fs-6"><b>{{ open_lines|length }}</b> line{{ 's aren’t' if open_lines|length != 1 else ' isn’t' }} in your products yet.
+    Add {{ 'them' if open_lines|length != 1 else 'it' }} as new, pick the product, or skip — then add the delivery to stock.</span>
+  {% if addable|length > 1 and editable %}
+  <form method="post" action="/invoices/{{ inv.id }}/new-products" data-busy="Adding products…">
+    <button class="btn btn-lg btn-dark"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add all {{ addable|length }} as new products</button></form>
+  {% endif %}
+</div>
 {% elif lines %}
 <div class="alert alert-success d-flex align-items-center justify-content-between gap-3 flex-wrap">
   <span class="fs-6">Every line is matched. Check the numbers against the paper, then add it to stock.</span>
-  <form method="post" action="/invoices/{{ inv.id }}/confirm"><button class="btn btn-lg btn-success">✅ Add +{{ total }} to stock</button></form>
+  <form method="post" action="/invoices/{{ inv.id }}/confirm" data-busy="Adding to stock…"><button class="btn btn-lg btn-success"><i class="bi bi-check-lg" aria-hidden="true"></i> Add +{{ total }} to stock</button></form>
 </div>
 {% endif %}
 
@@ -40,10 +50,19 @@
     <form method="post" action="/invoices/{{ inv.id }}/supplier" class="d-flex gap-2 align-items-center mb-3">
       <label for="sup" class="fw-semibold text-nowrap">From</label>
       <select id="sup" name="supplier_id" class="form-select form-select-lg {% if not inv.supplier_id %}border-warning{% endif %}" onchange="this.form.submit()">
-        {% if not inv.supplier_id %}<option value="">❓ Which supplier? {{ inv.supplier_name_raw or '' }}</option>{% endif %}
+        {% if not inv.supplier_id %}<option value="">Which supplier? {{ inv.supplier_name_raw or '' }}</option>{% endif %}
         {% for s in suppliers %}<option value="{{ s.id }}" {% if s.id == inv.supplier_id %}selected{% endif %}>{{ s.emoji }} {{ s.name }}</option>{% endfor %}
       </select>
     </form>
+    {% if not inv.supplier_id and inv.supplier_name_raw %}
+    <form method="post" action="/invoices/{{ inv.id }}/new-supplier" class="new-product mt-0 mb-3 d-flex flex-wrap gap-2 align-items-end">
+      <div><label class="form-label small fw-semibold mb-1" for="ns-name">A new supplier?</label>
+        <input id="ns-name" name="name" class="form-control" value="{{ inv.supplier_name_raw }}" maxlength="60" required></div>
+      <div><label class="form-label small fw-semibold mb-1" for="ns-day">Their agent comes on</label>
+        <select id="ns-day" name="visit_weekday" class="form-select">{% for d in weekdays %}<option value="{{ loop.index0 }}">{{ d }}</option>{% endfor %}</select></div>
+      <button class="btn btn-outline-dark">Add supplier</button>
+    </form>
+    {% endif %}
     {% endif %}
 
     {% for l in lines %}
@@ -52,7 +71,7 @@
       <div class="d-flex justify-content-between gap-3">
         <div>
           <div class="small muted">Line {{ loop.index }} · as written</div>
-          <div class="written km">{% if l.is_free %}🎁 {% endif %}{{ l.text_as_written }}</div>
+          <div class="written km">{% if l.is_free %}<i class="bi bi-gift" aria-hidden="true"></i> {% endif %}{{ l.text_as_written }}</div>
           <div class="small muted">{{ '%g'|format(l.qty) }} {{ {'case': 'case', 'pack': 'pack', 'piece': 'single'}[l.unit] }}{{ 's' if l.qty != 1 and l.unit != 'piece' }}
             {% if l.unit_cost is not none %}· ${{ '%.2f'|format(l.unit_cost) }} each{% endif %}
             {% if l.expiry_date %}· expires {{ l.expiry_date }}{% endif %}
@@ -65,7 +84,21 @@
       </div>
 
       {% if is_open and editable %}
-      <div class="mt-2 fw-semibold">Which product is this?</div>
+      {% set suggested = l.name_suggested or l.text_as_written %}
+      <form method="post" action="/invoices/{{ inv.id }}/lines/{{ l.id }}/new" class="new-product">
+        <div class="fw-semibold mb-1"><i class="bi bi-plus-square" aria-hidden="true"></i> Not in your products yet? Add it</div>
+        <div class="d-flex flex-wrap gap-2 align-items-end">
+          <div class="flex-grow-1" style="min-width:14rem"><label class="form-label small mb-1" for="nl-{{ l.id }}">Name</label>
+            <input id="nl-{{ l.id }}" name="name" class="form-control" value="{{ suggested }}" maxlength="80" required></div>
+          {% if l.id in needs_size %}
+          <div style="width:9rem"><label class="form-label small mb-1" for="nc-{{ l.id }}">How many in one {{ l.unit }}?</label>
+            <input id="nc-{{ l.id }}" name="units_per_case" type="number" min="1" inputmode="numeric" class="form-control" required></div>
+          {% endif %}
+          <button class="btn btn-dark"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add as new</button>
+        </div>
+        <div class="small muted mt-1">{% if l.units_per_case %}{{ l.units_per_case }} in one {{ l.unit }} · {% endif %}{% if inv.supplier or inv.supplier_name_raw %}from {{ inv.supplier or inv.supplier_name_raw }} · {% endif %}{% if l.unit_cost is not none and not l.is_free %}${{ '%.2f'|format(l.unit_cost) }} a {{ l.unit if l.unit != 'piece' else 'piece' }}{% endif %}</div>
+      </form>
+      <div class="mt-2 fw-semibold">Or is it one you have?</div>
       <div class="d-flex flex-wrap gap-2 mt-1">
         {% for pid in (suggestions.get(l.id, []) | select("in", names) | list)[:3] %}
         <form method="post" action="/invoices/{{ inv.id }}/lines/{{ l.id }}"><input type="hidden" name="product_id" value="{{ pid }}">
@@ -78,7 +111,7 @@
             <option value="">Something else…</option>
             {% for p in products %}<option value="{{ p.id }}">{{ p.name_en }}</option>{% endfor %}</select></form>
         <form method="post" action="/invoices/{{ inv.id }}/lines/{{ l.id }}"><input type="hidden" name="product_id" value="skip">
-          <button class="btn btn-outline-secondary">⏭ Skip this line</button></form>
+          <button class="btn btn-outline-secondary"><i class="bi bi-skip-forward" aria-hidden="true"></i> Skip this line</button></form>
       </div>
       {% elif not l.skipped %}
       <div class="d-flex justify-content-between align-items-center gap-2 mt-2 flex-wrap">
@@ -89,7 +122,7 @@
           <form method="post" action="/invoices/{{ inv.id }}/lines/{{ l.id }}" class="d-flex gap-2 mt-1">
             <select name="product_id" class="form-select form-select-sm" onchange="this.form.submit()">
               {% for p in products %}<option value="{{ p.id }}" {% if p.id == l.product_id %}selected{% endif %}>{{ p.name_en }}</option>{% endfor %}
-              <option value="skip">⏭ skip this line</option></select></form>
+              <option value="skip">skip this line</option></select></form>
         </details>
         {% endif %}
       </div>
@@ -101,17 +134,22 @@
 
     {% if editable and lines %}
     <div class="d-flex gap-2 flex-wrap mt-3">
-      <form method="post" action="/invoices/{{ inv.id }}/confirm" class="flex-grow-1 d-grid">
-        <button class="btn btn-xl btn-success" {% if open_lines %}disabled{% endif %}>✅ Correct — add +{{ total }} to stock</button></form>
+      <form method="post" action="/invoices/{{ inv.id }}/confirm" class="flex-grow-1 d-grid" data-busy="Adding to stock…">
+        <button class="btn btn-xl btn-success" {% if open_lines %}disabled{% endif %}><i class="bi bi-check-lg" aria-hidden="true"></i> Correct — add +{{ total }} to stock</button></form>
       <form method="post" action="/invoices/{{ inv.id }}/reject" onsubmit="return confirm('Discard this delivery? Nothing will be added to stock.')">
-        <button class="btn btn-xl btn-outline-danger">✖ Discard</button></form>
+        <button class="btn btn-xl btn-outline-danger"><i class="bi bi-x-lg" aria-hidden="true"></i> Discard</button></form>
     </div>
-    {% if open_lines %}<div class="small muted mt-1">Pick or skip the {{ open_lines|length }} open line{{ 's' if open_lines|length != 1 }} first.</div>{% endif %}
+    {% if open_lines %}<div class="small muted mt-1">Add, pick or skip the {{ open_lines|length }} open line{{ 's' if open_lines|length != 1 }} first.</div>{% endif %}
+    <form method="post" action="/invoices/{{ inv.id }}/products-only" class="mt-3" data-busy="Saving the products…">
+      <button class="btn btn-outline-secondary" {% if open_lines %}disabled{% endif %}><i class="bi bi-box-seam" aria-hidden="true"></i>
+        Only add the products — this is an old invoice</button>
+      <div class="small muted mt-1">Setting up the shop? Old invoices add their products, prices and supplier without adding stock.</div>
+    </form>
     {% endif %}
 
     {% if inv.status in ('extracted', 'confirmed') %}
     <div class="card mt-4">
-      <div class="card-header">🎁 Free stock that isn't on the invoice <div class="sub">"Buy 10 get 1" bonuses still belong in stock.</div></div>
+      <div class="card-header"><i class="bi bi-gift" aria-hidden="true"></i> Free stock that isn't on the invoice <div class="sub">"Buy 10 get 1" bonuses still belong in stock.</div></div>
       <form method="post" action="/invoices/{{ inv.id }}/bonus" class="card-body row g-2 align-items-end">
         <div class="col-sm-7"><label class="form-label" for="b-prod">Product</label><select id="b-prod" name="product_id" class="form-select">
           {% for p in products if not inv.supplier_id or p.supplier_id == inv.supplier_id %}<option value="{{ p.id }}">{{ p.name_en }}</option>{% endfor %}</select></div>

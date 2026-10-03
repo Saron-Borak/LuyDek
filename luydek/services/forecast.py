@@ -47,6 +47,7 @@ class Line:
     capped_by_expiry: bool = False
     value: float = 0.0            # dollars at cost, for sleeping stock
     expiry: str | None = None     # soonest expiry still on the shelf, if near
+    order_unit: str = "case"      # what `cases` counts: "box" for medicine sold by the tablet
 
     @property
     def cover_days(self) -> float | None:
@@ -133,6 +134,8 @@ def build_plans(
     expiries = stock.earliest_live_expiry(conn, levels)
     expiry_soon = (as_of + timedelta(days=cfg.expiry_warning_days)).isoformat()
     observing = bool(cfg.observe_until and as_of.isoformat() < cfg.observe_until)
+    from . import loose  # loose -> catalog; kept local like stock_table's import
+    boxes = loose.box_sizes(conn)
 
     last_sale = {
         r["product_id"]: r["t"]
@@ -144,6 +147,7 @@ def build_plans(
         r["product_id"]: r["t"]
         for r in conn.execute("SELECT product_id, MIN(created_at) AS t FROM stock_movements GROUP BY product_id")
     }
+    counted = {r[0] for r in conn.execute("SELECT DISTINCT product_id FROM stock_movements WHERE type != 'sale'")}
 
     suppliers = conn.execute(
         "SELECT * FROM suppliers" + (" WHERE id = ?" if supplier_id else "") + " ORDER BY visit_weekday, name",
@@ -172,10 +176,15 @@ def build_plans(
             )
             if expiries.get(p["id"]) and expiries[p["id"]] <= expiry_soon:
                 line.expiry = expiries[p["id"]]
+            if p["id"] in boxes and boxes[p["id"]][1] == p["case_size"]:
+                line.order_unit = boxes[p["id"]][0]  # the agent sells this medicine by the box
             _decide(line, h["avg"], p["shelf_life_days"], _days_since(first_seen.get(p["id"]), as_of),
                     plan.days_to_visit + plan.cycle_days, cfg)
             if observing and line.action in ("order", "market"):
                 line.action, line.reason, line.units, line.cases = "check", "observing", 0, 0
+            elif p["origin"] != "catalog" and p["id"] not in counted and line.action in ("order", "market"):
+                # Learned at the counter and never counted: its sales are known, its shelf isn't.
+                line.action, line.reason, line.units, line.cases = "check", "count_first", 0, 0
             plan.lines.append(line)
         plan.lines.sort(key=lambda l: (ACTIONS.index(l.action), -l.cases, l.name_en))
         plans.append(plan)

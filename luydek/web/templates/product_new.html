@@ -1,15 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Add a product{% endblock %}
 {% block content %}
-<div class="mb-2"><a href="/catalog" class="text-decoration-none">← Catalog</a></div>
+<div class="mb-2"><a href="/catalog" class="text-decoration-none"><i class="bi bi-arrow-left" aria-hidden="true"></i> Products</a></div>
 <div class="page-head">
   <div>
     <h1>Add a product</h1>
     <div class="lead-line">Three quick steps. Next you'll take {{ min_photos }} photos so the camera learns what it looks like.</div>
   </div>
 </div>
+<div class="tip mb-3" style="max-width:52rem"><i class="bi bi-lightbulb" aria-hidden="true"></i> <span>Adding many? Photograph a supplier
+  invoice on <a href="/invoices">Deliveries</a>: each line becomes a product in one tap. And anything the camera meets that isn't
+  listed yet is asked about at the counter, so the list also grows while you sell.</span></div>
 
-<form method="post" action="/catalog/products" class="steps" style="max-width:52rem">
+<form method="post" action="/catalog/products" class="steps" style="max-width:52rem" data-busy="Adding…">
   <div class="card mb-3"><div class="card-body p-4">
     <h2 class="h5 mb-3"><span class="step-n">1</span>What is it?</h2>
     <div class="mb-3">
@@ -36,7 +39,7 @@
         <label class="form-label" for="supplier_id">Supplier (agent)</label>
         <select id="supplier_id" name="supplier_id" class="form-select form-select-lg">
           {% for s in suppliers %}<option value="{{ s.id }}">{{ s.emoji }} {{ s.name }} — visits {{ weekdays[s.visit_weekday] }}</option>{% endfor %}
-          <option value="">➕ A new supplier…</option>
+          <option value="">+ A new supplier…</option>
         </select>
         <div id="new-supplier" class="row g-2 mt-1 d-none">
           <div class="col-7"><input name="new_supplier" class="form-control" placeholder="Supplier name"></div>

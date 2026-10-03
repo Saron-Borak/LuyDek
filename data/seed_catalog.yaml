@@ -1,4 +1,4 @@
-# Demo catalog: 15 products, 4 supplier agents, 3 look-alike pairs
+# Demo catalog: 16 products (one sold by the tablet), 4 supplier agents, 3 look-alike pairs
 # (Ichitan / Oishi green tea, Dutch Lady chocolate / strawberry, Paracetamol 250 / 500).
 # Edit this to match the real products bought for the demo, then run
 #   python scripts/seed_demo.py --reset
@@ -181,6 +181,20 @@ products:
     unit_cost: 0.15
     aliases: [ors, oresol]
     sim: {rate: 1.5, start_stock: 40, feeling_cases: 1}
+  - sku: cetirizine-10
+    name_en: Cetirizine 10mg tablets
+    name_km: សេទីរីហ្ស៊ីន 10mg (គ្រាប់)
+    unit: tablet
+    sold_loose: true        # cut from the strip, 1-10 at a time: stock is counted in tablets
+    case_size: 100          # the distributor sells whole boxes of 10 strips x 10
+    packs:
+      - {label: strip, units: 10}
+      - {label: box, units: 100}
+    supplier: Pharma distributor
+    shelf_life_days: 730
+    unit_cost: 0.02
+    aliases: [cetirizine, ctz, cetirizine 10mg, សេទីរីហ្ស៊ីន]
+    sim: {rate: 14, start_stock: 300, feeling_cases: 1}
   - sku: vitc-1000
     name_en: Vitamin C 1000mg effervescent tube
     name_km: វីតាមីន C 1000mg (គ្រាប់រលាយ)

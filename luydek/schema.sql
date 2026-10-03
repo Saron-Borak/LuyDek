@@ -24,7 +24,10 @@ CREATE TABLE IF NOT EXISTS products (
     is_critical     INTEGER NOT NULL DEFAULT 0,     -- on the store's must-never-run-out list
     shelf_life_days INTEGER,
     unit_cost       REAL    NOT NULL DEFAULT 0,     -- dollars per base unit, latest invoice
-    active          INTEGER NOT NULL DEFAULT 1
+    active          INTEGER NOT NULL DEFAULT 1,
+    sold_loose      INTEGER NOT NULL DEFAULT 0,     -- medicine sold by the tablet: the base unit is one tablet
+    origin          TEXT    NOT NULL DEFAULT 'catalog', -- catalog / counter (named at a sale) / invoice
+    added_at        TEXT
 );
 
 -- What the camera sees. Every product has a single-unit pack; a shrink-wrapped
@@ -79,7 +82,8 @@ CREATE TABLE IF NOT EXISTS frame_detections (
     method          TEXT    NOT NULL,
     bbox            TEXT    NOT NULL,
     crop_path       TEXT,
-    candidates_json TEXT    NOT NULL DEFAULT '[]'
+    candidates_json TEXT    NOT NULL DEFAULT '[]',
+    hint            TEXT
 );
 
 CREATE TABLE IF NOT EXISTS transaction_items (
@@ -94,12 +98,50 @@ CREATE TABLE IF NOT EXISTS transaction_items (
     bbox            TEXT,
     crop_path       TEXT,
     candidates_json TEXT    NOT NULL DEFAULT '[]',
-    status          TEXT    NOT NULL,   -- auto / pending / confirmed / corrected / best_guess / removed / unknown
+    status          TEXT    NOT NULL,   -- auto / pending / confirmed / corrected / best_guess / removed / unknown / split (several items in one photo)
     verified_by     TEXT,
     verified_at     TEXT,
     digest_id       INTEGER,
     label_text      TEXT,          -- what the label reader saw printed on a look-alike
-    label_checked_at TEXT          -- set once the label reader has looked (read or not)
+    label_checked_at TEXT,         -- set once the label reader has looked (read or not)
+    tray_json       TEXT,          -- tablets from the dispensing tray: piece sizes and what was sure
+    name_guess      TEXT,          -- a new product's name as read off the package, for the owner to accept
+    name_guess_km   TEXT,
+    name_checked_at TEXT,          -- set once the package has been read for a name (read or not)
+    hint            TEXT           -- why the camera asked: junk (looked like clutter) / background (like the mat)
+);
+
+-- What the camera saw and did NOT record: junk it was sure about (a phone, a hand), or a change
+-- in the background (a shifted paper, a patch of light). Kept a while so the owner can see it in
+-- the camera log and say "that was a sale" if it was.
+CREATE TABLE IF NOT EXISTS ignored_detections (
+    id            INTEGER PRIMARY KEY,
+    txn_id        INTEGER,                         -- the sale it happened in (may be gone if nothing was sold)
+    reason        TEXT    NOT NULL,                -- an ignore class (phone, cash, hand, other) or 'background'
+    score         REAL    NOT NULL,                -- how sure: the ignore class score, or the background likeness
+    best_pack_id  INTEGER REFERENCES product_packs(id),  -- the product it looked most like
+    best_score    REAL,
+    bbox          TEXT,
+    crop_path     TEXT,
+    created_at    TEXT    NOT NULL,
+    fixed_item_id INTEGER                          -- set when the owner said it was a sale after all
+);
+CREATE INDEX IF NOT EXISTS ignored_detections_at ON ignored_detections (created_at);
+
+-- What lay on the dispensing tray in each still frame of an open transaction.
+CREATE TABLE IF NOT EXISTS tray_readings (
+    id         INTEGER PRIMARY KEY,
+    txn_id     INTEGER NOT NULL REFERENCES transactions(id),
+    frame_no   INTEGER NOT NULL,
+    pieces_json TEXT   NOT NULL,                     -- {"areas": [share of the frame, ...], "oversized": bool}
+    crop_path  TEXT
+);
+
+-- How big one tablet of a loose-sold medicine looks on the tray, learned from checked counts.
+CREATE TABLE IF NOT EXISTS tray_units (
+    product_id   INTEGER PRIMARY KEY REFERENCES products(id),
+    samples_json TEXT NOT NULL,                      -- recent one-tablet areas, newest last
+    updated_at   TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS stock_movements (
@@ -144,7 +186,12 @@ CREATE TABLE IF NOT EXISTS invoice_lines (
     expiry_date     TEXT,
     is_free         INTEGER NOT NULL DEFAULT 0,
     skipped         INTEGER NOT NULL DEFAULT 0,
-    matched_by      TEXT                           -- alias / model / owner / manual
+    matched_by      TEXT,                          -- alias / model / owner / manual / new
+    -- For lines that aren't a product yet: what the reader thinks it is, to add it in one tap.
+    name_suggested    TEXT,                        -- a clean shelf name: brand, product, variant, size
+    name_suggested_km TEXT,
+    units_per_case    INTEGER,                     -- only when printed on the invoice
+    unit_name         TEXT                         -- what one single item is: can, bottle, sachet, box...
 );
 
 CREATE TABLE IF NOT EXISTS forecasts (

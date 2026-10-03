@@ -5,8 +5,12 @@ from __future__ import annotations
 import sqlite3
 from html import escape
 
+from . import clock
 from .i18n import t
 from .services.forecast import Line, SupplierPlan
+from .services.loose import plural
+from .services.stock import STATUS_ORDER
+from .services.summary import SOLD_LINES, WATCH_LINES
 
 
 def line_reason(line: Line, plan: SupplierPlan, lang: str) -> str:
@@ -52,7 +56,10 @@ def order_message(plan: SupplierPlan, lang: str, simulated: bool) -> str:
         for l in lines:
             qty = ""
             if action == "order":
-                qty = " — " + t(lang, "orders_cases", n=l.cases)
+                if l.order_unit != "case":
+                    qty = " — " + t(lang, "orders_boxes", n=l.cases, label=plural(l.order_unit, l.cases))
+                else:
+                    qty = " — " + t(lang, "orders_case" if l.cases == 1 else "orders_cases", n=l.cases)
             elif action == "market":
                 qty = " — " + t(lang, "orders_units", n=l.units)
             out.append(f"• {name(l)}{qty}\n   <i>{line_reason(l, plan, lang)}</i>")
@@ -100,3 +107,119 @@ def invoice_message(conn: sqlite3.Connection, invoice_id: int, lang: str) -> str
 
 def _num(x: float) -> str:
     return str(int(x)) if float(x).is_integer() else f"{x:g}"
+
+
+# --- the day's summary and stock left ------------------------------------------------------------
+
+TELEGRAM_LIMIT = 3900  # a Telegram message holds 4096 characters; keep a margin for the HTML tags
+
+
+def day_label(d, lang: str) -> str:
+    return f"{t(lang, f'weekday_{d.weekday()}')} {d.day:02d}/{d.month:02d}"
+
+
+def left_text(r: dict, lang: str, cover: bool = False) -> str:
+    """"36 left", "3 boxes + 47 tablets left", "none left", "not counted yet"."""
+    if not r["tracked"]:
+        return t(lang, "left_new")
+    if r["negative"]:
+        return t(lang, "left_negative")
+    if r["on_hand"] <= 0:
+        return t(lang, "left_out")
+    # The box breakdown is written in English words; Khmer gets the plain count.
+    text = t(lang, "left", n=r["breakdown"] if r.get("breakdown") and lang == "en" else r["on_hand"])
+    if cover and r.get("days_cover") is not None:
+        text += t(lang, "left_days", days=max(1, round(r["days_cover"])))
+    return text
+
+
+def _name(r: dict, lang: str) -> str:
+    return escape(r["name_km"] if lang == "km" else r["name_en"], quote=False)  # Telegram needs only <, >, &
+
+
+def day_summary_message(s: dict, lang: str) -> str:
+    out = [f"<b>{t(lang, 'sum_title', day=day_label(s['date'], lang))}</b>"]
+    if s["simulated"]:
+        out.append(f"<i>{t(lang, 'orders_simulated')}</i>")
+    out.append(t(lang, "sum_sales", txns=s["txns"], units=s["units"]) if s["units"] or s["txns"] else t(lang, "sum_none"))
+    if s["pending"]:
+        out.append(t(lang, "sum_pending", n=s["pending"]))
+    if s["received_units"]:
+        out.append(t(lang, "sum_received", units=s["received_units"], products=s["received_products"]))
+    if s["sold"]:
+        out.append(f"\n<b>{t(lang, 'sum_head_sold')}</b>")
+        for r in s["sold"][:SOLD_LINES]:
+            out.append("• " + t(lang, "sum_sold_line", name=_name(r, lang), sold=r["sold"], left=left_text(r, lang)))
+        if len(s["sold"]) > SOLD_LINES:
+            out.append(t(lang, "sum_more", n=len(s["sold"]) - SOLD_LINES))
+    if s["watch"]:
+        out.append(f"\n<b>{t(lang, 'sum_head_watch')}</b>")
+        for r in s["watch"][:WATCH_LINES]:
+            must = t(lang, "must_have") if r["is_critical"] else ""
+            out.append(f"• {_name(r, lang)} — {left_text(r, lang, cover=True)}{must}")
+        if len(s["watch"]) > WATCH_LINES:
+            out.append(t(lang, "sum_more", n=len(s["watch"]) - WATCH_LINES))
+    if s["value"]:
+        out.append("\n" + t(lang, "sum_value", value=f"{s['value']:.2f}"))
+    return "\n".join(out)
+
+
+def stock_list_messages(rows: list[dict], lang: str, day, limit: int = TELEGRAM_LIMIT) -> list[str]:
+    """Every product and what is left, grouped out / low / expiring / not counted / in stock,
+    split into as many messages as Telegram needs."""
+    blocks = [f"<b>{t(lang, 'stock_title', day=day_label(day, lang))}</b>"]
+    for status in STATUS_ORDER:
+        group = [r for r in rows if r["status"] == status]
+        if not group:
+            continue
+        blocks.append(f"\n<b>{t(lang, 'stock_head_' + status)}</b>")
+        for r in group:
+            line = f"• {_name(r, lang)} — {left_text(r, lang)}"
+            if r.get("sold_today"):
+                line += t(lang, "stock_sold_today", n=r["sold_today"])
+            if r["is_critical"] and status in ("out", "low"):
+                line += t(lang, "must_have")
+            blocks.append(line)
+    value = sum(r["value"] for r in rows)
+    if value:
+        blocks.append("\n" + t(lang, "sum_value", value=f"{value:.2f}"))
+    messages, current = [], ""
+    for block in blocks:
+        if current and len(current) + 1 + len(block) > limit:
+            messages.append(current)
+            current = block.lstrip("\n")
+        else:
+            current = f"{current}\n{block}" if current else block
+    if current:
+        messages.append(current)
+    return messages
+
+
+def product_stock_message(r: dict, lang: str) -> str:
+    """One product: what is left, how fast it sells, when it runs out, expiry and the agent's next visit."""
+    out = [f"<b>{_name(r, lang)}</b>"]
+    if not r["tracked"]:
+        out.append(t(lang, "p_uncounted", n=r.get("sold_uncounted", 0)))
+    else:
+        line = f"📦 {left_text(r, lang)}"
+        if r["status"] in ("out", "low") and not r["negative"]:  # below zero already says what to do
+            line += " · " + t(lang, "p_" + r["status"])
+        if r["is_critical"]:
+            line += t(lang, "must_have")
+        out.append(line)
+    out.append(t(lang, "p_sold", today=r.get("sold_today", 0), week=r["sold_7d"], month=r["sold_28d"]))
+    if r["tracked"] and r.get("days_cover") is not None:
+        out.append(t(lang, "p_cover", days=max(1, round(r["days_cover"]))))
+    if r["pending_units"]:
+        out.append(t(lang, "p_pending", n=r["pending_units"]))
+    if r.get("expiry"):
+        out.append(t(lang, "p_expiry", date=r["expiry"]))
+    if r.get("supplier_name") and r.get("next_visit"):
+        visit = r["next_visit"]
+        day = t(lang, "p_agent_today") if visit == clock.today() else t(lang, f"weekday_{visit.weekday()}")
+        out.append(t(lang, "p_agent", supplier=escape(r["supplier_name"]), day=day))
+    if r["tracked"] and r["value"]:
+        out.append(t(lang, "p_value", value=f"{r['value']:.2f}"))
+    if r.get("last_sale"):
+        out.append(f"<i>{t(lang, 'p_last', when=r['last_sale'][:16])}</i>")
+    return "\n".join(out)

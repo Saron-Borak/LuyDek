@@ -85,3 +85,23 @@ def follow_rate(conn: sqlite3.Connection) -> dict:
 def today_counts(conn: sqlite3.Connection) -> dict:
     today = clock.today()
     return accuracy(conn, today, today + timedelta(days=1))
+
+
+def busy_hours(conn: sqlite3.Connection, days: int = 28) -> dict:
+    """Sales by hour of day over the last `days` days.
+
+    Averaged over the days the camera actually ran, so a week with the laptop
+    off doesn't make every hour look quiet.
+    """
+    since = clock.stamp(clock.now() - timedelta(days=days))
+    where = "WHERE started_at >= ? AND status != 'open'"
+    counts = {
+        r[0]: r[1]
+        for r in conn.execute(
+            f"SELECT CAST(substr(started_at, 12, 2) AS INTEGER) AS hr, COUNT(*) FROM transactions {where} GROUP BY hr",
+            (since,),
+        )
+    }
+    ran = conn.execute(f"SELECT COUNT(DISTINCT date(started_at)) FROM transactions {where}", (since,)).fetchone()[0]
+    return {"counts": counts, "days": ran, "total": sum(counts.values()),
+            "peak": max(counts, key=counts.get) if counts else None}

@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from luydek import db
 from luydek.services import catalog, stock, transactions
 from luydek.web.server import create_app
+import numpy as np
+
 from tests.conftest import jpeg, mat_frame, pack_of, paint, pid
 
 
@@ -63,7 +65,9 @@ def test_photo_sale_to_review_queue_to_stock(client, conn, cfg):
     check.execute("UPDATE transaction_items SET status = 'pending', tier = 'medium' WHERE id = ?", (item,))
     check.execute("DELETE FROM stock_movements WHERE ref_type = 'transaction_item' AND ref_id = ?", (item,))
     check.commit()
-    assert "Check these items" in client.get("/").text
+    page = client.get("/").text
+    assert "Check 1 item" in page and "All correct (<span data-all-n>1</span>)" in page
+    assert page.index('id="check"') < page.index("Sales today")      # waiting items come first
 
     before = stock.on_hand(check)
     r = client.post(f"/items/{item}/resolve", data={"action": "yes"}, follow_redirects=False)
@@ -233,3 +237,69 @@ def test_deliveries_list_puts_invoices_needing_an_ok_first(client, conn):
     html = client.get("/invoices").text
     waiting = html.split("Waiting for your OK")[1].split("Earlier deliveries")[0]
     assert "Coca-Cola agent" in waiting
+
+
+def calibrate(client):
+    assert client.post("/api/calibrate", files={"image": ("e.jpg", jpeg(mat_frame()), "image/jpeg")}).status_code == 200
+
+
+def test_marked_mat_limits_what_the_camera_counts(client, conn):
+    calibrate(client)
+    enroll(client, conn, "coke-330")
+    enroll(client, conn, "dumex-400")
+    assert client.post("/api/roi", data={"x0": 0.5, "y0": 0, "x1": 1, "y1": 1}).json()["roi"] == [0.5, 0, 1, 1]
+    assert client.get("/api/state").json()["roi"] == [0.5, 0, 1, 1]
+    frame = mat_frame()
+    paint(frame, "coke-330", 40, 60)
+    paint(frame, "dumex-400", 420, 200)
+    dets = client.post("/api/capture", files={"image": ("f.jpg", jpeg(frame), "image/jpeg")}).json()["detections"]
+    assert [d["label"] for d in dets] == [catalog.pack_label(catalog.pack(conn, pack_of(conn, "dumex-400")), "en")]
+
+    assert client.post("/api/roi", data={"x0": 0.1, "y0": 0.1, "x1": 0.12, "y1": 0.9}).status_code == 400
+    assert client.post("/api/roi", data={"x0": 0.1}).status_code == 400
+    assert client.post("/api/roi", data={"clear": "true"}).json()["roi"] is None
+
+
+def test_capture_after_the_camera_moved_asks_for_recalibration(client, conn):
+    calibrate(client)
+    dark = np.clip(mat_frame().astype(np.int16) - 80, 0, 255).astype(np.uint8)
+    r = client.post("/api/capture", files={"image": ("f.jpg", jpeg(dark), "image/jpeg")})
+    assert r.status_code == 409 and r.json()["scene_changed"] is True
+    assert "Calibrate" in r.json()["detail"]
+    assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 0   # nothing recorded
+    # Enrollment refuses it too, rather than learning a photo of the changed, empty scene.
+    photos = conn.execute("SELECT COUNT(*) FROM gallery_images").fetchone()[0]
+    r = client.post("/api/enroll", files={"image": ("s.jpg", jpeg(dark), "image/jpeg")},
+                    data={"pack_id": pack_of(conn, "coke-330"), "use_reference": "true"})
+    assert r.status_code == 400 and "Nothing stood out" in r.json()["detail"]
+    assert conn.execute("SELECT COUNT(*) FROM gallery_images").fetchone()[0] == photos
+    # Recalibrated in the new light, sales are recorded again.
+    assert client.post("/api/calibrate", files={"image": ("e.jpg", jpeg(dark), "image/jpeg")}).status_code == 200
+    frame = dark.copy()
+    paint(frame, "coke-330", 200, 150)
+    r = client.post("/api/capture", files={"image": ("f.jpg", jpeg(frame), "image/jpeg")})
+    assert r.status_code == 200 and len(r.json()["detections"]) == 1
+
+
+def test_enrolling_an_empty_mat_is_refused(client, conn):
+    calibrate(client)
+    r = client.post("/api/enroll", files={"image": ("s.jpg", jpeg(mat_frame()), "image/jpeg")},
+                    data={"pack_id": pack_of(conn, "coke-330"), "use_reference": "true"})
+    assert r.status_code == 400 and "Nothing found on the mat" in r.json()["detail"]
+    assert conn.execute("SELECT COUNT(*) FROM gallery_images").fetchone()[0] == 0
+
+
+def test_photos_from_another_phone_are_cut_out_from_their_own_background(client, conn):
+    """Not the counter camera's view (another phone, a table, zoomed in): the item still counts."""
+    calibrate(client)
+    table = np.zeros_like(mat_frame())
+    table[:] = (60, 90, 140)                       # a wooden table, nothing like the mat
+    paint(table, "coke-330", 260, 170, w=120, h=160)
+    r = client.post("/api/enroll", files={"image": ("s.jpg", jpeg(table), "image/jpeg")},
+                    data={"pack_id": pack_of(conn, "coke-330"), "use_reference": "true"})
+    assert r.status_code == 200 and r.json()["own_background"] is True
+    x, y, w, h = r.json()["bbox"]
+    assert 200 < x + w / 2 < 440 and w < 320        # the can, not the whole photo
+    r = client.post("/api/enroll", files={"image": ("s.jpg", jpeg(table), "image/jpeg")},
+                    data={"pack_id": pack_of(conn, "coke-330"), "use_reference": "true", "burst": "true"})
+    assert r.json() == {"skipped": "same", "own_background": True}   # hold-to-record still skips repeats

@@ -26,6 +26,8 @@ STRINGS: dict[str, dict[str, str]] = {
     "menu_adjust": {"km": "➖ កែស្តុក", "en": "➖ Adjust stock"},
     "menu_orders": {"km": "📦 បញ្ជីបញ្ជាទិញ", "en": "📦 Order lists"},
     "menu_week": {"km": "📊 សប្តាហ៍នេះ", "en": "📊 This week"},
+    "menu_today": {"km": "📈 លក់ថ្ងៃនេះ", "en": "📈 Sold today"},
+    "menu_stock": {"km": "📋 ស្តុកនៅសល់", "en": "📋 Stock left"},
 
     # --- digest ---
     "digest_header": {
@@ -43,9 +45,37 @@ STRINGS: dict[str, dict[str, str]] = {
     "show_again": {"km": "🔁 បង្ហាញម្តងទៀត", "en": "🔁 Show them again"},
     "ask_medium": {"km": "#{n} · {time}\nតើនេះជា {name} មែនទេ? ×{count}", "en": "#{n} · {time}\nIs this {name}? ×{count}"},
     "ask_low": {"km": "#{n} · {time}\nតើនេះជាអ្វី? (ប្រហែលជា {name}) ×{count}", "en": "#{n} · {time}\nWhat is this? (maybe {name}) ×{count}"},
+    "ask_tray": {"km": "#{n} · {time}\n💊 ថ្នាំលក់រាយ៖ {name} ចំនួន {count} គ្រាប់ មែនទេ?",
+                 "en": "#{n} · {time}\n💊 Sold loose: {count} × {name}?"},
+    "ask_tray_low": {"km": "#{n} · {time}\n💊 ថ្នាំលក់រាយ {count} គ្រាប់ — ថ្នាំអ្វី? (ប្រហែលជា {name})",
+                     "en": "#{n} · {time}\n💊 Loose tablets ×{count} — which medicine? (maybe {name})"},
     "yes": {"km": "✅ ត្រូវហើយ", "en": "✅ Yes"},
     "other": {"km": "🔍 ផ្សេងទៀត", "en": "🔍 Other"},
     "not_item": {"km": "✖ មិនមែនទំនិញ", "en": "✖ Not an item"},
+    "new_product": {"km": "🆕 ទំនិញថ្មី", "en": "🆕 New product"},
+    "app_open": {"km": "✅ ពិនិត្យ {n} មុខ", "en": "✅ Check {n} items"},
+    "app_open_none": {"km": "📋 បើក LuyDek", "en": "📋 Open LuyDek"},
+    "app_intro": {
+        "km": "អូសទៅស្ដាំ បើកាមេរ៉ាត្រូវ អូសទៅឆ្វេង ដើម្បីកែ។",
+        "en": "Swipe right when the camera is right, left to correct it.",
+    },
+    "add_named": {"km": "➕ បន្ថែម {name}", "en": "➕ Add {name}"},
+    "looks_new": {
+        "km": "\n🆕 នៅលើកញ្ចប់សរសេរថា «{name}» — មិនទាន់មានក្នុងបញ្ជីទំនិញរបស់អ្នកទេ",
+        "en": "\n🆕 The package reads “{name}” — not in your products yet",
+    },
+    "ask_name": {
+        "km": "#{n} · តើវាជាទំនិញអ្វី? សូមឆ្លើយតបសារនេះដោយសរសេរឈ្មោះ ម៉ាក និងទំហំ (ឧ. Oishi តែបៃតង 380ml)។",
+        "en": "#{n} · What is it? Reply to this message with its name, brand and size (e.g. Oishi green tea 380ml).",
+    },
+    "added_product": {
+        "km": "🆕 បានបន្ថែម {name}។ កាមេរ៉ានឹងស្គាល់វានៅពេលក្រោយ។ ដាក់អ្នកផ្គត់ផ្គង់ និងតម្លៃនៅពេលណាក៏បាន។",
+        "en": "🆕 Added {name}. The camera will know it next time. Add its supplier and price whenever you like.",
+    },
+    "added_more": {
+        "km": "មានការលក់ {n} ទៀតដែលមើលទៅដូចវា — នឹងសួរក្នុងការត្រួតពិនិត្យបន្ទាប់។",
+        "en": "{n} more sale(s) look like it — they'll be asked about in the next check.",
+    },
     "confirm_all": {"km": "✅ យល់ព្រមទាំងអស់តាមការទាយ", "en": "✅ Confirm all as guessed"},
     "confirmed": {"km": "✅ បានបញ្ជាក់៖ {name} ×{count}", "en": "✅ Confirmed: {name} ×{count}"},
     "corrected": {"km": "✏️ បានកែ៖ {name} ×{count}", "en": "✏️ Corrected: {name} ×{count}"},
@@ -131,7 +161,9 @@ STRINGS: dict[str, dict[str, str]] = {
     "orders_head_check": {"km": "❔ ពិនិត្យ៖", "en": "CHECK:"},
     "orders_head_skip": {"km": "⏸ កុំទិញ៖", "en": "SKIP:"},
     "orders_head_sleeping": {"km": "💤 លុយដេកលើធ្នើ៖", "en": "💤 SLEEPING MONEY:"},
-    "orders_cases": {"km": "{n} កេស", "en": "{n} case(s)"},
+    "orders_case": {"km": "{n} កេស", "en": "{n} case"},
+    "orders_cases": {"km": "{n} កេស", "en": "{n} cases"},
+    "orders_boxes": {"km": "{n} ប្រអប់", "en": "{n} {label}"},
     "orders_units": {"km": "{n} ដុំ", "en": "{n} units"},
     "orders_total": {"km": "សរុប ≈ ${value}", "en": "Total ≈ ${value}"},
     "orders_min": {"km": " (តិចជាងការបញ្ជាទិញអប្បបរមា ${min})", "en": " (below the ${min} minimum order)"},
@@ -147,6 +179,10 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "r_no_data": {"km": "អស់ស្តុកពេញ ៤ សប្តាហ៍ — គ្មានទិន្នន័យលក់", "en": "out of stock all 4 weeks — no sales data"},
     "r_observing": {"km": "កំពុងរៀន", "en": "still observing"},
+    "r_count_first": {
+        "km": "ទំនិញថ្មី — សូមរាប់ស្តុកលើធ្នើម្តងសិន",
+        "en": "new product — count the shelf once first",
+    },
     "r_market": {
         "km": "ត្រូវការ {units} តែមួយកេសលក់មិនទាន់មុនផុតកំណត់",
         "en": "need {units}, but a full case won't sell before it expires",
@@ -165,6 +201,69 @@ STRINGS: dict[str, dict[str, str]] = {
     "r_capped": {"km": " (កំណត់ដោយថ្ងៃផុតកំណត់)", "en": " (capped by expiry)"},
     "r_expiring": {"km": " ⌛ ផុតកំណត់ {date}", "en": " ⌛ expires {date}"},
     "r_negative": {"km": " ❗ ស្តុកអវិជ្ជមាន — ពិនិត្យ", "en": " ❗ negative stock — investigate"},
+
+    # --- the day's summary and stock left ---
+    "sum_title": {"km": "📊 ថ្ងៃនេះ · {day}", "en": "📊 Today · {day}"},
+    "sum_sales": {"km": "🧾 លក់ {txns} ដង · ទំនិញ {units}", "en": "🧾 {txns} sales · {units} items sold"},
+    "sum_none": {
+        "km": "ថ្ងៃនេះមិនទាន់មានការលក់ទេ។ តើកាមេរ៉ានៅកន្លែងលក់បានបើកទេ?",
+        "en": "No sales recorded today. Was the counter camera on?",
+    },
+    "sum_pending": {
+        "km": "⏳ នៅសល់ {n} មុខត្រូវពិនិត្យ — នឹងរាប់ពេលពិនិត្យរួច",
+        "en": "⏳ {n} still to check — counted once checked",
+    },
+    "sum_received": {"km": "📥 ទទួលបាន +{units} ({products} មុខ)", "en": "📥 Received +{units} ({products} products)"},
+    "sum_head_sold": {"km": "លក់ថ្ងៃនេះ៖", "en": "SOLD TODAY:"},
+    "sum_sold_line": {"km": "{name} — លក់ {sold} · {left}", "en": "{name} — {sold} sold · {left}"},
+    "sum_more": {"km": "… និង {n} មុខទៀត", "en": "… and {n} more"},
+    "sum_head_watch": {"km": "⚠️ ជិតអស់ ឬអស់ហើយ៖", "en": "⚠️ RUNNING LOW OR OUT:"},
+    "sum_value": {"km": "💰 ទំនិញលើធ្នើ ≈ ${value} (តម្លៃទិញ)", "en": "💰 Stock on the shelf ≈ ${value} at cost"},
+    "sum_open_app": {"km": "📋 មើលស្តុកក្នុង LuyDek", "en": "📋 See stock in LuyDek"},
+    "left": {"km": "នៅសល់ {n}", "en": "{n} left"},
+    "left_out": {"km": "អស់ហើយ", "en": "none left"},
+    "left_negative": {"km": "❗ ស្តុកក្រោមសូន្យ — សូមរាប់ធ្នើ", "en": "❗ below zero — count the shelf"},
+    "left_new": {"km": "មិនទាន់រាប់ស្តុក", "en": "not counted yet"},
+    "left_days": {"km": " (គ្រប់ប្រហែល {days} ថ្ងៃ)", "en": " (about {days} days)"},
+    "must_have": {"km": " ‼️ ត្រូវតែមាន", "en": " ‼️ must-have"},
+    "stock_title": {"km": "📋 ស្តុកនៅសល់ · {day}", "en": "📋 Stock left · {day}"},
+    "stock_head_out": {"km": "❌ អស់ស្តុក៖", "en": "❌ OUT:"},
+    "stock_head_low": {"km": "🟠 ជិតអស់៖", "en": "🟠 RUNNING LOW:"},
+    "stock_head_expiring": {"km": "⌛ ជិតផុតកំណត់៖", "en": "⌛ EXPIRING SOON:"},
+    "stock_head_new": {"km": "🆕 មិនទាន់រាប់៖", "en": "🆕 NOT COUNTED YET:"},
+    "stock_head_ok": {"km": "✅ មានស្តុក៖", "en": "✅ IN STOCK:"},
+    "stock_sold_today": {"km": " · លក់ {n} ថ្ងៃនេះ", "en": " · {n} sold today"},
+    "stock_pick": {
+        "km": "📋 ស្តុកនៅសល់ — ជ្រើសទំនិញមួយ ឬមើលទំនិញទាំងអស់។ អាចវាយឈ្មោះទំនិញមកក៏បាន។",
+        "en": "📋 Stock left — pick a product, or see every item. You can also just type a product's name.",
+    },
+    "stock_every": {"km": "📋 ទំនិញទាំងអស់", "en": "📋 Every item"},
+    "stock_back": {"km": "◀ ទំនិញ", "en": "◀ Products"},
+    "stock_nomatch": {
+        "km": "រកមិនឃើញទំនិញ «{q}» ទេ។ ជ្រើសពីបញ្ជីខាងក្រោម៖",
+        "en": "No product matches “{q}”. Pick one below:",
+    },
+    "stock_matches": {"km": "ទំនិញដែលត្រូវនឹង «{q}»៖", "en": "Products matching “{q}”:"},
+    "p_out": {"km": "❌ អស់ស្តុក", "en": "❌ out of stock"},
+    "p_low": {"km": "🟠 ជិតអស់", "en": "🟠 running low"},
+    "p_sold": {
+        "km": "🧾 លក់ {today} ថ្ងៃនេះ · {week} ក្នុង ៧ ថ្ងៃ · {month} ក្នុង ២៨ ថ្ងៃ",
+        "en": "🧾 Sold {today} today · {week} in 7 days · {month} in 28 days",
+    },
+    "p_cover": {"km": "⏱ គ្រប់លក់ប្រហែល {days} ថ្ងៃទៀត តាមល្បឿនលក់សប្តាហ៍នេះ", "en": "⏱ Lasts about {days} more days at this week's pace"},
+    "p_pending": {
+        "km": "⏳ {n} ទៀតកំពុងរង់ចាំពិនិត្យ (មិនទាន់ដកពីស្តុក)",
+        "en": "⏳ {n} more waiting to be checked (not taken off yet)",
+    },
+    "p_uncounted": {
+        "km": "🆕 មិនទាន់រាប់ស្តុក៖ លក់បាន {n} តាំងពីបន្ថែម។ រាប់ធ្នើម្តង ដើម្បីតាមដានស្តុក។",
+        "en": "🆕 Never counted: {n} sold since it was added. Count the shelf once to track it.",
+    },
+    "p_expiry": {"km": "⌛ ផុតកំណត់មុនគេ {date}", "en": "⌛ Earliest expiry {date}"},
+    "p_agent": {"km": "🚚 {supplier} មក{day}", "en": "🚚 {supplier} comes {day}"},
+    "p_agent_today": {"km": "ថ្ងៃនេះ", "en": "today"},
+    "p_value": {"km": "💰 តម្លៃ ${value} (តម្លៃទិញ)", "en": "💰 Worth ${value} at cost"},
+    "p_last": {"km": "លក់ចុងក្រោយ {when}", "en": "Last sold {when}"},
 
     # --- weekly ---
     "week_summary": {

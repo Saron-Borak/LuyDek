@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Setup{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1><i class="bi bi-gear" aria-hidden="true"></i> Setup</h1>
+    <div class="lead-line">{% if done == total %}Everything is set up. Come back here if the camera moves or you add a supplier.
+      {% else %}{{ done }} of {{ total }} steps done. Each one takes a few minutes.{% endif %}</div>
+  </div>
+</div>
+<div class="setup-progress mb-3" role="progressbar" aria-valuenow="{{ done }}" aria-valuemin="0" aria-valuemax="{{ total }}">
+  <span style="width:{{ (done / total * 100)|int }}%"></span></div>
+
+<div class="card">
+  {% for s in steps %}
+  <div class="setup-row {{ 'done' if s.done }}">
+    <div class="tick" aria-hidden="true">{% if s.done %}✓{% elif s.optional %}–{% else %}{{ loop.index }}{% endif %}</div>
+    <div class="flex-grow-1">
+      <div class="fw-semibold">{{ s.title }}{% if s.optional %} <span class="muted fw-normal small">optional</span>{% endif %}</div>
+      <div class="muted small">{{ s.detail }}</div>
+    </div>
+    {% if s.href %}<a href="{{ s.href }}" class="btn {{ 'btn-outline-secondary' if s.done else 'btn-dark' }}">{{ s.button }}</a>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card mt-3" id="phone">
+  <div class="card-header"><i class="bi bi-phone" aria-hidden="true"></i> Open LuyDek on your phone
+    <div class="sub">Scan once, then add it to the home screen — it opens like an app.</div></div>
+  <div class="card-body">
+    {% if not phone.url %}
+    <div class="muted">This computer isn't on a Wi-Fi network right now. Connect it to the shop's Wi-Fi and reload this page.</div>
+    {% else %}
+    <div class="d-flex flex-wrap gap-4 align-items-center">
+      <div class="qr {{ 'dim' if not phone.reachable }}" title="{{ phone.url }}">{{ phone.qr|safe }}</div>
+      <div class="flex-grow-1" style="max-width:34rem">
+        {% if phone.secure %}
+        <ol class="mb-2 ps-3">
+          <li>On the phone, install the <b>Tailscale</b> app and sign in with the same account as this computer.</li>
+          <li>Point the phone's camera at the code and open the link.</li>
+          <li>In the browser menu, choose <b>Add to Home screen</b>.</li>
+        </ol>
+        <div class="small muted">Or type <code>{{ phone.url }}</code> into the phone's browser.</div>
+        <div class="small mt-2"><i class="bi bi-camera-video" aria-hidden="true"></i>
+          This address is secure, so a phone can also be the <b>counter camera</b>: open Counter camera on it,
+          keep it plugged in and mount it looking straight down at the mat.</div>
+        {% elif phone.reachable %}
+        <ol class="mb-2 ps-3">
+          <li>Connect the phone to the same Wi-Fi as this computer.</li>
+          <li>Point the phone's camera at the code and open the link.</li>
+          <li>In the browser menu, choose <b>Add to Home screen</b>.</li>
+        </ol>
+        <div class="small muted">Or type <code>{{ phone.url }}</code> into the phone's browser.</div>
+        {% else %}
+        <div class="alert alert-warning mb-2">Right now only this computer can open LuyDek. Stop it and start it again with
+          <code>python -m luydek --host 0.0.0.0</code>, then scan this code.</div>
+        {% endif %}
+        {% if phone.secure %}
+        <div class="small muted mt-2"><i class="bi bi-shield-check" aria-hidden="true"></i>
+          Only phones and computers signed in to your Tailscale account can open it, on any network.</div>
+        {% else %}
+        <div class="small muted mt-2"><i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+          Anyone on the same Wi-Fi can open it, so use the shop's own Wi-Fi, not a guest network.
+          Phones can check items, order lists and deliveries; for a phone as the counter camera, see
+          "Phone as the counter camera" in the README.</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<p class="muted small mt-3">Demo and install-team tools (send-now buttons, photo upload, pilot report) are
+  <b>{{ 'on' if team else 'off' }}</b>. Switch them with <code>shop.team_tools</code> in <code>configs/config.yaml</code>.</p>
+{% endblock %}

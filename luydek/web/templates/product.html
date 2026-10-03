@@ -1,45 +1,57 @@
 {% extends "base.html" %}
 {% block title %}{{ p.name_en }}{% endblock %}
 {% block content %}
-{% set total_photos = photos.values()|map('length')|sum %}
-<div class="mb-2"><a href="/catalog" class="text-decoration-none">← Catalog</a></div>
+{% set total_photos = gallery.values()|map('length')|sum %}
+<div class="mb-2"><a href="/catalog" class="text-decoration-none"><i class="bi bi-arrow-left" aria-hidden="true"></i> Products</a></div>
 <div class="page-head">
   <div>
-    <h1>{{ p.name_en }} {% if p.is_critical %}<span class="pill bg-dark text-white align-middle fs-6">must-have</span>{% endif %}</h1>
+    <h1>{{ p.name_en }} {% if p.is_critical %}<span class="pill must align-middle fs-6">must-have</span>{% endif %}</h1>
     <div class="lead-line"><span class="km">{{ p.name_km if p.name_km != p.name_en }}</span>
-      {{ p.emoji or '' }} {{ p.supplier_name or 'no supplier' }} · case of {{ p.case_size }} · ${{ '%.2f'|format(p.unit_cost) }} per {{ p.unit }}</div>
+      {{ p.emoji or '' }} {{ p.supplier_name or 'no supplier' }} ·
+      {% if loose and loose.box %}{{ loose.box[0] }} of {{ loose.box[1] }}{% else %}case of {{ p.case_size }}{% endif %} · ${{ '%.2f'|format(p.unit_cost) }} per {{ p.unit }}</div>
+    <a href="/catalog/{{ p.id }}/history" class="btn btn-sm btn-outline-dark mt-2"><i class="bi bi-clock-history" aria-hidden="true"></i>
+      Full history: every sale the camera saw, and every stock change</a>
   </div>
   <div class="stat {{ 'bad' if level is not none and level <= 0 else 'ok' }}" style="height:auto;min-width:12rem">
     <div class="n">{% if level is none %}–{% elif level < 0 %}0{% else %}{{ level }}{% endif %}</div>
     <div class="l">on the shelf</div>
-    <div class="h">{% if level is none %}not counted yet{% elif level < 0 %}count is off — recount below{% else %}{{ p.unit }}s{% endif %}</div>
+    <div class="h">{% if level is none %}not counted yet{% elif level < 0 %}count is off — recount below{% elif loose and loose.breakdown %}{{ p.unit|plural(level) }} = {{ loose.breakdown }}{% else %}{{ p.unit|plural(level) }}{% endif %}</div>
   </div>
 </div>
 
 <div class="row g-3">
   <!-- photos -->
   <div class="col-xl-7" id="photos">
-    {% for pk in packs %}
-    {% set pk_photos = photos.get(pk.id, []) %}
+    {% if p.sold_loose %}
+    <div class="alert alert-info"><i class="bi bi-capsule" aria-hidden="true"></i> Loose {{ p.unit|plural(2) }} are counted on the tablet tray, so they need no photos.
+      Photograph the <b>box</b> (and strip) instead: that is what goes down beside the tray and tells the camera which medicine it is.</div>
+    {% endif %}
+    {% for pk in packs if not (p.sold_loose and pk.units == 1) %}
+    {% set pk_photos = gallery.get(pk.id, []) %}
+    {% set optional = p.sold_loose and pk.units < packs[-1].units %}
     <div class="card mb-3">
       <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <div>📷 {% if pk.units == 1 %}Photos of one {{ p.unit }}{% else %}Photos of the {{ pk.label }} ({{ pk.units }} {{ p.unit }}s){% endif %}
-          <div class="sub">{% if pk_photos|length >= min_photos %}✓ {{ pk_photos|length }} photos — the camera knows it{% else %}{{ pk_photos|length }} of {{ min_photos }} photos — take {{ min_photos - pk_photos|length }} more{% endif %}</div></div>
-        <a href="/catalog/enroll?pack_id={{ pk.id }}" class="btn {{ 'btn-primary' if pk_photos|length < min_photos else 'btn-outline-primary' }}">📷 Take photos</a>
+        <div><i class="bi bi-camera" aria-hidden="true"></i> {% if pk.units == 1 %}Photos of one {{ p.unit }}{% else %}Photos of the {{ pk.label }} ({{ pk.units }} {{ p.unit|plural(pk.units) }}){% endif %}
+          <div class="sub">{% if pk_photos|length >= min_photos %}✓ {{ pk_photos|length }} photos — the camera knows it
+            {% elif optional %}Optional — helps when a {{ pk.label }} is put beside the tray instead of the box
+            {% else %}{{ pk_photos|length }} of {{ min_photos }} photos — take {{ min_photos - pk_photos|length }} more{% endif %}</div></div>
+        <a href="/catalog/enroll?pack_id={{ pk.id }}" class="btn {{ 'btn-primary' if pk_photos|length < min_photos and not optional else 'btn-outline-primary' }}"><i class="bi bi-camera" aria-hidden="true"></i> Take photos</a>
       </div>
       <div class="card-body">
         {% if pk_photos %}
-        <form id="bulk-{{ pk.id }}" method="post" action="/catalog/gallery/delete" onsubmit="return confirm('Delete the selected photos?')"></form>
+        <form id="bulk-{{ pk.id }}" method="post" action="/catalog/gallery/delete" data-bulk></form>
         <div class="photo-grid">
           {% for g in pk_photos %}{% with bulk_form = 'bulk-' ~ pk.id %}{% include "_photo_tile.html" %}{% endwith %}{% endfor %}
         </div>
         <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
-          <span class="small muted">Tap 🗑 twice to delete a blurry or wrong photo, or tick several and delete them together.</span>
-          <button form="bulk-{{ pk.id }}" class="btn btn-danger d-none" data-bulk-delete>🗑 Delete selected</button>
+          <span class="small muted">Tap <i class="bi bi-trash3" aria-hidden="true"></i> to delete a blurry or wrong photo (you can undo), or tick several and delete them together.</span>
+          <button form="bulk-{{ pk.id }}" class="btn btn-danger d-none" data-bulk-delete><i class="bi bi-trash3" aria-hidden="true"></i> Delete selected</button>
         </div>
+        {% elif optional %}
+        <div class="muted small">No photos yet.</div>
         {% else %}
         <div class="text-center py-4">
-          <div class="fs-1">📷</div>
+          <div class="fs-1 muted"><i class="bi bi-camera" aria-hidden="true"></i></div>
           <div class="mb-3 muted">No photos yet. The camera can't recognise this {{ 'pack' if pk.units > 1 else p.unit }} until it has some.</div>
           <a href="/catalog/enroll?pack_id={{ pk.id }}" class="btn btn-lg btn-primary">Take the first photos</a>
         </div>
@@ -54,29 +66,47 @@
     </div>
     {% endfor %}
 
+    {% if not p.sold_loose %}
     <div class="card mb-3">
-      <div class="card-header">📦 Sold as a multipack too? <div class="sub">A shrink-wrapped 6-pack looks different from one can. Add it so a whole pack counts as 6.</div></div>
+      <div class="card-header"><i class="bi bi-box-seam" aria-hidden="true"></i> Sold as a multipack too? <div class="sub">A shrink-wrapped 6-pack looks different from one can. Add it so a whole pack counts as 6.</div></div>
       <form method="post" action="/catalog/{{ p.id }}/packs" class="card-body row g-2 align-items-end">
         <div class="col-sm-5"><label class="form-label" for="pk-label">Name</label><input id="pk-label" name="label" class="form-control" placeholder="6-pack" required></div>
-        <div class="col-6 col-sm-3"><label class="form-label" for="pk-units">{{ p.unit|capitalize }}s inside</label><input id="pk-units" name="units" type="number" min="2" class="form-control" placeholder="6" required></div>
-        <div class="col-6 col-sm-4 d-grid"><button class="btn btn-dark">➕ Add pack</button></div>
+        <div class="col-6 col-sm-3"><label class="form-label" for="pk-units">{{ p.unit|plural(2)|capitalize }} inside</label><input id="pk-units" name="units" type="number" min="2" class="form-control" placeholder="6" required></div>
+        <div class="col-6 col-sm-4 d-grid"><button class="btn btn-dark"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add pack</button></div>
       </form>
     </div>
+    {% endif %}
   </div>
 
   <!-- details, stock, names -->
   <div class="col-xl-5">
     <div class="card mb-3">
-      <div class="card-header">🔢 Stock</div>
+      <div class="card-header d-flex justify-content-between align-items-baseline flex-wrap gap-2">
+        <span><i class="bi bi-graph-up" aria-hidden="true"></i> Sales, last 4 weeks</span>
+        <span class="sub">{{ sales.total }} sold · about {{ '%g'|format(sales.per_day) }} a day</span></div>
+      <div class="card-body pb-2">
+        {% if sales.total or sales.empty_days %}
+        {{ sales.chart }}
+        <div class="d-flex flex-wrap gap-3 small muted mt-1">
+          <span>This week <b class="text-body">{{ sales.this_week }}</b> · last week <b class="text-body">{{ sales.last_week }}</b></span>
+          {% if sales.empty_days %}<span><span class="swatch-empty"></span> shelf empty {{ sales.empty_days }} day{{ 's' if sales.empty_days != 1 }}</span>{% endif %}
+        </div>
+        {% else %}<div class="empty-state py-4"><div class="ico"><i class="bi bi-bar-chart" aria-hidden="true"></i></div><div class="small">No sales yet. Bars appear here as the camera records them.</div></div>{% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-clipboard-check" aria-hidden="true"></i> Stock</div>
       <div class="card-body">
         <form method="post" action="/catalog/{{ p.id }}/stock" class="d-flex gap-2 align-items-end flex-wrap">
-          <div><label class="form-label" for="counted">I counted</label>
+          <div><label class="form-label" for="counted">I counted{% if p.sold_loose %} ({{ p.unit|plural(2) }}){% endif %}</label>
             <input id="counted" name="counted" type="number" min="0" inputmode="numeric" class="form-control form-control-lg" style="width:9rem" placeholder="{{ level if level is not none and level >= 0 else '' }}" required></div>
           <button class="btn btn-lg btn-dark">Set stock</button>
         </form>
         {% if moves %}
-        <div class="small muted mt-3 mb-1">Latest changes</div>
-        <table class="table table-sm mb-0 small">
+        <details class="mt-3">
+        <summary class="small muted">Latest changes · <a href="/catalog/{{ p.id }}/history?tab=stock">all of them</a></summary>
+        <table class="table table-sm mb-0 small mt-1">
           {% for m in moves %}
           <tr><td class="muted text-nowrap">{{ m.created_at[5:16] }}</td>
             <td>{{ {'sale': 'sold', 'delivery': 'delivered', 'freebie': 'free from supplier', 'adjustment': 'adjusted', 'opening': 'counted', 'spot_check': 'recounted'}.get(m.type, m.type) }}
@@ -84,12 +114,45 @@
             <td class="num fw-semibold {{ 'text-success' if m.qty > 0 else 'text-danger' }}">{{ '%+d'|format(m.qty) }}</td></tr>
           {% endfor %}
         </table>
+        </details>
         {% endif %}
       </div>
     </div>
 
+    {% if loose %}
+    <div class="card mb-3" id="loose">
+      <div class="card-header"><i class="bi bi-capsule" aria-hidden="true"></i> Sold by the {{ p.unit }}</div>
+      <div class="card-body">
+        <p class="mb-2">Stock is counted in {{ p.unit|plural(2) }}{% if loose.box %}; one {{ loose.box[0] }} holds {{ loose.box[1] }}{% endif %}.
+          A whole box sold at the counter counts as {{ loose.box[1] if loose.box else 'a box' }}; loose ones are counted on the tray.</p>
+        {% if not loose.tray_marked %}
+        <div class="alert alert-warning py-2 mb-2">No tablet tray is marked yet. On the <a href="/counter">Counter page</a>, press <b>Mark the tablet tray</b>.</div>
+        {% endif %}
+        {% if loose.samples >= loose.needed %}
+        <div class="text-success">✓ The tray knows how big one {{ p.unit }} is (measured on {{ loose.samples }} checked {{ p.unit }}{{ 's' if loose.samples != 1 }}). Counts it is sure of are recorded without asking.</div>
+        {% else %}
+        <div class="muted">Still learning how big one {{ p.unit }} is: {{ loose.samples }} of {{ loose.needed }} {{ p.unit|plural(2) }} measured.
+          Until then each tray count is checked (by Claude, or by you on Telegram), and each check measures more.</div>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <details class="card mb-3 fold" id="loose">
+      <summary class="card-header"><i class="bi bi-capsule" aria-hidden="true"></i> Pharmacies: sold by the tablet too?
+        <span class="sub d-block">For medicine cut from the strip, 1 or 2 at a time.</span></summary>
+      <form method="post" action="/catalog/{{ p.id }}/loose" class="card-body row g-2 align-items-end"
+            onsubmit='return confirm({{ ("Count " ~ p.name_en ~ " in tablets from now on? The stock so far is multiplied by the tablets per box.")|tojson }})'>
+        <div class="col-6 col-sm-4"><label class="form-label" for="per-box">{{ p.unit|capitalize }} holds</label>
+          <input id="per-box" name="per_box" type="number" min="2" class="form-control" placeholder="100" required></div>
+        <div class="col-6 col-sm-4"><label class="form-label" for="piece">Counted as</label>
+          <select id="piece" name="piece" class="form-select"><option>tablet</option><option>capsule</option><option>sachet</option></select></div>
+        <div class="col-sm-4 d-grid"><button class="btn btn-dark">Sell by the tablet</button></div>
+      </form>
+    </details>
+    {% endif %}
+
     <div class="card mb-3">
-      <div class="card-header">✏️ Details</div>
+      <div class="card-header"><i class="bi bi-pencil" aria-hidden="true"></i> Details</div>
       <form method="post" action="/catalog/{{ p.id }}/edit" class="card-body row g-3">
         <div class="col-12"><label class="form-label" for="e-en">Name in English</label>
           <input id="e-en" name="name_en" value="{{ p.name_en }}" class="form-control" required></div>
@@ -100,14 +163,14 @@
             {% for s in suppliers %}<option value="{{ s.id }}" {% if s.id == p.supplier_id %}selected{% endif %}>{{ s.emoji }} {{ s.name }}</option>{% endfor %}</select></div>
         <div class="col-6"><label class="form-label" for="e-unit">Sold as a</label>
           <input id="e-unit" name="unit" value="{{ p.unit }}" class="form-control"></div>
-        <div class="col-6"><label class="form-label" for="e-case">Per case</label>
+        <div class="col-6"><label class="form-label" for="e-case">Per case{% if p.sold_loose %} ({{ p.unit|plural(2) }}){% endif %}</label>
           <input id="e-case" name="case_size" type="number" min="1" value="{{ p.case_size }}" class="form-control"></div>
         <div class="col-6"><label class="form-label" for="e-cost">Cost each ($)</label>
           <input id="e-cost" name="unit_cost" type="number" min="0" step="0.01" value="{{ '%.2f'|format(p.unit_cost) }}" class="form-control"></div>
         <div class="col-6"><label class="form-label" for="e-life">Keeps for (days)</label>
           <input id="e-life" name="shelf_life_days" type="number" min="1" value="{{ p.shelf_life_days or '' }}" class="form-control"></div>
         <div class="col-12"><label class="form-label" for="e-bar">Barcode</label>
-          <input id="e-bar" name="barcode" value="{{ packs[0].barcode or '' }}" class="form-control" inputmode="numeric"></div>
+          <input id="e-bar" name="barcode" value="{{ (packs[-1] if p.sold_loose else packs[0]).barcode or '' }}" class="form-control" inputmode="numeric"></div>
         <div class="col-12"><div class="form-check form-switch">
           <input class="form-check-input" type="checkbox" role="switch" name="is_critical" value="1" id="e-crit" {% if p.is_critical %}checked{% endif %}>
           <label class="form-check-label" for="e-crit">Must never run out</label></div></div>
@@ -116,7 +179,7 @@
     </div>
 
     <div class="card mb-3">
-      <div class="card-header">🏷️ Other names for it <div class="sub">How invoices and people write it. Invoices teach new ones automatically.</div></div>
+      <div class="card-header"><i class="bi bi-tags" aria-hidden="true"></i> Other names for it <div class="sub">How invoices and people write it. Invoices teach new ones automatically.</div></div>
       <div class="card-body">
         <div class="d-flex flex-wrap gap-2 mb-3">
           {% for a in aliases %}
@@ -145,4 +208,4 @@
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ asset('photos.js') }}"></script>{% endblock %}
+{% block scripts %}<script src="{{ asset('photos.js') }}"></script><script src="{{ asset('tips.js') }}"></script>{% endblock %}

@@ -1,0 +1,118 @@
+{# The items waiting for the owner. Rendered in the Today page and alone by /fragments/checks,
+   which the page polls to pick up new items without a reload. Needs static/checks.js.
+   Below them, sales of things not in the product list yet, to name when there's a minute. #}
+{% from "_macros.html" import pic %}
+{% set guessed = pending|selectattr('pack_id')|list %}
+<section id="check" data-count="{{ pending|length }}" data-sales="{{ today.txns }}">
+<div class="card check-card mb-3 {{ 'd-none' if not pending }}">
+  <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
+    <div><i class="bi bi-exclamation-triangle-fill text-warning" aria-hidden="true"></i> <span data-check-title>Check {{ pending|length }} item{{ 's' if pending|length != 1 }}</span>
+      <div class="sub">The camera wasn't sure. The same questions go to Telegram — answer in either place.</div></div>
+    <form method="post" action="/items/confirm-all" data-act="all" class="d-grid confirm-all {{ 'd-none' if not guessed }}">
+      <input type="hidden" name="ids" value="{{ guessed|map(attribute='id')|join(',') }}">
+      <button class="btn btn-lg btn-success" data-all-btn><i class="bi bi-check2-all" aria-hidden="true"></i> <span>All correct (<span data-all-n>{{ guessed|length }}</span>)</span></button>
+      <span class="small muted text-center {{ 'd-none' if guessed|length == pending|length }}" data-pick-note>{{ pending|length - guessed|length }} need you to pick below</span>
+    </form>
+  </div>
+  {% for it in pending %}
+  {% set tray = it.method == 'tray' %}
+  {% set with_box = tray and '"with_source": true' in (it.tray_json or '') %}
+  <div class="check-item" data-item="{{ it.id }}" data-guess="{{ 1 if it.pack_id else 0 }}"
+       data-rev="{{ it.pack_id }}-{{ it.count }}-{{ it.label_checked_at }}"
+       data-name="{{ pack_label(it, 'en') if it.pack_id else 'this item' }}">
+    {% if it.crop_path %}<img class="crop-lg" src="/media/{{ it.crop_path }}" alt="item on the counter">{% endif %}
+    <div class="flex-grow-1">
+      <div class="d-flex justify-content-between flex-wrap gap-2">
+        <span class="muted">Sale at {{ it.started_at[11:16] }} ·
+          {% if tray %}<span class="pill tier-{{ it.tier }}">{{ 'which medicine?' if not it.pack_id else ('count to check' if with_box else 'check both') }}</span>
+          {% else %}<span class="pill tier-{{ it.tier }}">{{ 'fairly sure' if it.tier == 'medium' else 'not sure' }}</span>{% endif %}</span>
+        <form method="post" action="/items/{{ it.id }}/resolve" class="qty" data-act="qty"><input type="hidden" name="action" value="qty">
+          <span class="muted small">How many?</span>
+          <button class="btn btn-outline-secondary" name="delta" value="-1" aria-label="one fewer">−</button>
+          <span class="val" data-count>{{ it.count }}</span>
+          <button class="btn btn-outline-secondary" name="delta" value="1" aria-label="one more">+</button></form>
+      </div>
+      {% if it.label_text %}<div class="small muted"><i class="bi bi-search" aria-hidden="true"></i> The label reads “{{ it.label_text }}” — not clear enough to decide alone</div>{% endif %}
+      {% if tray %}
+      <div class="question"><i class="bi bi-capsule" aria-hidden="true"></i> {% if it.pack_id %}Sold loose: <b><span data-count>{{ it.count }}</span> × {{ pack_label(it, 'en') }}</b>? <span class="km muted small">{{ it.name_km }}</span>{% else %}<b data-count>{{ it.count }}</b> loose tablet{{ 's' if it.count != 1 }} — which medicine?{% endif %}
+        <div class="small muted">{% if with_box %}Left: the box beside the tray · right: the tablets on it{% else %}No box was put beside the tray, so the camera can't tell which medicine{% endif %}</div></div>
+      {% else %}
+      <div class="question">{% if it.pack_id %}{{ pic(photos.pack.get(it.pack_id) or photos.product.get(it.product_id), 36) }} Is this <b>{{ pack_label(it, 'en') }}</b>? <span class="km muted small">{{ it.name_km }}</span>{% else %}What is this item?{% endif %}</div>
+      {% if it.hint == 'junk' %}<div class="small why-asked"><i class="bi bi-question-diamond" aria-hidden="true"></i> It looked like clutter to the camera. If it's a product, say which: the camera learns from your answer either way.</div>
+      {% elif it.hint == 'background' %}<div class="small why-asked"><i class="bi bi-layers" aria-hidden="true"></i> It looks a lot like the mat itself (a shadow, a paper that moved?). If so, tap <b>Not a sale</b>.</div>{% endif %}
+      {% if it.name_guess %}<div class="small new-guess"><i class="bi bi-stars" aria-hidden="true"></i> The package reads <b>{{ it.name_guess }}</b>{% if it.name_guess_km %} <span class="km">{{ it.name_guess_km }}</span>{% endif %} — not in your products yet</div>{% endif %}
+      {% endif %}
+      <div class="choices">
+        {% if it.name_guess and not tray %}
+        <form method="post" action="/items/{{ it.id }}/new-product" data-act="new" data-label="{{ it.name_guess }}">
+          <input type="hidden" name="name" value="{{ it.name_guess }}"><input type="hidden" name="name_km" value="{{ it.name_guess_km or '' }}">
+          <button class="btn btn-lg btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add {{ it.name_guess }}</button></form>
+        {% endif %}
+        {% if it.pack_id %}
+        <form method="post" action="/items/{{ it.id }}/resolve" data-act="yes"><input type="hidden" name="action" value="yes">
+          <button class="btn btn-lg btn-success px-4"><i class="bi bi-check-lg" aria-hidden="true"></i> Yes</button></form>
+        {% endif %}
+        {% for pk, score in pending_cands[it.id] if pk and pk.pack_id != it.pack_id %}{% if loop.index <= 2 %}
+        <form method="post" action="/items/{{ it.id }}/resolve" data-act="pick" data-label="{{ pack_label(pk, 'en') }}"><input type="hidden" name="action" value="pick">
+          <button class="btn btn-lg btn-outline-primary" name="pack_id" value="{{ pk.pack_id }}">{{ pic(photos.pack.get(pk.pack_id) or photos.product.get(pk.product_id), 30) }} {{ "No, it's" if it.pack_id else "It's" }} {{ pack_label(pk, 'en') }}</button></form>
+        {% endif %}{% endfor %}
+      </div>
+      <div class="choices mt-2">
+        <button type="button" class="btn btn-outline-secondary" data-open-picker="{{ it.id }}"><i class="bi bi-search" aria-hidden="true"></i> Something else…</button>
+        <form method="post" action="/items/{{ it.id }}/resolve" data-act="remove"><input type="hidden" name="action" value="remove">
+          <button class="btn btn-outline-danger"><i class="bi bi-x-lg" aria-hidden="true"></i> Not a sale</button></form>
+        {% if not tray %}
+        <button type="button" class="btn btn-outline-secondary" data-several="{{ it.id }}"><i class="bi bi-grid-3x3-gap" aria-hidden="true"></i> Several items</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#new-{{ it.id }}"
+                aria-expanded="false" aria-controls="new-{{ it.id }}"><i class="bi bi-plus-square" aria-hidden="true"></i> New product</button>
+        {% else %}
+        <form method="post" action="/items/{{ it.id }}/resolve" data-act="unknown"><input type="hidden" name="action" value="unknown">
+          <button class="btn btn-outline-secondary"><i class="bi bi-question-circle" aria-hidden="true"></i> Not in the list</button></form>
+        {% endif %}
+      </div>
+      {% if not tray %}
+      <div class="collapse new-product" id="new-{{ it.id }}">
+        <form method="post" action="/items/{{ it.id }}/new-product" data-act="new">
+          <label class="form-label fw-semibold mb-1" for="np-{{ it.id }}">Not in your products yet? Name it: brand, product and size</label>
+          <div class="d-flex gap-2 flex-wrap">
+            <input id="np-{{ it.id }}" name="name" class="form-control" style="max-width:24rem" value="{{ it.name_guess or '' }}"
+                   placeholder="e.g. Oishi green tea honey lemon 380ml" maxlength="80" autocomplete="off" required>
+            <button class="btn btn-dark"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add it</button>
+          </div>
+        </form>
+        <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+          <span class="small muted">The sale is recorded and the camera learns it from this photo. Supplier and price can wait.</span>
+          <form method="post" action="/items/{{ it.id }}/resolve" data-act="unknown"><input type="hidden" name="action" value="unknown">
+            <button class="btn btn-sm btn-link px-0">Not now, ask me later</button></form>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<div class="all-clear mb-3 {{ 'd-none' if pending }}">Nothing to check. Items the camera is sure about are recorded automatically.</div>
+
+{% if to_name %}
+<div class="card name-card mb-3">
+  <div class="card-header"><i class="bi bi-plus-square-dotted" aria-hidden="true"></i> New products to name
+    <span class="badge rounded-pill text-bg-secondary" data-name-n>{{ to_name|length }}</span>
+    <div class="sub">Sold, but not in your products yet. Name each one when you have a minute: the camera learns it, and
+      its sales so far are kept.</div></div>
+  {% for it in to_name %}
+  <div class="name-item" data-item="{{ it.id }}" data-rev="{{ it.status }}">
+    <img class="crop-md" src="/media/{{ it.crop_path }}" alt="item sold on {{ it.started_at[:10] }}">
+    <div class="flex-grow-1">
+      <div class="small muted">Sold {{ it.started_at[5:10] }} at {{ it.started_at[11:16] }}{% if it.count > 1 %} · ×{{ it.count }}{% endif %}</div>
+      <form method="post" action="/items/{{ it.id }}/new-product" data-act="name" class="d-flex gap-2 flex-wrap mt-1">
+        <input name="name" class="form-control" style="max-width:20rem" value="{{ it.name_guess or '' }}" placeholder="Its name and size"
+               maxlength="80" autocomplete="off" required aria-label="product name">
+        <button class="btn btn-dark"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add</button>
+        <button type="button" class="btn btn-outline-secondary" data-open-picker="{{ it.id }}"><i class="bi bi-search" aria-hidden="true"></i> It's one I have</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+</section>

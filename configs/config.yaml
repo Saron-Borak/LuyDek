@@ -8,6 +8,9 @@ shop:
   # A Telegram user becomes a verifier by sending: /start 2468
   pin: "2468"
   default_lang: "km"
+  # Demo and install-team tools: send-now buttons, photo upload, pilot report, Telegram previews.
+  # Turn off for a real pilot so the owner sees only what they need.
+  team_tools: true
 
 paths:
   db: data/luydek.db
@@ -25,6 +28,21 @@ recognition:
   m_high: 0.03       # ... AND at least this far ahead of the runner-up
   t_low: 0.76        # below this the owner gets the photo grid instead of a yes/no
   top_k_per_pack: 3  # a pack's score is the mean of its best k gallery matches
+  learn_cap: 20      # owner "Yes" and corrections become photos; keep the newest 20 per product
+  # Look-alikes that differ only in colour (blue vs black pen): a colour histogram breaks the tie.
+  colour_tiebreak: true
+  lookalike_gap: 0.05  # candidates within this CLIP score of the top one count as look-alikes
+  colour_margin: 0.15  # the colour match must beat the runner-up by this much to decide
+  # Nothing that might be a sale is dropped silently. Things you taught it to ignore (phone, cash, a
+  # hand) are set aside only on a clear match; "other" (from "Not a sale" answers) is always asked
+  # about, except a patch of mat this close to one you already said wasn't a sale. Set-aside things
+  # stay in the camera log (/log) for ignored_keep_days, where "It was a sale" still records them.
+  ignore_min: 0.85
+  ignore_margin: 0.03
+  junk_repeat: 0.95
+  background_sim: 0.9     # looks this much like the empty mat at that spot: never recorded without asking
+  ignored_keep_days: 14
+  enroll_duplicate: 0.985  # hold-to-record: skip a photo this close to one the product already has
   segment:
     work_width: 960        # frames are compared at this width
     diff_threshold: 30     # LAB distance that counts as "something is here"
@@ -36,12 +54,28 @@ recognition:
     split_solidity: 0.93   # only a dented outline (less convex than this) can be two items
     split_peak: 0.75
     split_min_frac: 0.12
+    # With a calibrated camera, this share of the mat looking different from the empty-counter
+    # photo means the camera moved or the light changed: the counter page asks for a recalibration
+    # instead of recording a sale. Real sales so far covered at most ~70% of the view.
+    scene_change_frac: 0.85
+
+  # Pharmacies: loose tablets go on a small black card (marked on the Counter page) and are
+  # counted there; the box they came from, put beside it, says which medicine it is.
+  tray:
+    diff_threshold: 40
+    min_piece_frac: 0.002   # of the tray: smaller is a crumb
+    max_piece_frac: 0.30    # of the tray: bigger is not tablets
+    unit_tolerance: 0.35    # a piece must be within 0.35 of a whole number of tablets to be sure
+    min_unit_samples: 2     # checked counts needed before the tray trusts a tablet's size
 
 verification:
   # Batched digests at quiet moments, never one message per sale.
   digest_times: ["09:30", "13:00", "20:30"]
   # Anything still unchecked is accepted as the best guess and flagged.
   end_of_day: "22:00"
+  # Right after end_of_day, every registered phone gets the day's summary: what sold, what came in,
+  # what is running out. Anyone can also ask for it (/today) and for stock left (/stock, or type a name).
+  daily_summary: true
   weekly_summary_time: "20:45"   # Sundays
   # Privacy: once every item in a sale is settled, the full counter photo is
   # deleted and only the per-product crops are kept.
@@ -68,6 +102,10 @@ labels:
   model: claude-opus-5
   gap: 0.05                 # guesses within this score of the top one count as look-alikes
   max_options: 4
+  # Something the camera can't place at all: read its name off the package so the owner can
+  # add it as a new product with one tap (Today page and Telegram).
+  name_new: true
+  name_match: 0.9           # a name read this close to an existing product's name is that product
 
 pilot:
   start: null               # e.g. "2026-10-01"; empty = the first day stock was recorded
@@ -78,3 +116,11 @@ invoices:
   model: claude-opus-5
   max_long_edge: 1568       # images are downscaled to this before upload
   khr_per_usd: 4100         # riel invoices are costed in dollars at this rate
+
+telegram:
+  enabled: true
+  # The Mini App (swipe right/left to check items inside Telegram) needs an https address that
+  # Telegram can open on the phone, e.g. from `tailscale serve --bg 8000`. With it, each digest is
+  # one message with a "Check N items" button; without it, one photo message per item as before.
+  miniapp_url: https://kyoo-1.tail4f6f49.ts.net   # this laptop, via `tailscale serve` (tailnet only)
+  miniapp_host_only: false  # true if that address is PUBLIC (a tunnel): it then serves only the Mini App

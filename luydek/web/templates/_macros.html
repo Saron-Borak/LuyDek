@@ -1,0 +1,15 @@
+{# A product's small photo for lists (from /thumb), or a quiet placeholder when it has none yet. #}
+{% macro pic(gid, size=40) -%}
+{% if gid %}<img class="pic" src="/thumb/{{ gid }}.jpg" width="{{ size }}" height="{{ size }}" alt="" loading="lazy">
+{%- else %}<span class="pic pic-none" style="width:{{ size }}px;height:{{ size }}px"><i class="bi bi-image" aria-hidden="true"></i></span>{% endif %}
+{%- endmacro %}
+
+{# An empty list: an invitation, not an apology. One icon, one line, at most one action. #}
+{% macro empty(icon, title, text="", href=None, label=None) -%}
+<div class="empty-state">
+  <div class="ico"><i class="bi bi-{{ icon }}" aria-hidden="true"></i></div>
+  <div class="t">{{ title }}</div>
+  {% if text %}<div class="small">{{ text }}</div>{% endif %}
+  {% if href %}<a href="{{ href }}" class="btn btn-outline-dark mt-3">{{ label }}</a>{% endif %}
+</div>
+{%- endmacro %}

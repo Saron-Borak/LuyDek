@@ -9,16 +9,16 @@
       day 0 was {{ rep.pilot_start.strftime('%d %B %Y') }}</div>
     {% endif %}
   </div>
-  <button class="btn btn-outline-dark no-print" onclick="window.print()">🖨 Print or save as PDF</button>
+  <button class="btn btn-outline-dark no-print" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> Print or save as PDF</button>
 </div>
 
 {% if not rep %}
-<div class="card"><div class="card-body p-5 text-center muted">No stock has been recorded yet, so there is nothing to report.
-  Start with the day-0 count on the <a href="/catalog">Catalog</a> page.</div></div>
+{% from "_macros.html" import empty %}
+<div class="card">{{ empty('graph-up-arrow', 'Nothing to report yet', 'No stock has been recorded. Start with the day-0 count on the Products page.', '/catalog', 'Go to Products') }}</div>
 {% else %}
 
 {% if rep.simulated %}
-<div class="alert alert-warning fs-6"><b>⚠️ Includes simulated history.</b> These weeks come from
+<div class="alert alert-warning fs-6"><b><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Includes simulated history.</b> These weeks come from
   <code>scripts/simulate_history.py</code>, which keeps ordering "by feeling" throughout — they are <b>not</b> pilot results.</div>
 {% endif %}
 {% if not rep.comparable %}
@@ -35,7 +35,7 @@
       <div class="h">now · was {{ fmt(h.before, h.fmt) }} in weeks 1–{{ rep.baseline_weeks }}</div>
       {% if h.good is not none %}
       <div class="delta {{ 'delta-good' if h.good else 'delta-bad' }}">
-        {{ '✓' if h.good else '⚠' }} {{ '▼' if h.now < h.before else '▲' }}
+        {% if h.good %}<i class="bi bi-check-circle-fill" aria-hidden="true"></i>{% else %}<i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>{% endif %} {{ '▼' if h.now < h.before else '▲' }}
         {% if h.change is not none %}{{ '%.0f'|format(h.change|abs) }}% {{ 'lower' if h.now < h.before else 'higher' }}{% else %}{{ 'down' if h.now < h.before else 'up' }} from zero{% endif %}
         <span class="muted">· {{ h.better }} is better</span></div>
       {% elif h.before is not none and h.now is not none %}
@@ -49,9 +49,9 @@
 <div class="d-flex align-items-center gap-4 flex-wrap mb-2">
   <div class="section-title my-0">Week by week</div>
   <div class="legend">
-    <span><i style="background:#8e8c84"></i>Weeks 1–{{ rep.baseline_weeks }}: watching only (before)</span>
-    <span><i style="background:#2a78d6"></i>Pilot weeks: order advice on</span>
-    <span><i style="background:#2a78d6;opacity:.45"></i>This week, so far</span>
+    <span><i style="background:#888780"></i>Weeks 1–{{ rep.baseline_weeks }}: watching only (before)</span>
+    <span><i style="background:#534AB7"></i>Pilot weeks: order advice on</span>
+    <span><i style="background:#534AB7;opacity:.45"></i>This week, so far</span>
   </div>
 </div>
 <div class="row g-3" id="charts">
@@ -94,23 +94,4 @@
 {% endif %}
 {% endblock %}
 
-{% block scripts %}
-<script>
-(() => {
-  const tip = document.getElementById("tip");
-  if (!tip) return;
-  function show(el, x, y) {
-    tip.textContent = el.dataset.tip;   // labels are data: textContent, never innerHTML
-    tip.hidden = false;
-    tip.style.left = Math.min(x + 12, window.innerWidth - tip.offsetWidth - 8) + "px";
-    tip.style.top = (y - tip.offsetHeight - 10) + "px";
-  }
-  document.querySelectorAll("#charts .hit").forEach((el) => {
-    el.addEventListener("pointermove", (e) => show(el, e.clientX, e.clientY));
-    el.addEventListener("pointerleave", () => (tip.hidden = true));
-    el.addEventListener("focus", () => { const r = el.getBoundingClientRect(); show(el, r.left, r.top); });
-    el.addEventListener("blur", () => (tip.hidden = true));
-  });
-})();
-</script>
-{% endblock %}
+{% block scripts %}<script src="{{ asset('tips.js') }}"></script>{% endblock %}

@@ -111,12 +111,13 @@ def stock_table(conn: sqlite3.Connection, expiry_warning_days: int = 30) -> list
     rows = conn.execute(
         """
         SELECT p.id, p.sku, p.name_en, p.name_km, p.unit, p.case_size, p.is_critical,
-               p.unit_cost, p.supplier_id, s.name AS supplier_name, s.emoji,
+               p.unit_cost, p.supplier_id, p.origin, s.name AS supplier_name, s.emoji,
                COALESCE(m.on_hand, 0)  AS on_hand,
                COALESCE(m.sold_7d, 0)  AS sold_7d,
                COALESCE(m.sold_28d, 0) AS sold_28d,
                m.last_sale,
                m.product_id IS NOT NULL AS tracked,
+               COALESCE(m.counted, 0) AS counted,
                COALESCE(pend.units, 0) AS pending_units
         FROM products p
         LEFT JOIN suppliers s ON s.id = p.supplier_id
@@ -125,7 +126,8 @@ def stock_table(conn: sqlite3.Connection, expiry_warning_days: int = 30) -> list
                    SUM(qty) AS on_hand,
                    -SUM(CASE WHEN type = 'sale' AND created_at >= :d7  THEN qty ELSE 0 END) AS sold_7d,
                    -SUM(CASE WHEN type = 'sale' AND created_at >= :d28 THEN qty ELSE 0 END) AS sold_28d,
-                   MAX(CASE WHEN type = 'sale' AND qty < 0 THEN created_at END) AS last_sale
+                   MAX(CASE WHEN type = 'sale' AND qty < 0 THEN created_at END) AS last_sale,
+                   MAX(type != 'sale') AS counted
             FROM stock_movements GROUP BY product_id
         ) m ON m.product_id = p.id
         LEFT JOIN (
@@ -140,6 +142,9 @@ def stock_table(conn: sqlite3.Connection, expiry_warning_days: int = 30) -> list
         {"d7": clock.stamp(now - timedelta(days=7)), "d28": clock.stamp(now - timedelta(days=28))},
     ).fetchall()
 
+    from . import loose  # loose -> catalog; imported here to keep stock importable on its own
+
+    boxes = loose.box_sizes(conn)
     levels = {r["id"]: r["on_hand"] for r in rows}
     expiries = earliest_live_expiry(conn, levels)
     soon = (now.date() + timedelta(days=expiry_warning_days)).isoformat()
@@ -147,14 +152,20 @@ def stock_table(conn: sqlite3.Connection, expiry_warning_days: int = 30) -> list
     table = []
     for r in rows:
         row = dict(r)
+        if row["origin"] != "catalog" and not row["counted"]:
+            # Learned at the counter: sales so far are real demand, but the shelf was never counted.
+            row["tracked"], row["sold_uncounted"] = False, -row["on_hand"]
         daily = row["sold_7d"] / 7
         row["days_cover"] = round(row["on_hand"] / daily, 1) if daily > 0 and row["on_hand"] > 0 else None
         row["value"] = round(max(row["on_hand"], 0) * row["unit_cost"], 2)
         row["expiry"] = expiries.get(row["id"])
-        row["negative"] = row["on_hand"] < 0
+        row["negative"] = row["on_hand"] < 0 and bool(row["tracked"])
         row["out"] = row["on_hand"] <= 0
         row["low"] = not row["out"] and daily > 0 and row["on_hand"] < daily * 3
         row["expiring"] = bool(row["expiry"] and row["expiry"] <= soon)
+        # "3 boxes + 47 tablets"; under a box, the number of tablets already says it all.
+        box = boxes.get(row["id"])
+        row["breakdown"] = loose.breakdown(row["on_hand"], *box, row["unit"]) if box and row["on_hand"] >= box[1] else None
         # One status per product, for the colour dot and the sort order.
         if not row["tracked"]:
             row["status"] = "new"          # never counted: nothing is known yet
@@ -173,6 +184,27 @@ def stock_table(conn: sqlite3.Connection, expiry_warning_days: int = 30) -> list
 
 
 STATUS_ORDER = ("out", "low", "expiring", "new", "ok")
+
+
+def product_days(conn: sqlite3.Connection, product_id: int, days: int = 28) -> list[dict]:
+    """Each of the last `days` days, today last: units sold, and whether the shelf was empty.
+
+    "Empty" means the day started with nothing on the shelf and nothing was sold,
+    so a gap in the chart reads as "nothing to sell", not "nobody wanted it".
+    """
+    end = clock.today() + timedelta(days=1)
+    start = end - timedelta(days=days)
+    opening, net, sold = daily_series(conn, start, end)
+    level, seen = opening.get(product_id, 0), product_id in opening
+    out = []
+    for i in range(days):
+        d = (start + timedelta(days=i)).isoformat()
+        s = sold.get(product_id, {}).get(d, 0)
+        n = net.get(product_id, {}).get(d, 0)
+        out.append({"date": d, "sold": s, "empty": seen and level <= 0 and s == 0})
+        level += n
+        seen = seen or n != 0
+    return out
 
 
 def daily_series(

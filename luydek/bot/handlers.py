@@ -8,14 +8,15 @@ import logging
 import uuid
 from datetime import timedelta
 
-from telegram import Update
+from telegram import ForceReply, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from .. import clock, db
 from ..config import Config
 from ..i18n import STRINGS, t
 from ..recognition import pipeline
-from ..services import catalog, invoices, metrics, stock, transactions
+from ..services import catalog, invoices, learn, metrics, stock, transactions
 from . import digest, keyboards
 
 log = logging.getLogger("luydek.bot")
@@ -95,24 +96,76 @@ async def cmd_adjust(update: Update, context: ContextTypes.DEFAULT_TYPE, user) -
 
 
 @registered
+async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE, user) -> None:
+    """/check: open the Mini App (or, without one, send the waiting items again)."""
+    cfg = _cfg(context)
+    if not cfg.telegram.miniapp_url:
+        await digest.send_digest(context.bot, cfg, resend=True, manual=True)
+        return
+    with db.session(cfg) as conn:
+        n = len(transactions.pending_items(conn))
+    await update.message.reply_text(t(user["lang"], "app_intro"),
+                                    reply_markup=keyboards.open_app(cfg.telegram.miniapp_url, user["lang"], n))
+
+
+@registered
 async def cmd_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE, user) -> None:
     await update.effective_message.reply_text(t(user["lang"], "invoice_help"))
+
+
+@registered
+async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE, user) -> None:
+    """/today: what sold today and what is left, now (it also comes by itself at the end of the day)."""
+    await digest.send_day_summary(context.bot, _cfg(context), chat_id=user["chat_id"])
+
+
+@registered
+async def cmd_stock(update: Update, context: ContextTypes.DEFAULT_TYPE, user) -> None:
+    """/stock: pick a product to see what is left, or every item. /stock coca: straight to Coca-Cola."""
+    query = " ".join(context.args or []).strip()
+    if query:
+        await _stock_search(update, context, user, query)
+    else:
+        await digest.send_stock_picker(context.bot, _cfg(context), user["chat_id"], user["lang"])
+
+
+async def _stock_search(update: Update, context: ContextTypes.DEFAULT_TYPE, user, query: str) -> None:
+    """A product's name typed in the chat: one match shows its stock, several are offered as buttons."""
+    cfg, lang = _cfg(context), user["lang"]
+    with db.session(cfg) as conn:
+        found = catalog.search(conn, query)
+    if len(found) == 1:
+        await update.effective_message.reply_text(digest.product_stock_text(cfg, found[0], lang), parse_mode="HTML",
+                                                  reply_markup=keyboards.product_stock_keyboard(lang))
+    elif found:
+        await update.effective_message.reply_text(t(lang, "stock_matches", q=query),
+                                                  reply_markup=digest.stock_picker(cfg, lang, only=found))
+    else:
+        await update.effective_message.reply_text(t(lang, "stock_nomatch", q=query),
+                                                  reply_markup=digest.stock_picker(cfg, lang))
 
 
 MENU = {
     key: cmd for key, cmd in (
         ("menu_invoice", cmd_invoice), ("menu_adjust", cmd_adjust),
         ("menu_orders", cmd_orders), ("menu_week", cmd_week),
+        ("menu_today", cmd_today), ("menu_stock", cmd_stock),
     )
 }
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (update.message.text or "").strip()
+    if update.message.reply_to_message is not None and text and await _named(update, context, text):
+        return
     for key, handler in MENU.items():
         if text in STRINGS[key].values():
             await handler(update, context)
             return
+    # Anything else typed is taken as a product's name: "how many Coca-Cola are left?"
+    user = _user(_cfg(context), update.effective_chat.id)
+    if user is not None and text:
+        await _stock_search(update, context, user, text[:60])
 
 
 # --- invoice photos ---------------------------------------------------------------------
@@ -162,7 +215,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     parts = query.data.split(":")
     handler = {"v": _verify, "d": _confirm_digest, "r": _resend, "a": _adjust,
-               "i": _invoice, "il": _invoice_line, "b": _bonus}.get(parts[0])
+               "i": _invoice, "il": _invoice_line, "b": _bonus, "s": _stock}.get(parts[0])
     if handler is None:
         await query.answer()
         return
@@ -193,10 +246,75 @@ async def _verify(query, context, cfg: Config, user, parts: list[str]) -> None:
         kwargs["pack_id"] = int(parts[3])
     elif action == "q":
         kwargs["delta"] = int(parts[3])
+    if action == "n":  # a new product: ask for its name as a reply, so no menu is in the way
+        await query.answer()
+        msg = await context.bot.send_message(user["chat_id"], t(lang, "ask_name", n=item_id),
+                                             reply_markup=ForceReply(selective=True))
+        with db.session(cfg) as conn:
+            digest.remember(conn, "name_prompt", item_id, user["chat_id"], msg.message_id)
+        return
+    if action == "ng":  # add it under the name read off the package
+        with db.session(cfg) as conn:
+            row = transactions.item(conn, item_id)
+        guess = row["name_guess"] if row is not None else None
+        if not guess:
+            await query.answer()
+            return
+        await query.answer()
+        await _add_product(context, cfg, user, item_id, guess, row["name_guess_km"] or "")
+        return
     verb = {"y": "yes", "p": "pick", "q": "qty", "x": "remove", "u": "unknown"}[action]
     result = await asyncio.to_thread(_resolve, cfg, item_id, verb, **kwargs)
     await query.answer(t(lang, "already") if result["already"] else None)
     await digest.refresh_item(context.bot, cfg, item_id)
+
+
+async def _named(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+    """A reply to "What is it?": the name of a new product. False if the reply was to something else."""
+    cfg = _cfg(context)
+    user = _user(cfg, update.message.chat.id)
+    if user is None:
+        return False
+    with db.session(cfg) as conn:
+        prompt = conn.execute(
+            "SELECT ref_id FROM bot_messages WHERE kind = 'name_prompt' AND chat_id = ? AND message_id = ?",
+            (user["chat_id"], update.message.reply_to_message.message_id),
+        ).fetchone()
+    if prompt is None:
+        return False
+    await _add_product(context, cfg, user, prompt["ref_id"], text, "", reply_to=update.message)
+    return True
+
+
+async def _add_product(context, cfg: Config, user, item_id: int, name: str, name_km: str, reply_to=None) -> None:
+    """Make the product, record the sale and learn the photo; re-ask look-alike sales about it."""
+    lang = user["lang"]
+
+    def run() -> dict:
+        with db.session(cfg) as conn:
+            result = learn.add_from_item(
+                conn, item_id, name, name_km, by=user["name"] or str(user["chat_id"]), learn=pipeline.learner(cfg),
+                media_dir=cfg.media_dir, delete_photo=cfg.verification.delete_photos_after_verify)
+            regroup = pipeline.regrouper(cfg)
+            result["regrouped"] = regroup(conn, result["pack_id"], skip=item_id) if regroup and not result["already"] else []
+            return result
+
+    try:
+        result = await asyncio.to_thread(run)
+    except ValueError:
+        return
+    if result["already"]:
+        text = t(lang, "already")
+    else:
+        text = t(lang, "added_product", name=result["name"])
+        if result["regrouped"]:
+            text += "\n" + t(lang, "added_more", n=len(result["regrouped"]))
+    if reply_to is not None:
+        await reply_to.reply_text(text)
+    else:
+        await context.bot.send_message(user["chat_id"], text)
+    for changed in [item_id, *result["regrouped"]]:
+        await digest.refresh_item(context.bot, cfg, changed)
 
 
 async def _confirm_digest(query, context, cfg: Config, user, parts: list[str]) -> None:
@@ -257,6 +375,27 @@ async def _adjust(query, context, cfg: Config, user, parts: list[str]) -> None:
                                         name=catalog.display_name(p, lang), qty=qty))
 
 
+async def _stock(query, context, cfg: Config, user, parts: list[str]) -> None:
+    """Stock left: s:m a new picker, s:l:<page> another page, s:p:<product> one product, s:a every item."""
+    lang = user["lang"]
+    await query.answer()
+    step = parts[1]
+    try:
+        if step == "m":
+            await digest.send_stock_picker(context.bot, cfg, user["chat_id"], lang)
+        elif step == "l":
+            await query.edit_message_text(t(lang, "stock_pick"), reply_markup=digest.stock_picker(cfg, lang, int(parts[2])))
+        elif step == "p":
+            text = digest.product_stock_text(cfg, int(parts[2]), lang)
+            if text:
+                await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboards.product_stock_keyboard(lang))
+        elif step == "a":
+            await digest.send_stock_list(context.bot, cfg, user["chat_id"], lang)
+    except BadRequest as exc:  # tapped twice: the message already shows it
+        if "not modified" not in str(exc).lower():
+            raise
+
+
 async def _invoice(query, context, cfg: Config, user, parts: list[str]) -> None:
     lang = user["lang"]
     invoice_id, action = int(parts[1]), parts[2]
@@ -298,6 +437,8 @@ async def _invoice_line(query, context, cfg: Config, user, parts: list[str]) -> 
     with db.session(cfg) as conn:
         if action == "p":
             invoices.set_line_product(conn, line_id, int(parts[3]))
+        elif action == "n":
+            invoices.new_product_for_line(conn, line_id)
         else:
             invoices.skip_line(conn, line_id)
         line = conn.execute(
@@ -308,7 +449,7 @@ async def _invoice_line(query, context, cfg: Config, user, parts: list[str]) -> 
     if line["skipped"]:
         text = t(lang, "invoice_line_skipped", text=line["text_as_written"])
     else:
-        text = f"✅ {line['text_as_written']} → {catalog.display_name(line, lang)}"
+        text = f"{'🆕' if line['matched_by'] == 'new' else '✅'} {line['text_as_written']} → {catalog.display_name(line, lang)}"
     await query.edit_message_text(text)
     await digest.refresh_invoice(context.bot, cfg, line["invoice_id"])
 
