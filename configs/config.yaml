@@ -76,6 +76,16 @@ verification:
   # Right after end_of_day, every registered phone gets the day's summary: what sold, what came in,
   # what is running out. Anyone can also ask for it (/today) and for stock left (/stock, or type a name).
   daily_summary: true
+  # The moment a product runs out or runs low, every registered phone is told (once, until it's back).
+  stock_alerts: true
+  # Each day a few products get a quick count on Telegram ("is there really 4 left?"): low and out
+  # first, then best sellers, none twice in a week. Counts that match are logged too.
+  spot_checks: 3
+  spot_check_time: "15:00"
+  # Once a week, a walk round the shop place by place: what has expired, what to put in front, and
+  # what won't sell before it expires. Also any time with /shelf.
+  shelf_check_weekday: 0        # 0 = Monday
+  shelf_check_time: "08:30"
   weekly_summary_time: "20:45"   # Sundays
   # Privacy: once every item in a sale is settled, the full counter photo is
   # deleted and only the per-product crops are kept.

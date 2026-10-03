@@ -93,6 +93,11 @@ class VerificationCfg(BaseModel):
     digest_times: list[str] = ["09:30", "13:00", "20:30"]
     end_of_day: str = "22:00"
     daily_summary: bool = True   # right after end_of_day: what sold today and what is running out
+    stock_alerts: bool = True    # a Telegram message the moment a product runs out or runs low
+    spot_checks: int = 3         # products to count quickly each day (0: none)
+    spot_check_time: str = "15:00"
+    shelf_check_weekday: int = 0  # the weekly walk round the shop: what's expired, what goes in front (0 = Monday)
+    shelf_check_time: str = "08:30"
     weekly_summary_time: str = "20:45"
     delete_photos_after_verify: bool = True
     stale_transaction_minutes: int = 10

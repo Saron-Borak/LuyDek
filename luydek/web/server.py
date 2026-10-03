@@ -32,7 +32,8 @@ from ..bot import digest
 from ..config import Config, get_config
 from ..i18n import t
 from ..recognition import cutout, labels, pipeline, segment, tray
-from ..services import catalog, forecast, invoices, learn, loose, metrics, report, stock, transactions
+from ..services import (batches, catalog, forecast, invoices, learn, locations, loose, metrics, report, stock,
+                        transactions)
 from . import charts as charts_mod
 from . import miniapp
 
@@ -597,6 +598,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             rows = catalog.catalog_rows(conn)
             suppliers = catalog.suppliers(conn)
             loose_count = len(loose.loose_products(conn))
+            n_places = len(locations.places(conn))
+            n_homeless = len(locations.homeless(conn))
         calibrated_at = None
         if ref and (cfg.media_dir / ref).exists():
             calibrated_at = datetime.fromtimestamp((cfg.media_dir / ref).stat().st_mtime).strftime("%d %b %H:%M")
@@ -620,6 +623,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             {"done": rows and uncounted == 0, "title": "Count the stock on the shelf", "href": "/catalog#count",
              "button": "Count stock", "detail": "Everything is counted." if not uncounted else
              f"{uncounted} product{'s have' if uncounted != 1 else ' has'} never been counted."},
+            {"done": n_places > 0 and n_homeless == 0, "title": "Name the places in your shop", "href": "/shelf#places",
+             "button": "Places", "detail": (f"{n_places} place{'s' if n_places != 1 else ''}"
+                                            + (f"; {n_homeless} product{'s' if n_homeless != 1 else ''} without one."
+                                               if n_homeless else ", and every product has one.")) if n_places else
+             "Fridge, Shelf A, Back room... so the shelf check walks the shop and deliveries say where they go."},
             {"done": bool(suppliers) and no_supplier == 0, "title": "Suppliers and their visit days",
              "href": "/catalog#suppliers", "button": "Suppliers",
              "detail": f"{len(suppliers)} supplier{'s' if len(suppliers) != 1 else ''}"
@@ -923,6 +931,10 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             days = stock.product_days(conn, product_id, 28)
             learned = conn.execute("SELECT samples_json FROM tray_units WHERE product_id = ?", (product_id,)).fetchone()
             tray_marked = pipeline.load_roi(conn, pipeline.TRAY_KEY) is not None
+            places = locations.places(conn)
+            where = batches.places(conn)
+            lots = [{"b": b, "place": where[b.location_id]["name"] if b.location_id in where else None}
+                    for b in batches.open_batches(conn, product_id)]
         loose_info = None
         if product["sold_loose"]:
             loose_info = {
@@ -939,7 +951,14 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         }
         return page(request, "product.html", p=product, packs=packs, gallery=photos, aliases=aliases,
                     suppliers=suppliers, level=level, moves=moves, min_photos=MIN_PHOTOS, loose=loose_info,
-                    sales=sales)
+                    sales=sales, places=places, lots=lots, today=clock.today().isoformat())
+
+    @app.post("/catalog/{product_id}/place")
+    def product_place(request: Request, product_id: int, location_id: str = Form("")):
+        with db.session(cfg) as conn:
+            _product(conn, product_id)
+            locations.set_home(conn, product_id, _int(location_id))
+        return back(request, "Saved where it lives")
 
     @app.post("/catalog/{product_id}/loose")
     def make_loose(request: Request, product_id: int, per_box: str = Form(""), piece: str = Form("tablet")):
@@ -979,8 +998,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if n is None or n < 0:
             return back(request, "Enter how many are on the shelf")
         with db.session(cfg) as conn:
-            stock.opening_count(conn, {product_id: n})
-        return back(request, f"Stock set to {n}")
+            delta = stock.count(conn, product_id, n, "product_page", by="dashboard")
+        return back(request, f"Stock set to {n}" if delta else f"{n}, as recorded")
 
     @app.post("/catalog/{product_id}/archive")
     def archive_product(request: Request, product_id: int):
@@ -1070,6 +1089,107 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             stock.opening_count(conn, counts)
         return back(request, f"Counted {len(counts)} product(s)")
 
+    # --- the shelf: the weekly walk, places, batches --------------------------------------------
+
+    @app.get("/shelf", response_class=HTMLResponse)
+    def shelf_page(request: Request):
+        """Walk the shop place by place: take off what has expired, put what expires soon in front, and
+        clear what won't sell in time. Below: the shop's places, and which products live where."""
+        days = cfg.forecast.expiry_warning_days
+        with db.session(cfg) as conn:
+            tasks = batches.shelf_check(conn, days)
+            places = locations.places(conn)
+            products = conn.execute("SELECT id, name_en, location_id FROM products WHERE active = 1 "
+                                    "ORDER BY location_id IS NOT NULL, name_en").fetchall()
+            dated = conn.execute("SELECT COUNT(DISTINCT m.product_id) FROM stock_movements m JOIN products p "
+                                 "ON p.id = m.product_id WHERE m.qty > 0 AND m.expiry_date IS NOT NULL "
+                                 "AND p.active = 1").fetchone()[0]
+        groups = []
+        for task in tasks:
+            if not groups or groups[-1]["place"] != task.place:
+                groups.append({"place": task.place, "tasks": []})
+            groups[-1]["tasks"].append(task)
+        counts = {a: sum(1 for x in tasks if x.action == a) for a in ("remove", "front", "clear")}
+        return page(request, "shelf.html", groups=groups, counts=counts, places=places, products=products, days=days,
+                    dated=dated, suggested=locations.SUGGESTED)
+
+    @app.post("/shelf/places")
+    def add_place(request: Request, name: str = Form("")):
+        try:
+            with db.session(cfg) as conn:
+                locations.add(conn, name)
+        except ValueError as exc:
+            return back(request, str(exc))
+        return back(request, f"Added {' '.join(name.split())}")
+
+    @app.post("/shelf/places/suggested")
+    def add_suggested_places(request: Request):
+        with db.session(cfg) as conn:
+            n = locations.add_suggested(conn)
+        return back(request, f"Added {n} place{'s' if n != 1 else ''}: rename or remove any that don't fit")
+
+    @app.post("/shelf/places/{location_id}")
+    def rename_place(request: Request, location_id: int, name: str = Form("")):
+        try:
+            with db.session(cfg) as conn:
+                locations.rename(conn, location_id, name)
+        except ValueError as exc:
+            return back(request, str(exc))
+        return back(request, "Renamed")
+
+    @app.post("/shelf/places/{location_id}/remove")
+    def remove_place(request: Request, location_id: int):
+        with db.session(cfg) as conn:
+            locations.remove(conn, location_id)
+        return back(request, "Removed the place")
+
+    @app.post("/shelf/homes")
+    async def set_homes(request: Request):
+        """Where each product lives, set for many at once."""
+        form = await request.form()
+        changed = 0
+        with db.session(cfg) as conn:
+            now = {r["id"]: r["location_id"] for r in conn.execute("SELECT id, location_id FROM products")}
+            for key, value in form.items():
+                if key.startswith("home_") and key[5:].isdigit():
+                    pid, loc = int(key[5:]), _int(value)
+                    if pid in now and now[pid] != loc:
+                        locations.set_home(conn, pid, loc)
+                        changed += 1
+        return back(request, f"Saved {changed} product{'s' if changed != 1 else ''}")
+
+    @app.post("/batches/{batch_id}/remove")
+    def remove_batch(request: Request, batch_id: int, qty: str = Form(""), reason: str = Form("expired")):
+        reason = reason if reason in ("expired", "damaged") else "expired"
+        try:
+            with db.session(cfg) as conn:
+                n = batches.remove(conn, batch_id, _int(qty), reason=reason, by="dashboard")
+        except ValueError as exc:
+            return back(request, str(exc))
+        return back(request, f"Took {n} off the stock ({reason})")
+
+    @app.post("/batches/{batch_id}/edit")
+    async def edit_batch(request: Request, batch_id: int):
+        """Fix a batch's expiry date, the place it was put, or its lot number."""
+        form = await request.form()
+        changes = {}
+        if "expiry" in form:
+            raw = str(form["expiry"]).strip()
+            try:
+                changes["expiry"] = date.fromisoformat(raw).isoformat() if raw else None
+            except ValueError:
+                return back(request, "That date doesn't look right")
+        if "location_id" in form:
+            changes["location_id"] = _int(form["location_id"])
+        if "lot_no" in form:
+            changes["lot_no"] = str(form["lot_no"]).strip() or None
+        try:
+            with db.session(cfg) as conn:
+                batches.update(conn, batch_id, **changes)
+        except ValueError as exc:
+            return back(request, str(exc))
+        return back(request, "Saved")
+
     # --- invoices ------------------------------------------------------------------------------
 
     @app.get("/invoices", response_class=HTMLResponse)
@@ -1126,6 +1246,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             products = catalog.products(conn)
             suppliers = catalog.suppliers(conn)
             preview = render.invoice_message(conn, invoice_id, "km")
+            putaway = batches.put_away(conn, batches.for_invoice(conn, invoice_id)) if inv["status"] == "confirmed" else []
         names = {pr["id"]: pr["name_en"] for pr in products}
         open_lines = [l for l in lines if l["product_id"] is None and not l["skipped"]]
         addable = [l for l in open_lines if not invoices.needs_case_size(l)]
@@ -1133,7 +1254,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         return page(request, "invoice.html", inv=inv, lines=lines, products=products, suppliers=suppliers,
                     suggestions=suggestions, preview=preview, extracted=invoices.extracted_json(inv),
                     names=names, open_lines=open_lines, total=total, addable=addable,
-                    needs_size={l["id"] for l in open_lines if invoices.needs_case_size(l)}, weekdays=WEEKDAYS)
+                    needs_size={l["id"] for l in open_lines if invoices.needs_case_size(l)}, weekdays=WEEKDAYS,
+                    putaway=putaway)
 
     @app.post("/invoices/{invoice_id}/lines/{line_id}")
     async def invoice_line(request: Request, invoice_id: int, line_id: int, product_id: str = Form("")):

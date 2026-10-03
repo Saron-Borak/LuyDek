@@ -30,7 +30,7 @@ from .. import clock, db
 from ..config import Config
 from ..i18n import t
 from ..recognition import pipeline
-from ..services import catalog, learn, metrics, summary, transactions
+from ..services import batches, catalog, learn, metrics, summary, transactions
 
 MAX_AGE = 24 * 3600          # launch data older than this is refused
 IMAGE_TTL = 6 * 3600          # signed photo links last this long
@@ -155,10 +155,22 @@ def register(app: FastAPI, cfg: Config, templates, picker_items, refresh_item) -
         """The Stock tab: today's sales in numbers, and every product with what is left."""
         user = user_of(request)
         lang, token = user["lang"] or cfg.shop.default_lang, cfg.bot_token or ""
+        days = cfg.forecast.expiry_warning_days
         with db.session(cfg) as conn:
-            s = summary.day_summary(conn, None, cfg.forecast.expiry_warning_days)
-            rows = summary.stock_left(conn, cfg.forecast.expiry_warning_days)
+            s = summary.day_summary(conn, None, days)
+            rows = summary.stock_left(conn, days)
             by_product, _ = catalog.photo_ids(conn)
+            where = batches.places(conn)
+            homes = {r["id"]: r["location_id"] for r in conn.execute("SELECT id, location_id FROM products")}
+            lots = {pid: st.open for pid, st in batches.replay(conn).items()}
+            tasks = batches.shelf_check(conn, days)
+
+        def place(location_id):
+            return where[location_id]["name"] if location_id in where else None
+
+        def img(pid):
+            return image_url("thumb", by_product[pid], token) if pid in by_product else None
+
         products = [{
             "id": r["id"], "name": catalog.display_name(r, lang), "find": catalog.normalize(f"{r['name_en']} {r['name_km']}"),
             "left": r["on_hand"], "breakdown": r["breakdown"] if lang == "en" else None, "status": r["status"],
@@ -166,11 +178,27 @@ def register(app: FastAPI, cfg: Config, templates, picker_items, refresh_item) -
             "sold_today": r["sold_today"], "sold_7d": r["sold_7d"], "sold_28d": r["sold_28d"],
             "uncounted": r.get("sold_uncounted", 0), "days": r["days_cover"], "expiry": r["expiry"],
             "value": r["value"], "pending": r["pending_units"], "supplier": r["supplier_name"],
-            "img": image_url("thumb", by_product[r["id"]], token) if r["id"] in by_product else None,
+            "img": img(r["id"]), "place": place(homes.get(r["id"])),
+            "batches": [{"left": b.left, "expiry": b.expiry, "place": place(b.location_id)} for b in lots.get(r["id"], [])][:5],
         } for r in rows]
+        walk = [{"batch": x.batch.id, "product": x.product["id"], "name": catalog.display_name(x.product, lang),
+                 "img": img(x.product["id"]), "left": x.batch.left, "expiry": x.batch.expiry, "days": x.days_left,
+                 "action": x.action, "place": x.place} for x in tasks]
         return {"lang": lang, "date": s["date"].isoformat(), "txns": s["txns"], "units": s["units"],
                 "pending": s["pending"], "received": s["received_units"], "value": s["value"],
-                "watch": len(s["watch"]), "simulated": s["simulated"], "products": products}
+                "watch": len(s["watch"]), "simulated": s["simulated"], "products": products, "walk": walk}
+
+    @app.post("/api/tg/batches/{batch_id}/remove")
+    async def miniapp_remove_batch(request: Request, batch_id: int, init_data: str | None = Form(None)):
+        """The shelf check in the app: this batch is off the shelf (expired)."""
+        user = user_of(request, init_data)
+        with db.session(cfg) as conn:
+            metrics.log_tap(conn, user["chat_id"], "app:shelf")
+            try:
+                n = batches.remove(conn, batch_id, reason="expired", by=user["name"] or str(user["chat_id"]))
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
+        return {"removed": n}
 
     @app.post("/api/tg/items/{item_id}")
     async def miniapp_answer(request: Request, item_id: int, action: str = Form(...), pack_id: int | None = Form(None),

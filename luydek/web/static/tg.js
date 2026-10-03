@@ -39,6 +39,12 @@
       to_check_note: (n) => `${n} still to check: counted once checked`, received_note: (n) => `Received +${n} today`,
       on_shelf: (v) => `Stock on the shelf ≈ $${v} at cost`, no_match: "No product matches.",
       simulated: "Includes SIMULATED sales history",
+      f_expiry: "Expiring", no_place: "No place set", walk_none: "Nothing expires soon. All good.",
+      act_remove: "Expired: take it off", act_front: "Put it in front", act_clear: "Won't sell in time",
+      exp_on: (d) => `exp ${d}`, expired_ago: (n) => `expired ${n} day${n === 1 ? "" : "s"} ago`,
+      exp_in: (n) => (n === 0 ? "expires today" : `expires in ${n} day${n === 1 ? "" : "s"}`),
+      taken_off: "Taken off", removed: (name, n) => `${name} ×${n} taken off the stock`,
+      clear_tip: "Discount it, bundle it or send it back.", batches_lbl: "On the shelf",
     },
     km: {
       to_check: "ត្រូវពិនិត្យ", recorded: "បានកត់ថ្ងៃនេះ", how: "អូសទៅស្ដាំ បើកាមេរ៉ាត្រូវ អូសទៅឆ្វេង ដើម្បីកែ។",
@@ -66,6 +72,12 @@
       to_check_note: (n) => `នៅសល់ ${n} មុខត្រូវពិនិត្យ — នឹងរាប់ពេលពិនិត្យរួច`, received_note: (n) => `ទទួលបាន +${n} ថ្ងៃនេះ`,
       on_shelf: (v) => `ទំនិញលើធ្នើ ≈ $${v} (តម្លៃទិញ)`, no_match: "រកមិនឃើញទំនិញទេ។",
       simulated: "មានប្រវត្តិលក់សាកល្បង (simulated)",
+      f_expiry: "ជិតផុតកំណត់", no_place: "មិនទាន់កំណត់កន្លែង", walk_none: "គ្មានអ្វីជិតផុតកំណត់ទេ។",
+      act_remove: "ផុតកំណត់៖ ដកចេញ", act_front: "ដាក់ខាងមុខ", act_clear: "លក់មិនទាន់",
+      exp_on: (d) => `ផុត ${d}`, expired_ago: (n) => `ផុតកំណត់ ${n} ថ្ងៃមុន`,
+      exp_in: (n) => (n === 0 ? "ផុតកំណត់ថ្ងៃនេះ" : `ផុតកំណត់ក្នុង ${n} ថ្ងៃ`),
+      taken_off: "បានដក", removed: (name, n) => `បានដក ${name} ×${n} ចេញពីស្តុក`,
+      clear_tip: "បញ្ចុះតម្លៃ លក់ជាឈុត ឬប្រគល់ឲ្យភ្នាក់ងារ។", batches_lbl: "នៅលើធ្នើ",
     },
   };
   let W = WORDS.en;
@@ -433,6 +445,9 @@
     $("st-watch").textContent = stock.watch;
     $("n-stock").textContent = stock.watch;
     $("n-stock").hidden = !stock.watch;
+    const toDo = stock.walk.filter((w) => w.action !== "front").length;
+    $("n-walk").textContent = toDo;
+    $("n-walk").hidden = !toDo;
     const notes = [];
     if (stock.pending) notes.push(W.to_check_note(stock.pending));
     if (stock.received) notes.push(W.received_note(stock.received));
@@ -440,6 +455,7 @@
     $("today-note").hidden = !notes.length;
 
     const words = $("stock-search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (filter === "expiry") { drawWalk(words); return; }
     let list = stock.products;
     if (filter === "watch") list = list.filter((p) => p.tracked && WATCH.includes(p.status));
     if (filter === "sold") list = list.filter((p) => p.sold_today > 0).sort((a, b) => b.sold_today - a.sold_today);
@@ -464,6 +480,12 @@
     const bits = [];
     if (p.sold_today) bits.push(W.sold_today_n(p.sold_today));
     if (p.tracked && p.days != null && p.left > 0) bits.push(W.days_n(Math.max(1, Math.round(p.days))));
+    if (p.place) {
+      const where = el("span", "where");
+      where.innerHTML = '<i class="bi bi-geo-alt" aria-hidden="true"></i> ';
+      where.append(document.createTextNode(p.place));
+      sub.append(where);
+    }
     sub.append(document.createTextNode(bits.join(" · ")));
     mid.append(sub);
     const n = el("div", "n");
@@ -478,7 +500,12 @@
       if (!p.tracked) more.append(el("div", null, W.uncounted_n(p.uncounted)));
       more.append(el("div", null, W.sold_line(p.sold_today, p.sold_7d, p.sold_28d)));
       if (p.pending) more.append(el("div", "h", W.pending_n(p.pending)));
-      if (p.expiry) more.append(el("div", null, W.expiry_d(p.expiry)));
+      const dated = p.batches.filter((b) => b.expiry);
+      if (p.batches.length > 1 && dated.length) {
+        more.append(el("div", "h", W.batches_lbl));
+        p.batches.forEach((b) => more.append(el("div", null,
+          `${b.left}${b.expiry ? " · " + W.exp_on(b.expiry) : ""}${b.place ? " · " + b.place : ""}`)));
+      } else if (p.expiry) more.append(el("div", null, W.expiry_d(p.expiry)));
       if (p.supplier) more.append(el("div", "h", W.supplier_s(p.supplier)));
       if (p.tracked && p.value) more.append(el("div", "h", W.worth(p.value.toFixed(2))));
       box.append(more);
@@ -490,6 +517,53 @@
     });
     return box;
   }
+  // The shelf check: place by place, what to take off, what to put in front, what won't sell in time.
+  function drawWalk(words) {
+    let list = stock.walk;
+    if (words.length) {
+      const find = new Map(stock.products.map((p) => [p.id, p.find + " " + p.name.toLowerCase()]));
+      list = list.filter((w) => words.every((x) => (find.get(w.product) || "").includes(x)));
+    }
+    if (!list.length) { $("stock-list").replaceChildren(el("div", "state", W.walk_none)); return; }
+    const out = [];
+    let place;
+    for (const w of list) {
+      if (w.place !== place || !out.length) {
+        place = w.place;
+        const head = el("div", "walk-place");
+        head.innerHTML = '<i class="bi bi-geo-alt" aria-hidden="true"></i> ';
+        head.append(document.createTextNode(place || W.no_place));
+        out.push(head);
+      }
+      const row = el("div", "walk");
+      row.append(img(w.img));
+      const mid = el("div", "mid");
+      mid.append(el("div", "t", `${w.name} ×${w.left}`));
+      const s = el("div", "s");
+      s.append(el("span", `pill act-${w.action}`, W["act_" + w.action]), document.createTextNode(
+        " " + (w.days < 0 ? W.expired_ago(-w.days) : W.exp_in(w.days)) + (w.action === "clear" ? ". " + W.clear_tip : "")));
+      mid.append(s);
+      row.append(mid);
+      if (w.action !== "front") {
+        const b = el("button", null, W.taken_off);
+        b.type = "button";
+        b.addEventListener("click", async () => {
+          b.disabled = true;
+          try {
+            await api(`/api/tg/batches/${w.batch}/remove`, {});
+            row.classList.add("done");
+            haptic("ok");
+            toast(W.removed(w.name, w.left));
+            loadStock();
+          } catch (e) { b.disabled = false; toast(e.message); }
+        });
+        row.append(b);
+      }
+      out.push(row);
+    }
+    $("stock-list").replaceChildren(...out);
+  }
+
   document.querySelectorAll(".filters button").forEach((b) => b.addEventListener("click", () => {
     filter = b.dataset.f;
     document.querySelectorAll(".filters button").forEach((x) => x.classList.toggle("on", x === b));
@@ -554,6 +628,11 @@
   flushOutbox();
   // The day's summary opens straight on the Stock tab (/tg?tab=stock).
   const firstTab = new URLSearchParams(location.search).get("tab");
+  const firstFilter = new URLSearchParams(location.search).get("f");
+  if (firstFilter === "expiry" || firstFilter === "watch" || firstFilter === "sold") {
+    filter = firstFilter;
+    document.querySelectorAll(".filters button").forEach((x) => x.classList.toggle("on", x.dataset.f === filter));
+  }
   load().then(() => { if (firstTab === "stock" || firstTab === "recorded") showTab(firstTab); else loadStock(); });
   setInterval(() => {
     if (document.visibilityState !== "visible" || sheetFor) return;

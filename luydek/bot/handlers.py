@@ -16,7 +16,7 @@ from .. import clock, db
 from ..config import Config
 from ..i18n import STRINGS, t
 from ..recognition import pipeline
-from ..services import catalog, invoices, learn, metrics, stock, transactions
+from ..services import batches, catalog, invoices, learn, metrics, stock, transactions
 from . import digest, keyboards
 
 log = logging.getLogger("luydek.bot")
@@ -145,17 +145,33 @@ async def _stock_search(update: Update, context: ContextTypes.DEFAULT_TYPE, user
                                                   reply_markup=digest.stock_picker(cfg, lang))
 
 
+@registered
+async def cmd_shelf(update: Update, context: ContextTypes.DEFAULT_TYPE, user) -> None:
+    """/shelf: the walk round the shop now: what has expired, what goes in front."""
+    await digest.send_shelf_check(context.bot, _cfg(context), chat_id=user["chat_id"])
+
+
+@registered
+async def cmd_count(update: Update, context: ContextTypes.DEFAULT_TYPE, user) -> None:
+    """/count: a few quick counts now, instead of waiting for the afternoon."""
+    cfg = _cfg(context)
+    if not await digest.send_spot_checks(context.bot, cfg, chat_id=user["chat_id"], n=max(cfg.verification.spot_checks, 3)):
+        await update.effective_message.reply_text("✅")
+
+
 MENU = {
     key: cmd for key, cmd in (
         ("menu_invoice", cmd_invoice), ("menu_adjust", cmd_adjust),
         ("menu_orders", cmd_orders), ("menu_week", cmd_week),
-        ("menu_today", cmd_today), ("menu_stock", cmd_stock),
+        ("menu_today", cmd_today), ("menu_stock", cmd_stock), ("menu_shelf", cmd_shelf),
     )
 }
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (update.message.text or "").strip()
+    if update.message.reply_to_message is not None and text and await _counted(update, context, text):
+        return
     if update.message.reply_to_message is not None and text and await _named(update, context, text):
         return
     for key, handler in MENU.items():
@@ -215,7 +231,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     parts = query.data.split(":")
     handler = {"v": _verify, "d": _confirm_digest, "r": _resend, "a": _adjust,
-               "i": _invoice, "il": _invoice_line, "b": _bonus, "s": _stock}.get(parts[0])
+               "i": _invoice, "il": _invoice_line, "b": _bonus, "s": _stock, "k": _count,
+               "w": _shelf}.get(parts[0])
     if handler is None:
         await query.answer()
         return
@@ -396,6 +413,71 @@ async def _stock(query, context, cfg: Config, user, parts: list[str]) -> None:
             raise
 
 
+async def _count(query, context, cfg: Config, user, parts: list[str]) -> None:
+    """Quick count: k:<product>:<n> sets the shelf to n; k:<product>:o asks for another number."""
+    lang, product_id = user["lang"], int(parts[1])
+    await query.answer()
+    if parts[2] == "o":
+        with db.session(cfg) as conn:
+            p = catalog.product(conn, product_id)
+        msg = await context.bot.send_message(user["chat_id"], t(lang, "count_reply", name=catalog.display_name(p, lang)),
+                                             reply_markup=ForceReply(selective=True))
+        with db.session(cfg) as conn:
+            digest.remember(conn, "count_prompt", product_id, user["chat_id"], msg.message_id)
+        return
+    await _record_count(context, cfg, user, product_id, int(parts[2]))
+
+
+async def _record_count(context, cfg: Config, user, product_id: int, counted: int) -> None:
+    with db.session(cfg) as conn:
+        if conn.execute("SELECT 1 FROM bot_messages WHERE kind IN ('count', 'count_prompt') AND ref_id = ?",
+                        (product_id,)).fetchone() is None:
+            return                      # already answered on another phone
+        delta = stock.count(conn, product_id, counted, "spot_check", by=user["name"] or str(user["chat_id"]))
+    await digest.close_count(context.bot, cfg, product_id, counted, delta)
+
+
+KHMER_DIGITS = str.maketrans("០១២៣៤៥៦៧៨៩", "0123456789")
+
+
+async def _counted(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+    """A number typed in reply to "How many are there?". False if the reply was to something else."""
+    cfg = _cfg(context)
+    user = _user(cfg, update.message.chat.id)
+    if user is None:
+        return False
+    with db.session(cfg) as conn:
+        prompt = conn.execute(
+            "SELECT ref_id FROM bot_messages WHERE kind = 'count_prompt' AND chat_id = ? AND message_id = ?",
+            (user["chat_id"], update.message.reply_to_message.message_id),
+        ).fetchone()
+        p = catalog.product(conn, prompt["ref_id"]) if prompt else None
+    if prompt is None:
+        return False
+    digits = "".join(ch for ch in text.translate(KHMER_DIGITS) if ch.isdigit())
+    if not digits:                      # Khmer digits are read too; anything else: ask again
+        await update.message.reply_text(t(user["lang"], "count_reply", name=catalog.display_name(p, user["lang"])))
+        return True
+    await _record_count(context, cfg, user, prompt["ref_id"], int(digits))
+    return True
+
+
+async def _shelf(query, context, cfg: Config, user, parts: list[str]) -> None:
+    """Shelf check: w:<batch>:r, that batch is off the shelf; w:m, send the check again."""
+    lang = user["lang"]
+    if parts[1] == "m":
+        await query.answer()
+        await digest.send_shelf_check(context.bot, cfg, chat_id=user["chat_id"])
+        return
+    batch_id = int(parts[1])
+    with db.session(cfg) as conn:
+        b = batches.get(conn, batch_id)
+        n = batches.remove(conn, batch_id, reason="expired", by=user["name"] or str(user["chat_id"])) if b else 0
+        p = catalog.product(conn, b.product_id) if b else None
+    await query.answer(t(lang, "shelf_removed", name=catalog.display_name(p, lang), n=n) if n else t(lang, "already"))
+    await digest.refresh_shelf_checks(context.bot, cfg)
+
+
 async def _invoice(query, context, cfg: Config, user, parts: list[str]) -> None:
     lang = user["lang"]
     invoice_id, action = int(parts[1]), parts[2]
@@ -409,6 +491,9 @@ async def _invoice(query, context, cfg: Config, user, parts: list[str]) -> None:
         await query.answer()
         await digest.refresh_invoice(context.bot, cfg, invoice_id, footer=t(lang, "invoice_added", units=units,
                                                                              lines=lines))
+        with db.session(cfg) as conn:
+            new = batches.for_invoice(conn, invoice_id)
+        await digest.send_put_away(context.bot, cfg, user["chat_id"], lang, new)
     elif action == "no":
         with db.session(cfg) as conn:
             invoices.reject(conn, invoice_id)

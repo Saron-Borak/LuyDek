@@ -212,8 +212,15 @@ def product_stock_message(r: dict, lang: str) -> str:
         out.append(t(lang, "p_cover", days=max(1, round(r["days_cover"]))))
     if r["pending_units"]:
         out.append(t(lang, "p_pending", n=r["pending_units"]))
-    if r.get("expiry"):
-        out.append(t(lang, "p_expiry", date=r["expiry"]))
+    if r.get("place"):
+        out.append(t(lang, "p_place", place=escape(r["place"], quote=False)))
+    dated = [b for b in r.get("batches", []) if b["expiry"]]
+    if len(r.get("batches", [])) > 1 and dated:
+        out.append(t(lang, "p_batches", batches=" · ".join(
+            t(lang, "batch_line", n=b["left"], date=short_date(b["expiry"])) if b["expiry"] else str(b["left"])
+            for b in r["batches"][:4])))
+    elif r.get("expiry"):
+        out.append(t(lang, "p_expiry", date=short_date(r["expiry"])))
     if r.get("supplier_name") and r.get("next_visit"):
         visit = r["next_visit"]
         day = t(lang, "p_agent_today") if visit == clock.today() else t(lang, f"weekday_{visit.weekday()}")
@@ -222,4 +229,57 @@ def product_stock_message(r: dict, lang: str) -> str:
         out.append(t(lang, "p_value", value=f"{r['value']:.2f}"))
     if r.get("last_sale"):
         out.append(f"<i>{t(lang, 'p_last', when=r['last_sale'][:16])}</i>")
+    return "\n".join(out)
+
+
+# --- stock alerts, the shelf check, putting a delivery away ----------------------------------------
+
+def short_date(iso: str | None) -> str:
+    """2026-10-12 -> 12/10/26, the way dates are printed on packs here."""
+    if not iso:
+        return ""
+    y, m, d = iso[:10].split("-")
+    return f"{d}/{m}/{y[2:]}"
+
+
+def stock_alert_message(rows: list[dict], lang: str) -> str:
+    """One message for everything that just ran out or ran low."""
+    out_names = [_name(r, lang) + (t(lang, "must_have") if r["is_critical"] else "") for r in rows if r["alert"] == "out"]
+    low_names = [f"{_name(r, lang)} ({left_text(r, lang, cover=True)})" + (t(lang, "must_have") if r["is_critical"] else "")
+                 for r in rows if r["alert"] == "low"]
+    parts = []
+    if out_names:
+        parts.append(t(lang, "alert_out", names=", ".join(out_names)))
+    if low_names:
+        parts.append(t(lang, "alert_low", names=", ".join(low_names)))
+    return "\n".join(parts)
+
+
+def shelf_check_message(tasks: list, lang: str, within_days: int) -> str:
+    """The walk round the shop, place by place."""
+    if not tasks:
+        return t(lang, "shelf_none", days=within_days)
+    n = {a: sum(1 for x in tasks if x.action == a) for a in ("remove", "front", "clear")}
+    out = [f"<b>{t(lang, 'shelf_title')}</b>", t(lang, "shelf_counts", **n)]
+    place = object()
+    for task in tasks:
+        if task.place != place:
+            place = task.place
+            out.append(f"\n<b>📍 {escape(place, quote=False) if place else t(lang, 'shelf_noplace')}</b>")
+        out.append(t(lang, f"shelf_{task.action}", name=_name(task.product, lang), n=task.batch.left,
+                     date=short_date(task.batch.expiry)))
+    return "\n".join(out)
+
+
+def put_away_message(items: list[dict], lang: str) -> str:
+    """Where each part of a delivery goes, in front of or behind the stock already there."""
+    if not items:
+        return ""
+    out = [f"<b>{t(lang, 'putaway_title')}</b>"]
+    for x in items:
+        exp = t(lang, "exp_short", date=short_date(x["expiry"])) if x["expiry"] else ""
+        old_exp = t(lang, "exp_short", date=short_date(x["old_expiry"])) if x["old_expiry"] else ""
+        place = escape(x["place"], quote=False) if x["place"] else t(lang, "putaway_its_shelf")
+        out.append(t(lang, f"putaway_{x['how']}", name=_name(x, lang), n=x["qty"], exp=exp, place=place,
+                     old=x["old_left"], old_exp=old_exp))
     return "\n".join(out)

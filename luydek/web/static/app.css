@@ -510,3 +510,9 @@ a.stat:hover { transform: translateY(-1px); box-shadow: var(--shadow-lift); colo
   .undo-toast { bottom: calc(72px + env(safe-area-inset-bottom)); }
   .hide-xs { display: none !important; }
 }
+
+/* ---------- the shelf check: what to do with each batch ---------- */
+.pill.action-remove { background: var(--bad-bg); color: #6E1F1F; }
+.pill.action-front { background: var(--violet-50); color: var(--violet-800); }
+.pill.action-clear { background: var(--amber-50); color: var(--amber-800); }
+.batch-table td { vertical-align: middle; }

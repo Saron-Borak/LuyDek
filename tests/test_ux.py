@@ -123,13 +123,13 @@ def test_team_mode_shows_them(cfg, conn, stub_encoder, monkeypatch):
 
 def test_setup_is_a_checklist_that_follows_the_shop(client, conn):
     page = client.get("/setup").text
-    assert "Calibrate the counter camera" in page and "1 of 6 steps done" in page   # the seed already has suppliers
+    assert "Calibrate the counter camera" in page and "1 of 7 steps done" in page   # the seed already has suppliers
     assert "/counter#setup" in page and "/catalog#needs-photos" in page
     assert 'class="collapse show mt-3" id="setup"' in client.get("/counter").text   # setup open until done
 
     client.post("/api/calibrate", files={"image": ("e.jpg", jpeg(mat_frame()), "image/jpeg")})
     client.post("/api/roi", data={"x0": 0.05, "y0": 0.05, "x1": 0.95, "y1": 0.95})
-    assert "3 of 6 steps done" in client.get("/setup").text
+    assert "3 of 7 steps done" in client.get("/setup").text
     assert 'class="collapse  mt-3" id="setup"' in client.get("/counter").text       # folded away after
 
 

@@ -30,9 +30,11 @@ MIGRATIONS = {
                           "name_guess": "TEXT", "name_guess_km": "TEXT", "name_checked_at": "TEXT", "hint": "TEXT"},
     "frame_detections": {"hint": "TEXT"},
     "products": {"sold_loose": "INTEGER NOT NULL DEFAULT 0", "origin": "TEXT NOT NULL DEFAULT 'catalog'",
-                 "added_at": "TEXT"},
+                 "added_at": "TEXT", "location_id": "INTEGER"},
     "invoice_lines": {"name_suggested": "TEXT", "name_suggested_km": "TEXT", "units_per_case": "INTEGER",
-                      "unit_name": "TEXT"},
+                      "unit_name": "TEXT", "lot_no": "TEXT"},
+    "stock_movements": {"batch_id": "INTEGER", "location_id": "INTEGER", "lot_no": "TEXT"},
+    "gallery_images": {"area_frac": "REAL"},
 }
 
 

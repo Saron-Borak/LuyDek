@@ -265,6 +265,53 @@ STRINGS: dict[str, dict[str, str]] = {
     "p_value": {"km": "💰 តម្លៃ ${value} (តម្លៃទិញ)", "en": "💰 Worth ${value} at cost"},
     "p_last": {"km": "លក់ចុងក្រោយ {when}", "en": "Last sold {when}"},
 
+    # --- stock alerts, quick counts, the shelf check, putting deliveries away ---
+    "alert_out": {"km": "❌ អស់ស្តុក៖ {names}", "en": "❌ Out of stock: {names}"},
+    "alert_low": {"km": "🟠 ជិតអស់៖ {names}", "en": "🟠 Running low: {names}"},
+    "count_ask": {
+        "km": "📦 រាប់រហ័ស៖ {name}{place}\nLuyDek គិតថាមាន {n}។ តើនៅលើធ្នើមានប៉ុន្មាន?",
+        "en": "📦 Quick count: {name}{place}\nLuyDek has {n}. How many are on the shelf?",
+    },
+    "count_other": {"km": "✏️ ចំនួនផ្សេង", "en": "✏️ Another number"},
+    "count_reply": {
+        "km": "តើមាន {name} ប៉ុន្មាន? សូមឆ្លើយតបសារនេះជាលេខ។",
+        "en": "How many {name} are there? Reply to this message with a number.",
+    },
+    "count_ok": {"km": "✅ {name}៖ {n} ត្រឹមត្រូវ។", "en": "✅ {name}: {n}, just as recorded."},
+    "count_fixed": {"km": "✏️ {name}៖ រាប់បាន {n}។ ស្តុកត្រូវបានកែ {delta}។",
+                    "en": "✏️ {name}: {n} counted. Stock corrected by {delta}."},
+    "shelf_title": {"km": "🗓 ពិនិត្យធ្នើ", "en": "🗓 Shelf check"},
+    "shelf_counts": {
+        "km": "{remove} ត្រូវដកចេញ · {front} ដាក់ខាងមុខ · {clear} លក់មិនទាន់",
+        "en": "{remove} to take off · {front} to put in front · {clear} won't sell in time",
+    },
+    "shelf_none": {
+        "km": "🗓 ពិនិត្យធ្នើ៖ គ្មានអ្វីផុតកំណត់ក្នុង {days} ថ្ងៃខាងមុខទេ។",
+        "en": "🗓 Shelf check: nothing expires in the next {days} days.",
+    },
+    "shelf_noplace": {"km": "មិនទាន់កំណត់កន្លែង", "en": "No place set"},
+    "shelf_remove": {"km": "🗑 {name} ×{n}៖ ផុតកំណត់ {date} ដកចេញពីធ្នើ",
+                     "en": "🗑 {name} ×{n}: expired {date}, take it off the shelf"},
+    "shelf_front": {"km": "⏩ {name} ×{n}៖ ផុតកំណត់ {date} ដាក់ខាងមុខ",
+                    "en": "⏩ {name} ×{n}: expires {date}, put it in front"},
+    "shelf_clear": {"km": "💸 {name} ×{n}៖ ផុតកំណត់ {date} លក់មិនទាន់ — បញ្ចុះតម្លៃ លក់ជាឈុត ឬប្រគល់ឲ្យភ្នាក់ងារ",
+                    "en": "💸 {name} ×{n}: expires {date} and won't sell in time. Discount it, bundle it or send it back"},
+    "shelf_removed_btn": {"km": "🗑 បានដក {name} ×{n}", "en": "🗑 Removed {name} ×{n}"},
+    "shelf_open_app": {"km": "🗓 បើកការពិនិត្យធ្នើ", "en": "🗓 Open the shelf check"},
+    "shelf_removed": {"km": "🗑 បានដក {name} ×{n} ចេញពីស្តុក", "en": "🗑 {name} ×{n} taken off the stock"},
+    "putaway_title": {"km": "📦 ដាក់នៅណា៖", "en": "📦 Where to put it:"},
+    "putaway_on": {"km": "• {name} ×{n}{exp} → {place}", "en": "• {name} ×{n}{exp} → {place}"},
+    "putaway_behind": {"km": "• {name} ×{n}{exp} → {place} នៅខាងក្រោយ {old} ដែលមានស្រាប់{old_exp}",
+                       "en": "• {name} ×{n}{exp} → {place}, behind the {old} already there{old_exp}"},
+    "putaway_front": {"km": "• {name} ×{n}{exp} → {place} នៅខាងមុខ៖ ផុតកំណត់មុន {old} ដែលមានស្រាប់{old_exp}",
+                      "en": "• {name} ×{n}{exp} → {place}, in front: it expires before the {old} already there{old_exp}"},
+    "putaway_its_shelf": {"km": "ធ្នើរបស់វា", "en": "its shelf"},
+    "exp_short": {"km": " (ផុត {date})", "en": " (exp {date})"},
+    "p_place": {"km": "📍 {place}", "en": "📍 {place}"},
+    "p_batches": {"km": "🗓 {batches}", "en": "🗓 {batches}"},
+    "batch_line": {"km": "{n} ផុត {date}", "en": "{n} exp {date}"},
+    "menu_shelf": {"km": "🗓 ពិនិត្យធ្នើ", "en": "🗓 Shelf check"},
+
     # --- weekly ---
     "week_summary": {
         "km": "📊 សប្តាហ៍នេះ\n🎯 ខ្ញុំស្គាល់ត្រូវ {acc}%\n👆 ការចុចក្នុងមួយថ្ងៃ៖ {taps}\n🧾 ការលក់៖ {txns} ដង\n💤 លុយដេកលើធ្នើ៖ ${sleeping}",

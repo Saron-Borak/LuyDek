@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Shelf check{% endblock %}
+{% block content %}
+{% from "_macros.html" import pic, empty %}
+{% set words = {'remove': 'Expired: take it off', 'front': 'Put it in front', 'clear': "Won't sell in time"} %}
+{% set icons = {'remove': 'trash3', 'front': 'arrow-up-circle', 'clear': 'tag'} %}
+<div class="page-head">
+  <div>
+    <h1><i class="bi bi-calendar2-check" aria-hidden="true"></i> Shelf check</h1>
+    <div class="lead-line">Walk the shop once, place by place: take off what has expired, put what expires within
+      {{ days }} days in front, and clear what won't sell before its date. Telegram sends this every week too (/shelf).</div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-4"><div class="stat {{ 'bad' if counts.remove else 'ok' }}"><div class="n">{{ counts.remove }}</div><div class="l">to take off</div><div class="h">expired</div></div></div>
+  <div class="col-4"><div class="stat"><div class="n">{{ counts.front }}</div><div class="l">to put in front</div><div class="h">expires within {{ days }} days</div></div></div>
+  <div class="col-4"><div class="stat {{ 'warn' if counts.clear }}"><div class="n">{{ counts.clear }}</div><div class="l">won't sell in time</div><div class="h">discount, bundle or return</div></div></div>
+</div>
+
+{% if not groups %}
+<div class="card mb-3"><div class="card-body">
+  {% if dated %}{{ empty('check2-circle', 'Nothing expires in the next ' ~ days ~ ' days', dated ~ ' product' ~ ('s have' if dated != 1 else ' has') ~ ' expiry dates on record.') }}
+  {% else %}{{ empty('calendar2-x', 'No expiry dates yet', 'They come from invoices, from a photo of the date when stock comes in, or typed on a product page.', '/stock-in', 'Stock in with dates') }}{% endif %}
+</div></div>
+{% endif %}
+
+{% for g in groups %}
+<div class="card mb-3 shelf-place">
+  <div class="card-header"><i class="bi bi-geo-alt" aria-hidden="true"></i> {{ g.place or 'No place set' }}
+    <span class="sub">{{ g.tasks|length }} to do</span></div>
+  <ul class="list-group list-group-flush">
+    {% for x in g.tasks %}
+    <li class="list-group-item shelf-task task-{{ x.action }}">
+      <div class="d-flex gap-3 align-items-center flex-wrap">
+        {{ pic(photos.product.get(x.product.id), 44) }}
+        <div class="flex-grow-1" style="min-width:12rem">
+          <a class="fw-semibold" href="/catalog/{{ x.product.id }}">{{ x.product.name_en }}</a>
+          <div class="small muted">{{ x.batch.left }} left · {% if x.days_left < 0 %}expired {{ x.batch.expiry }} ({{ -x.days_left }} day{{ 's' if x.days_left != -1 }} ago){% elif x.days_left == 0 %}expires today{% else %}expires {{ x.batch.expiry }} (in {{ x.days_left }} day{{ 's' if x.days_left != 1 }}){% endif %}
+            {% if x.batch.lot_no %}· lot {{ x.batch.lot_no }}{% endif %}</div>
+        </div>
+        <span class="pill action-{{ x.action }}"><i class="bi bi-{{ icons[x.action] }}" aria-hidden="true"></i> {{ words[x.action] }}</span>
+      </div>
+      {% if x.action == 'clear' %}<div class="small mt-1 muted">At the pace it sells it won't be gone by then: discount it, sell it in a bundle, or send it back with the agent.</div>{% endif %}
+      <div class="d-flex gap-2 flex-wrap mt-2">
+        <form method="post" action="/batches/{{ x.batch.id }}/remove" class="d-flex gap-1 align-items-center">
+          <input name="qty" type="number" min="1" max="{{ x.batch.left }}" value="{{ x.batch.left }}" class="form-control form-control-sm" style="width:5rem" aria-label="how many">
+          <button class="btn btn-sm {{ 'btn-danger' if x.action == 'remove' else 'btn-outline-danger' }}"><i class="bi bi-trash3" aria-hidden="true"></i> Taken off</button>
+        </form>
+        <form method="post" action="/batches/{{ x.batch.id }}/edit" class="d-flex gap-1 align-items-center">
+          <select name="location_id" class="form-select form-select-sm" aria-label="moved to">
+            <option value="">No place</option>
+            {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == x.batch.location_id }}>{{ l.name }}</option>{% endfor %}
+          </select>
+          <button class="btn btn-sm btn-outline-dark">Moved</button>
+        </form>
+        <form method="post" action="/batches/{{ x.batch.id }}/edit" class="d-flex gap-1 align-items-center">
+          <input name="expiry" type="date" value="{{ x.batch.expiry }}" class="form-control form-control-sm" aria-label="expiry date">
+          <button class="btn btn-sm btn-outline-dark">Fix date</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endfor %}
+
+<div class="row g-3" id="places">
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-geo-alt" aria-hidden="true"></i> Places in the shop
+        <div class="sub">In walking order. New stock goes where its product lives.</div></div>
+      <ul class="list-group list-group-flush">
+        {% for l in places %}
+        <li class="list-group-item d-flex gap-2 align-items-center">
+          <form method="post" action="/shelf/places/{{ l.id }}" class="d-flex gap-2 flex-grow-1">
+            <input name="name" value="{{ l.name }}" class="form-control form-control-sm" aria-label="place name">
+            <button class="btn btn-sm btn-outline-dark">Rename</button></form>
+          <form method="post" action="/shelf/places/{{ l.id }}/remove" onsubmit='return confirm({{ ("Remove " ~ l.name ~ "? Products that live there will have no place.")|tojson }})'>
+            <button class="btn btn-sm btn-light" aria-label="remove {{ l.name }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button></form>
+        </li>
+        {% endfor %}
+      </ul>
+      <div class="card-body">
+        <form method="post" action="/shelf/places" class="d-flex gap-2">
+          <input name="name" class="form-control" placeholder="Fridge, Shelf A, Drawer 4..." required aria-label="new place">
+          <button class="btn btn-dark">Add</button></form>
+        {% if not places %}
+        <form method="post" action="/shelf/places/suggested" class="mt-2">
+          <button class="btn btn-outline-dark">Add the usual places: {{ suggested|join(', ') }}</button></form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-box-seam" aria-hidden="true"></i> Where each product lives
+        <div class="sub">Products without a place are at the top.</div></div>
+      {% if places %}
+      <form method="post" action="/shelf/homes">
+        <div class="table-responsive" style="max-height:28rem">
+          <table class="table table-sm align-middle mb-0">
+            {% for pr in products %}
+            <tr><td>{{ pic(photos.product.get(pr.id), 28) }} {{ pr.name_en }}</td>
+              <td style="width:12rem"><select name="home_{{ pr.id }}" class="form-select form-select-sm" aria-label="where {{ pr.name_en }} lives">
+                <option value="">No place yet</option>
+                {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == pr.location_id }}>{{ l.name }}</option>{% endfor %}
+              </select></td></tr>
+            {% endfor %}
+          </table>
+        </div>
+        <div class="card-footer bg-white"><button class="btn btn-dark">Save</button></div>
+      </form>
+      {% else %}<div class="card-body">{{ empty('geo-alt', 'Name your places first', 'Then pick where each product lives.') }}</div>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -9,6 +9,8 @@
     il:<line>:p:<product> | il:<line>:k | il:<line>:n   invoice line (n: add it as a new product)
     b:<invoice>:l:<page> | b:<invoice>:p:<product> | b:<invoice>:q:<product>:<n>
     s:m | s:l:<page> | s:p:<product> | s:a              stock left: new picker | a page | one product | every item
+    k:<product>:<n> | k:<product>:o                     quick count: n on the shelf | another number
+    w:<batch>:r | w:m                                   shelf check: batch taken off the shelf | send it again
 """
 
 from __future__ import annotations
@@ -34,8 +36,9 @@ def short(text: str, n: int = 30) -> str:
 def main_menu(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [[KeyboardButton(t(lang, "menu_today")), KeyboardButton(t(lang, "menu_stock"))],
-         [KeyboardButton(t(lang, "menu_invoice")), KeyboardButton(t(lang, "menu_adjust"))],
-         [KeyboardButton(t(lang, "menu_orders")), KeyboardButton(t(lang, "menu_week"))]],
+         [KeyboardButton(t(lang, "menu_shelf")), KeyboardButton(t(lang, "menu_invoice"))],
+         [KeyboardButton(t(lang, "menu_adjust")), KeyboardButton(t(lang, "menu_orders"))],
+         [KeyboardButton(t(lang, "menu_week"))]],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -130,6 +133,22 @@ def stock_picker(products: list, labels: dict[int, str], page: int, lang: str,
     if arrows:
         rows.append(arrows)
     return InlineKeyboardMarkup(rows)
+
+
+def count_keyboard(product_id: int, expected: int, lang: str) -> InlineKeyboardMarkup:
+    """The quick count: the recorded number (one tap when it's right), one either side, or another."""
+    near = [n for n in (expected - 1, expected, expected + 1) if n >= 0]
+    row = [Btn(f"✓ {n}" if n == expected else str(n), callback_data=f"k:{product_id}:{n}") for n in near]
+    return InlineKeyboardMarkup([row, [Btn(t(lang, "count_other"), callback_data=f"k:{product_id}:o")]])
+
+
+def shelf_keyboard(tasks: list, lang: str, miniapp_url: str | None) -> InlineKeyboardMarkup | None:
+    """One tap per expired batch once it's off the shelf; the Mini App for the whole list."""
+    rows = [[Btn(short(t(lang, "shelf_removed_btn", name=catalog.display_name(x.product, lang), n=x.batch.left), 40),
+                 callback_data=f"w:{x.batch.id}:r")] for x in tasks if x.action == "remove"][:8]
+    if miniapp_url and tasks:
+        rows.append([Btn(t(lang, "shelf_open_app"), web_app=WebAppInfo(app_url(miniapp_url, "stock") + "&f=expiry"))])
+    return InlineKeyboardMarkup(rows) if rows else None
 
 
 def product_stock_keyboard(lang: str) -> InlineKeyboardMarkup:

@@ -27,7 +27,17 @@ CREATE TABLE IF NOT EXISTS products (
     active          INTEGER NOT NULL DEFAULT 1,
     sold_loose      INTEGER NOT NULL DEFAULT 0,     -- medicine sold by the tablet: the base unit is one tablet
     origin          TEXT    NOT NULL DEFAULT 'catalog', -- catalog / counter (named at a sale) / invoice
-    added_at        TEXT
+    added_at        TEXT,
+    location_id     INTEGER REFERENCES locations(id)    -- where it lives in the shop
+);
+
+-- The places in the shop (Fridge, Shelf A, Back room, Drawer 4): where each product lives and
+-- where each delivery was put, so the shelf check walks the shop in order.
+CREATE TABLE IF NOT EXISTS locations (
+    id     INTEGER PRIMARY KEY,
+    name   TEXT    NOT NULL UNIQUE,
+    sort   INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1
 );
 
 -- What the camera sees. Every product has a single-unit pack; a shrink-wrapped
@@ -58,6 +68,7 @@ CREATE TABLE IF NOT EXISTS gallery_images (
     embedding    BLOB    NOT NULL,                   -- float32, L2-normalised
     source       TEXT    NOT NULL,                   -- enrollment / correction
     created_at   TEXT    NOT NULL,
+    area_frac    REAL,                               -- its size on the calibrated mat (share of the frame)
     CHECK ((pack_id IS NULL) <> (ignore_label IS NULL))
 );
 
@@ -155,7 +166,13 @@ CREATE TABLE IF NOT EXISTS stock_movements (
     unit_cost   REAL,
     expiry_date TEXT,
     simulated   INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT    NOT NULL
+    created_at  TEXT    NOT NULL,
+    -- A movement that brings stock in starts a batch (its own id); a removal of one batch (expired
+    -- stock taken off the shelf) names it here. Sales name none: they come from the batch that
+    -- expires first. Where the batch was put, and the lot printed on it.
+    batch_id    INTEGER,
+    location_id INTEGER REFERENCES locations(id),
+    lot_no      TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_moves_product_time ON stock_movements(product_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_moves_type_time ON stock_movements(type, created_at);
@@ -191,7 +208,8 @@ CREATE TABLE IF NOT EXISTS invoice_lines (
     name_suggested    TEXT,                        -- a clean shelf name: brand, product, variant, size
     name_suggested_km TEXT,
     units_per_case    INTEGER,                     -- only when printed on the invoice
-    unit_name         TEXT                         -- what one single item is: can, bottle, sachet, box...
+    unit_name         TEXT,                        -- what one single item is: can, bottle, sachet, box...
+    lot_no            TEXT                         -- batch or lot number, when printed
 );
 
 CREATE TABLE IF NOT EXISTS forecasts (
@@ -247,4 +265,22 @@ CREATE TABLE IF NOT EXISTS taps (
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
+);
+
+-- Every count of a shelf, the ones that matched too: quick daily counts keep the numbers honest.
+CREATE TABLE IF NOT EXISTS stock_counts (
+    id         INTEGER PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    counted    INTEGER NOT NULL,
+    expected   INTEGER NOT NULL,
+    source     TEXT    NOT NULL,   -- spot_check / product_page / count_page / stock_in
+    counted_by TEXT,
+    created_at TEXT    NOT NULL
+);
+
+-- Out-of-stock and running-low alerts already sent, so each goes out once until the product recovers.
+CREATE TABLE IF NOT EXISTS stock_alerts (
+    product_id INTEGER PRIMARY KEY REFERENCES products(id),
+    state      TEXT NOT NULL,      -- out / low
+    sent_at    TEXT NOT NULL
 );
