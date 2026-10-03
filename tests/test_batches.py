@@ -87,8 +87,9 @@ def test_put_away_says_in_front_or_behind(conn):
     later = stock.record(conn, p, 24, "delivery", expiry_date="2027-01-20")
     sooner = stock.record(conn, p, 12, "delivery", expiry_date="2026-10-05")
     out = {x["batch_id"]: x for x in batches.put_away(conn, [later, sooner])}
-    assert out[later]["how"] == "behind" and out[later]["place"] == "Fridge" and out[later]["old_expiry"] == "2026-10-05"
-    assert out[sooner]["how"] == "front" and out[sooner]["old_expiry"] == "2026-10-12"
+    # Both arrive together: each is placed against the 6 already there, not against the other.
+    assert out[later]["how"] == "behind" and out[later]["place"] == "Fridge" and out[later]["old_expiry"] == "2026-10-12"
+    assert out[sooner]["how"] == "front" and out[sooner]["old_expiry"] == "2026-10-12" and out[sooner]["old_left"] == 6
     first = stock.record(conn, pid(conn, "sting-330"), 24, "delivery")
     assert batches.put_away(conn, [first])[0]["how"] == "on"
 

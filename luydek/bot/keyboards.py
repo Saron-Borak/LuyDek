@@ -151,6 +151,12 @@ def shelf_keyboard(tasks: list, lang: str, miniapp_url: str | None) -> InlineKey
     return InlineKeyboardMarkup(rows) if rows else None
 
 
+def expiry_keyboard(batch_id: int, lang: str) -> InlineKeyboardMarkup:
+    """How long it keeps, when there's no date to photograph: x:<batch>:<months>, 0 for never."""
+    b = [Btn(t(lang, f"expiry_keeps_{m}"), callback_data=f"x:{batch_id}:{m}") for m in (3, 6, 12, 0)]
+    return InlineKeyboardMarkup([b[:2], b[2:]])
+
+
 def product_stock_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[Btn(t(lang, "stock_back"), callback_data="s:l:0"),
                                   Btn(t(lang, "stock_every"), callback_data="s:a")]])

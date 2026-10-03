@@ -433,6 +433,32 @@ async def send_put_away(bot: Bot, cfg: Config, chat_id: int, lang: str, batch_id
         await bot.send_message(chat_id, render.put_away_message(items, lang), parse_mode=ParseMode.HTML)
 
 
+MAX_EXPIRY_ASKS = 5  # questions after one delivery; the rest are on the invoice page
+
+
+async def send_expiry_asks(bot: Bot, cfg: Config, chat_id: int, lang: str, batch_ids: list[int]) -> int:
+    """After a delivery, a question for each product that came with no date and whose shelf life isn't
+    known: a photo of the date answers it exactly, a tap says how long it usually keeps."""
+    asks, seen = [], set()
+    with db.session(cfg) as conn:
+        for batch_id in batch_ids:
+            b = batches.get(conn, batch_id)
+            if b is None or b.expiry or b.left <= 0 or b.product_id in seen:
+                continue
+            p = catalog.product(conn, b.product_id)
+            if p["shelf_life_days"] is None:
+                seen.add(b.product_id)
+                asks.append((b, p))
+    for b, p in asks[:MAX_EXPIRY_ASKS]:
+        msg = await bot.send_message(chat_id, t(lang, "expiry_ask", name=catalog.display_name(p, lang), n=b.left),
+                                     reply_markup=keyboards.expiry_keyboard(b.id, lang))
+        with db.session(cfg) as conn:
+            remember(conn, "expiry", b.id, chat_id, msg.message_id)
+    if len(asks) > MAX_EXPIRY_ASKS:
+        await bot.send_message(chat_id, t(lang, "expiry_more", n=len(asks) - MAX_EXPIRY_ASKS))
+    return min(len(asks), MAX_EXPIRY_ASKS)
+
+
 # --- invoices ------------------------------------------------------------------------------
 
 async def send_invoice(bot: Bot, cfg: Config, invoice_id: int, chat_id: int, lang: str) -> None:

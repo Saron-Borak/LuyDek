@@ -44,6 +44,60 @@ lemon 380ml" or "Paracetamol 500mg (10 tablets)". Only use what is printed or un
 it, give that too. If you can't tell what product it is, answer with sure = false."""
 
 
+EXPIRY_PROMPT = """This is a close-up photo of the date stamp on a product sold in a small shop in Cambodia
+(goods come from Cambodia, Thailand, Vietnam and elsewhere). Find the EXPIRY date: the date
+marked EXP, Expiry, Best before, BB, Use by, ផុតកំណត់, or the later of two dates when one is the
+manufacturing date (MFG, MFD, Mfd, ផលិត, ผลิต). Never give the manufacturing date as the expiry.
+
+Dates can be printed as DD/MM/YYYY, DD.MM.YY, YYYY-MM-DD, MM/YYYY, "12 OCT 2026" or in a Thai
+Buddhist year (2569 is 2026: subtract 543). Day first is usual here. If only a month and year are
+printed, give the last day of that month. Also read the lot or batch number (LOT, Batch, B/N, L:)
+if one is printed.
+
+If the expiry date isn't readable, or you can't tell it from the manufacturing date, answer with
+sure = false rather than guessing."""
+
+
+class ExpiryReading(BaseModel):
+    expiry: str = Field(description="The expiry date as YYYY-MM-DD, or empty if not readable")
+    lot: str = Field(description="The lot or batch number exactly as printed, or empty")
+    text_seen: str = Field(description="The date and lot text as printed, verbatim")
+    sure: bool = Field(description="True only if the expiry date is clearly printed and is not the manufacturing date")
+
+
+def read_expiry(photo: Image.Image, cfg: Config, client: anthropic.Anthropic | None = None) -> ExpiryReading:
+    """The expiry date (and lot) printed on a pack, from a close-up photo of its date stamp."""
+    from datetime import date
+
+    client = client or anthropic.Anthropic()
+    img = photo.convert("RGB")
+    img.thumbnail((1280, 1280))  # small print: keep more pixels than for a product crop
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=92)
+    block = {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                         "data": base64.standard_b64encode(buf.getvalue()).decode()}}
+    response = client.beta.messages.parse(
+        model=cfg.labels.model,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": [block, {"type": "text", "text": EXPIRY_PROMPT}]}],
+        output_format=ExpiryReading,
+        output_config={"effort": "low"},
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
+    )
+    if response.stop_reason == "refusal" or response.parsed_output is None:
+        return ExpiryReading(expiry="", lot="", text_seen="", sure=False)
+    reading = response.parsed_output
+    try:  # a date that isn't one, or far outside any shelf life, is not trusted
+        when = date.fromisoformat(reading.expiry)
+        if not 2000 <= when.year <= 2100:
+            raise ValueError
+    except ValueError:
+        reading.expiry, reading.sure = "", False
+    reading.lot = " ".join(reading.lot.split())[:40]
+    return reading
+
+
 class NameReading(BaseModel):
     name_en: str = Field(description="Brand, product, variant and size, in English/Latin letters; empty if unknown")
     name_km: str = Field(description="The Khmer name printed on the package, or empty")

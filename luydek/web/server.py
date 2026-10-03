@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -17,13 +18,14 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
+import anthropic
 import numpy as np
 import segno
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from PIL import Image
+from PIL import Image, ImageOps
 from starlette.concurrency import run_in_threadpool
 
 from .. import clock, db, render
@@ -33,7 +35,7 @@ from ..config import Config, get_config
 from ..i18n import t
 from ..recognition import cutout, labels, pipeline, segment, tray
 from ..services import (batches, catalog, forecast, invoices, learn, locations, loose, metrics, report, stock,
-                        transactions)
+                        stockin, transactions)
 from . import charts as charts_mod
 from . import miniapp
 
@@ -987,8 +989,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 conn, product_id, name_en=name_en, name_km=str(f.get("name_km", "")).strip() or name_en,
                 unit=str(f.get("unit") or "piece").strip(), case_size=_int(f.get("case_size")) or 1,
                 supplier_id=_int(f.get("supplier_id")), is_critical=int(bool(f.get("is_critical"))),
-                shelf_life_days=_int(f.get("shelf_life_days")), unit_cost=_float(f.get("unit_cost")) or 0.0,
-                barcode=str(f.get("barcode", "")).strip() or None,
+                shelf_life_days=0 if f.get("no_expiry") else _int(f.get("shelf_life_days")),  # 0: never asked again
+                unit_cost=_float(f.get("unit_cost")) or 0.0, barcode=str(f.get("barcode", "")).strip() or None,
             )
         return back(request, "Saved")
 
@@ -1190,6 +1192,176 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             return back(request, str(exc))
         return back(request, "Saved")
 
+    @app.post("/batches/{batch_id}/expiry-photo")
+    async def batch_expiry_photo(request: Request, batch_id: int, image: UploadFile = File(...)):
+        """A photo of the date stamp sets a batch's expiry (and lot)."""
+        try:
+            reading = await _read_date(await image.read())
+        except HTTPException as exc:
+            return back(request, exc.detail)
+        if not reading["expiry"] or not reading["sure"]:
+            return back(request, "Couldn't read the date on that photo: type it instead")
+        with db.session(cfg) as conn:
+            batches.update(conn, batch_id, expiry=reading["expiry"],
+                           **({"lot_no": reading["lot"]} if reading["lot"] else {}))
+        return back(request, f"Expiry set to {render.short_date(reading['expiry'])}")
+
+    # --- stock in: count it on the mat, read the date, one save --------------------------------
+
+    def _crop_ok(path) -> bool:
+        return isinstance(path, str) and path.startswith("crops/") and ".." not in path and "\\" not in path
+
+    def _teacher():
+        rec = pipeline.get_recognizer(cfg)
+        return lambda conn, crop, pack_id: rec.teach(conn, crop, pack_id, MIN_PHOTOS)
+
+    async def _read_date(data: bytes) -> dict:
+        if not cfg.anthropic_key_present:
+            raise HTTPException(503, "Reading dates needs the Anthropic API key (see Setup): type the date instead")
+
+        def run() -> dict:
+            photo = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+            return labels.read_expiry(photo, cfg).model_dump()
+        try:
+            return await run_in_threadpool(run)
+        except anthropic.APIError as exc:
+            log.warning("date reader failed: %s", exc)
+            raise HTTPException(502, "Couldn't read the date right now: type it instead")
+        except OSError:
+            raise HTTPException(400, "That isn't a photo")
+
+    @app.get("/stock-in", response_class=HTMLResponse)
+    def stock_in_page(request: Request, mode: str = "delivery"):
+        with db.session(cfg) as conn:
+            places = [{"id": r["id"], "name": r["name"]} for r in locations.places(conn)]
+            packs = [{"pack_id": r["pack_id"], "label": catalog.pack_label(r, "en"), "photos": r["photos"]}
+                     for r in catalog.packs(conn)]
+            calibrated = bool(db.get_setting(conn, pipeline.REFERENCE_KEY))
+        return page(request, "stock_in.html", mode="count" if mode == "count" else "delivery", places=places,
+                    packs=packs, calibrated=calibrated, can_read=cfg.anthropic_key_present)
+
+    @app.post("/api/stockin/scan")
+    async def api_stockin_scan(image: UploadFile = File(...), use_reference: bool = Form(True)):
+        """What is on the mat, without selling anything. Things the camera doesn't know are grouped
+        by look, so a dozen of something new is one question."""
+        data = await image.read()
+
+        def run() -> dict:
+            frame = segment.decode(data)
+            rec = pipeline.get_recognizer(cfg)
+            scan = f"s{uuid.uuid4().hex[:8]}"
+            own = False
+            with db.session(cfg) as conn:
+                try:
+                    found = rec.recognize(conn, frame, scan, use_reference=use_reference)
+                except segment.SceneChanged:  # another camera, or held by hand: find items on their own background
+                    own = True
+                    found = rec.recognize(conn, frame, scan, use_reference=False)
+                homes = {r["id"]: r["location_id"] for r in conn.execute("SELECT id, location_id FROM products")}
+                unknown = [d for d in found if d.ignored or d.record.tier == "low" or d.record.pack_id is None]
+                groups = dict(zip(map(id, unknown), stockin.group_unknowns([d.vec for d in unknown]), strict=True))
+                items = []
+                for d in found:
+                    r = d.record
+                    known = id(d) not in groups
+                    pk = catalog.pack(conn, r.pack_id) if known else None
+                    choices = [catalog.pack(conn, p) for p, _ in r.candidates[:3]]
+                    items.append({
+                        "crop": r.crop_path, "url": f"/media/{r.crop_path}", "bbox": list(r.bbox),
+                        "pack_id": r.pack_id if known else None, "label": d.label if known else None,
+                        "sure": r.tier == "high", "group": f"p{r.pack_id}" if known else f"{scan}u{groups[id(d)]}",
+                        "looks_like": d.ignored,
+                        "candidates": [{"pack_id": c["pack_id"], "label": catalog.pack_label(c, "en")}
+                                       for c in choices if c is not None],
+                        "location_id": homes.get(pk["product_id"]) if pk else None,
+                    })
+            h, w = frame.shape[:2]
+            return {"items": items, "width": w, "height": h, "own_background": own}
+        try:
+            return await run_in_threadpool(run)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/stockin/expiry")
+    async def api_stockin_expiry(image: UploadFile = File(...)):
+        return await _read_date(await image.read())
+
+    @app.post("/api/stockin/read-name")
+    async def api_stockin_read_name(crop: str = Form(...)):
+        """The name printed on something the camera doesn't know, and the product it already is, if any."""
+        if not _crop_ok(crop):
+            raise HTTPException(400, "bad photo")
+        if not cfg.anthropic_key_present:
+            raise HTTPException(503, "Reading names needs the Anthropic API key (see Setup): type the name instead")
+
+        def run() -> dict:
+            reading = labels.read_name(Image.open(cfg.media_dir / crop), cfg)
+            out = {**reading.model_dump(), "known": None}
+            if reading.sure and reading.name_en:
+                with db.session(cfg) as conn:
+                    known = catalog.resolve_alias(conn, reading.name_en)
+                    if known is None:
+                        scored = catalog.fuzzy_scored(conn, reading.name_en, 1)
+                        known = scored[0][0] if scored and scored[0][1] >= cfg.labels.name_match else None
+                    if known is not None:
+                        pk = catalog.pack(conn, catalog.default_pack_id(conn, known))
+                        out["known"] = {"pack_id": pk["pack_id"], "label": catalog.pack_label(pk, "en")}
+            return out
+        try:
+            return await run_in_threadpool(run)
+        except anthropic.APIError as exc:
+            log.warning("name reader failed: %s", exc)
+            raise HTTPException(502, "Couldn't read the name right now: type it instead")
+        except OSError:
+            raise HTTPException(404, "That photo is gone: scan again")
+
+    @app.post("/api/stockin/name")
+    async def api_stockin_name(request: Request):
+        """The owner says what a group of unknown items is; its photos teach the camera at once."""
+        body = await request.json()
+        crops = [c for c in body.get("crops") or [] if _crop_ok(c)]
+
+        def run() -> dict:
+            teach = _teacher() if crops else None
+            with db.session(cfg) as conn:
+                return stockin.name(conn, crops, pack_id=_int(body.get("pack_id")), name_en=str(body.get("name") or ""),
+                                    name_km=str(body.get("name_km") or ""), teach=teach)
+        try:
+            return await run_in_threadpool(run)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/stockin/save")
+    async def api_stockin_save(request: Request):
+        body = await request.json()
+        mode = body.get("mode")
+        if mode not in ("count", "delivery"):
+            raise HTTPException(400, "count or delivery")
+        try:
+            rows = stockin.parse_rows(body.get("rows") or [])
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(400, f"Something in the list doesn't look right ({exc})")
+        if not rows:
+            raise HTTPException(400, "Nothing to save yet: scan some stock first")
+
+        def run() -> dict:
+            teach = _teacher() if any(r.teach and r.crops for r in rows) else None
+            with db.session(cfg) as conn:
+                out = stockin.save(conn, mode, rows, by="dashboard", teach=teach)
+            for crop in body.get("crops") or []:  # the scan's own copies: anything taught was copied to the gallery
+                if _crop_ok(crop):
+                    (cfg.media_dir / crop).unlink(missing_ok=True)
+            return out
+        try:
+            result = await run_in_threadpool(run)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        for item in result["putaway"]:
+            item["expiry_short"] = render.short_date(item["expiry"]) if item["expiry"] else None
+            item["old_expiry_short"] = render.short_date(item["old_expiry"]) if item["old_expiry"] else None
+        return result
+
+
     # --- invoices ------------------------------------------------------------------------------
 
     @app.get("/invoices", response_class=HTMLResponse)
@@ -1246,7 +1418,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             products = catalog.products(conn)
             suppliers = catalog.suppliers(conn)
             preview = render.invoice_message(conn, invoice_id, "km")
-            putaway = batches.put_away(conn, batches.for_invoice(conn, invoice_id)) if inv["status"] == "confirmed" else []
+            # Where to put it, while it's news: a delivery from last month is on the shelf by now.
+            fresh = inv["status"] == "confirmed" and (inv["confirmed_at"] or "") >= clock.stamp(clock.now() - timedelta(days=3))
+            putaway = batches.put_away(conn, batches.for_invoice(conn, invoice_id)) if fresh else []
         names = {pr["id"]: pr["name_en"] for pr in products}
         open_lines = [l for l in lines if l["product_id"] is None and not l["skipped"]]
         addable = [l for l in open_lines if not invoices.needs_case_size(l)]
@@ -1255,7 +1429,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                     suggestions=suggestions, preview=preview, extracted=invoices.extracted_json(inv),
                     names=names, open_lines=open_lines, total=total, addable=addable,
                     needs_size={l["id"] for l in open_lines if invoices.needs_case_size(l)}, weekdays=WEEKDAYS,
-                    putaway=putaway)
+                    putaway=putaway, can_read=cfg.anthropic_key_present)
 
     @app.post("/invoices/{invoice_id}/lines/{line_id}")
     async def invoice_line(request: Request, invoice_id: int, line_id: int, product_id: str = Form("")):

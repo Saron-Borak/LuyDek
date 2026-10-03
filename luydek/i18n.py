@@ -311,6 +311,34 @@ STRINGS: dict[str, dict[str, str]] = {
     "p_batches": {"km": "🗓 {batches}", "en": "🗓 {batches}"},
     "batch_line": {"km": "{n} ផុត {date}", "en": "{n} exp {date}"},
     "menu_shelf": {"km": "🗓 ពិនិត្យធ្នើ", "en": "🗓 Shelf check"},
+    "expiry_ask": {
+        "km": "📅 {name} ×{n}៖ ផុតកំណត់នៅពេលណា?\nសូមឆ្លើយតបសារនេះដោយរូបថតកាលបរិច្ឆេទលើកញ្ចប់ ឬចុចថាវាទុកបានប៉ុន្មាន។",
+        "en": "📅 {name} ×{n}: when does it expire?\nReply to this message with a photo of the date on the pack, "
+              "or tap how long it usually keeps.",
+    },
+    "expiry_keeps_3": {"km": "ប្រហែល ៣ ខែ", "en": "about 3 months"},
+    "expiry_keeps_6": {"km": "ប្រហែល ៦ ខែ", "en": "about 6 months"},
+    "expiry_keeps_12": {"km": "ប្រហែល ១ ឆ្នាំ", "en": "about a year"},
+    "expiry_keeps_0": {"km": "មិនផុតកំណត់", "en": "doesn't expire"},
+    "expiry_life_set": {
+        "km": "✅ {name}៖ ទុកបាន{life}។ LuyDek គិតតាមនេះសម្រាប់ទំនិញដែលគ្មានកាលបរិច្ឆេទ។ "
+              "ផ្ញើរូបថតកាលបរិច្ឆេទពេលណាក៏បាន (ឆ្លើយតបសារនេះ) ដើម្បីកំណត់ឲ្យច្បាស់។",
+        "en": "✅ {name}: keeps {life}. LuyDek assumes that for deliveries with no date. Reply to this message "
+              "with a photo of the date any time to set it exactly.",
+    },
+    "expiry_never_set": {"km": "✅ {name}៖ មិនផុតកំណត់។ LuyDek នឹងមិនសួរទៀតទេ។",
+                         "en": "✅ {name}: doesn't expire. LuyDek won't ask again."},
+    "expiry_read": {"km": "✅ {name} ×{n}៖ ផុតកំណត់ {date}{lot}", "en": "✅ {name} ×{n}: expires {date}{lot}"},
+    "expiry_lot": {"km": " · ឡូត៍ {lot}", "en": " · lot {lot}"},
+    "expiry_unread": {
+        "km": "មិនអាចអានកាលបរិច្ឆេទលើរូបថតនោះបានទេ។ សូមថតកាលបរិច្ឆេទឲ្យជិត ក្នុងពន្លឺល្អ ហើយផ្ញើម្តងទៀតដោយឆ្លើយតបសំណួរ។",
+        "en": "Couldn't read a date on that photo. Hold the date stamp close, in good light, and send it again "
+              "in reply to the question.",
+    },
+    "expiry_no_key": {"km": "ការអានកាលបរិច្ឆេទត្រូវការកូនសោ Anthropic API។ សូមចុចថាវាទុកបានប៉ុន្មានជំនួសវិញ។",
+                      "en": "Reading dates needs the Anthropic API key. Tap how long it keeps instead."},
+    "expiry_more": {"km": "…និង {n} ទៀតដែលគ្មានកាលបរិច្ឆេទ៖ កំណត់វានៅលើទំព័រវិក្កយបត្រ។",
+                    "en": "…and {n} more with no date: set them on the invoice page."},
 
     # --- weekly ---
     "week_summary": {

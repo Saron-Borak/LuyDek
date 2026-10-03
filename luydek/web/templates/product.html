@@ -199,7 +199,9 @@
         <div class="col-6"><label class="form-label" for="e-cost">Cost each ($)</label>
           <input id="e-cost" name="unit_cost" type="number" min="0" step="0.01" value="{{ '%.2f'|format(p.unit_cost) }}" class="form-control"></div>
         <div class="col-6"><label class="form-label" for="e-life">Keeps for (days)</label>
-          <input id="e-life" name="shelf_life_days" type="number" min="1" value="{{ p.shelf_life_days or '' }}" class="form-control"></div>
+          <input id="e-life" name="shelf_life_days" type="number" min="1" value="{{ p.shelf_life_days or '' }}" class="form-control">
+          <div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="no_expiry" value="1" id="e-noexp" {% if p.shelf_life_days == 0 %}checked{% endif %}>
+            <label class="form-check-label small" for="e-noexp">doesn't expire</label></div></div>
         <div class="col-12"><label class="form-label" for="e-bar">Barcode</label>
           <input id="e-bar" name="barcode" value="{{ (packs[-1] if p.sold_loose else packs[0]).barcode or '' }}" class="form-control" inputmode="numeric"></div>
         <div class="col-12"><div class="form-check form-switch">

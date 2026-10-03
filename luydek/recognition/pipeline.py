@@ -37,6 +37,8 @@ class Detection:
     label: str               # display name for the counter overlay
     ignored: str | None = None  # why it wasn't recorded: an ignore class, or "background"
     background: float = 0.0     # how much it looks like the same spot of the empty mat (0 without one)
+    vec: np.ndarray | None = None  # its CLIP vector, for grouping things the camera doesn't know yet
+    area_frac: float = 0.0      # its size, as a share of the frame
 
 
 class Skipped(Exception):
@@ -97,7 +99,8 @@ class Recognizer:
                 if why is not None:
                     best = m.candidates[0] if m.candidates else (None, None)
                     out.append(Detection(DetectionRecord(best[0], round(how_sure, 4), "high", "image", blob.bbox, rel,
-                                                         m.candidates), why, ignored=why, background=round(bg, 4)))
+                                                         m.candidates), why, ignored=why, background=round(bg, 4),
+                                         vec=vec, area_frac=blob.area_frac))
                     continue
                 hint = None
                 if m.ignore_label:
@@ -120,7 +123,7 @@ class Recognizer:
             label = catalog.pack_label(pk, "en") if pk is not None else "?"
             out.append(Detection(DetectionRecord(pack_id, score, t, method, blob.bbox, rel, cands,
                                                  None if code_pack is not None else hint), label,
-                                 background=round(bg, 4)))
+                                 background=round(bg, 4), vec=vec, area_frac=blob.area_frac))
         return out
 
     def _choose_parts(self, blobs: list, vectors: np.ndarray, gallery) -> tuple[list, np.ndarray]:
@@ -276,7 +279,7 @@ class Recognizer:
         return self.add_example(conn, crop, pack_id, ignore_label, "enrollment", vec), bbox
 
     def learn(self, conn: sqlite3.Connection, crop_path: str, pack_id: int | None, ignore_label: str | None,
-              source: str = "correction") -> None:
+              source: str = "correction", vec: np.ndarray | None = None) -> None:
         """An owner answer becomes a new gallery example for this store.
 
         Learned photos are capped per product (newest kept) so the gallery keeps
@@ -285,7 +288,7 @@ class Recognizer:
         path = self.cfg.media_dir / crop_path
         if not path.exists():
             return
-        self.add_example(conn, Image.open(path), pack_id, ignore_label, source)
+        self.add_example(conn, Image.open(path), pack_id, ignore_label, source, vec)
         where, arg = ("pack_id = ?", pack_id) if pack_id is not None else ("ignore_label = ?", ignore_label)
         cap = self.cfg.recognition.learn_cap * (2 if pack_id is None else 1)  # "other" junk is more varied
         for old in conn.execute(
@@ -294,6 +297,31 @@ class Recognizer:
         ).fetchall():
             (self.cfg.media_dir / old["crop_path"]).unlink(missing_ok=True)
             conn.execute("DELETE FROM gallery_images WHERE id = ?", (old["id"],))
+
+    def teach(self, conn: sqlite3.Connection, crop_path: str, pack_id: int, min_enrolled: int) -> bool:
+        """A photo taken while bringing stock in joins the product's gallery, unless it is a near-copy of
+        one it has. The first `min_enrolled` count as enrollment photos (kept for good); after that they
+        are owner-confirmed photos, which the gallery caps like any other (see `learn`)."""
+        path = self.cfg.media_dir / crop_path
+        if not path.exists():
+            return False
+        image = Image.open(path)
+        vec = self.encoder.encode_images([image])[0]
+        have = [np.frombuffer(r[0], np.float32)
+                for r in conn.execute("SELECT embedding FROM gallery_images WHERE pack_id = ?", (pack_id,))]
+        if have:
+            v = vec / (np.linalg.norm(vec) + 1e-9)
+            m = np.stack(have)
+            m = m / (np.linalg.norm(m, axis=1, keepdims=True) + 1e-9)
+            if float((m @ v).max()) >= self.cfg.recognition.enroll_duplicate:
+                return False
+        enrolled = conn.execute("SELECT COUNT(*) FROM gallery_images WHERE pack_id = ? AND source = 'enrollment'",
+                                (pack_id,)).fetchone()[0]
+        if enrolled < min_enrolled:
+            self.add_example(conn, image, pack_id, None, "enrollment", vec)
+        else:
+            self.learn(conn, crop_path, pack_id, None, source="confirmed", vec=vec)
+        return True
 
     def regroup(self, conn: sqlite3.Connection, pack_id: int, skip: int | None = None) -> list[int]:
         """After the owner names a new product, unanswered sales that look like it are re-guessed as it.

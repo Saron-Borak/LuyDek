@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import io
 import logging
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 
+import anthropic
+from PIL import Image
 from telegram import ForceReply, Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
-from .. import clock, db
+from .. import clock, db, render
 from ..config import Config
 from ..i18n import STRINGS, t
-from ..recognition import pipeline
+from ..recognition import labels, pipeline
 from ..services import batches, catalog, invoices, learn, metrics, stock, transactions
 from . import digest, keyboards
 
@@ -191,6 +194,8 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE, user) -> 
     cfg = _cfg(context)
     lang = user["lang"]
     msg = update.message
+    if msg.reply_to_message is not None and await _expiry_photo(update, context, user):
+        return
     source = msg.photo[-1] if msg.photo else msg.document
     rel = f"invoices/{uuid.uuid4().hex[:12]}.jpg"
     (cfg.media_dir / "invoices").mkdir(parents=True, exist_ok=True)
@@ -214,6 +219,47 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE, user) -> 
         await working.edit_text(t(lang, "invoice_failed"))
 
 
+async def _expiry_photo(update: Update, context: ContextTypes.DEFAULT_TYPE, user) -> bool:
+    """A photo sent in reply to "when does it expire?": read the date off it. False if the reply was
+    to something else (then the photo is an invoice, as usual)."""
+    cfg, lang, msg = _cfg(context), user["lang"], update.message
+    asked = msg.reply_to_message.message_id
+    with db.session(cfg) as conn:
+        ask = conn.execute("SELECT ref_id FROM bot_messages WHERE kind = 'expiry' AND chat_id = ? AND message_id = ?",
+                           (user["chat_id"], asked)).fetchone()
+    if ask is None:
+        return False
+    if not cfg.anthropic_key_present:
+        await msg.reply_text(t(lang, "expiry_no_key"))
+        return True
+    buf = io.BytesIO()
+    await (await (msg.photo[-1] if msg.photo else msg.document).get_file()).download_to_memory(buf)
+    try:
+        reading = await asyncio.to_thread(labels.read_expiry, Image.open(buf), cfg)
+    except (anthropic.APIError, OSError) as exc:
+        log.warning("date reader failed: %s", exc)
+        reading = None
+    if reading is None or not reading.sure or not reading.expiry:
+        await msg.reply_text(t(lang, "expiry_unread"))
+        return True
+    with db.session(cfg) as conn:
+        b = batches.get(conn, ask["ref_id"])
+        if b is None:
+            return True
+        batches.update(conn, b.id, expiry=reading.expiry, **({"lot_no": reading.lot} if reading.lot else {}))
+        p = catalog.product(conn, b.product_id)
+        keeps = (date.fromisoformat(reading.expiry) - date.fromisoformat(b.received_at[:10])).days
+        if p["shelf_life_days"] is None and keeps > 0:  # a guess for later deliveries that come with no date
+            catalog.update_product(conn, p["id"], shelf_life_days=keeps)
+    text = t(lang, "expiry_read", name=catalog.display_name(p, lang), n=b.left, date=render.short_date(reading.expiry),
+             lot=t(lang, "expiry_lot", lot=reading.lot) if reading.lot else "")
+    try:
+        await context.bot.edit_message_text(text, chat_id=user["chat_id"], message_id=asked)
+    except BadRequest:
+        await msg.reply_text(text)
+    return True
+
+
 # --- button taps -------------------------------------------------------------------------
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -232,7 +278,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     parts = query.data.split(":")
     handler = {"v": _verify, "d": _confirm_digest, "r": _resend, "a": _adjust,
                "i": _invoice, "il": _invoice_line, "b": _bonus, "s": _stock, "k": _count,
-               "w": _shelf}.get(parts[0])
+               "w": _shelf, "x": _expiry}.get(parts[0])
     if handler is None:
         await query.answer()
         return
@@ -462,6 +508,25 @@ async def _counted(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str
     return True
 
 
+KEEPS = {3: 91, 6: 182, 12: 365, 0: 0}  # the expiry buttons, in days; 0: it doesn't expire
+
+
+async def _expiry(query, context, cfg: Config, user, parts: list[str]) -> None:
+    """x:<batch>:<months>: how long the product keeps, when there's no date to photograph."""
+    lang, months = user["lang"], int(parts[2])
+    with db.session(cfg) as conn:
+        b = batches.get(conn, int(parts[1]))
+        p = catalog.product(conn, b.product_id) if b else None
+        if p is not None:
+            catalog.update_product(conn, p["id"], shelf_life_days=KEEPS[months])
+    await query.answer()
+    if p is None:
+        return
+    name = catalog.display_name(p, lang)
+    await query.edit_message_text(t(lang, "expiry_never_set", name=name) if months == 0 else
+                                  t(lang, "expiry_life_set", name=name, life=t(lang, f"expiry_keeps_{months}")))
+
+
 async def _shelf(query, context, cfg: Config, user, parts: list[str]) -> None:
     """Shelf check: w:<batch>:r, that batch is off the shelf; w:m, send the check again."""
     lang = user["lang"]
@@ -494,6 +559,7 @@ async def _invoice(query, context, cfg: Config, user, parts: list[str]) -> None:
         with db.session(cfg) as conn:
             new = batches.for_invoice(conn, invoice_id)
         await digest.send_put_away(context.bot, cfg, user["chat_id"], lang, new)
+        await digest.send_expiry_asks(context.bot, cfg, user["chat_id"], lang, new)
     elif action == "no":
         with db.session(cfg) as conn:
             invoices.reject(conn, invoice_id)

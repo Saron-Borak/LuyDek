@@ -26,7 +26,16 @@
     {% for x in putaway %}
     <li class="list-group-item d-flex gap-3 align-items-center flex-wrap">
       <span class="fw-semibold">{{ x.name_en }} ×{{ x.qty }}</span>
-      {% if x.expiry %}<span class="small muted">expires {{ x.expiry }}</span>{% endif %}
+      {% if x.expiry %}<span class="small muted">expires {{ x.expiry }}</span>
+      {% else %}<form method="post" action="/batches/{{ x.batch_id }}/edit" class="d-flex gap-1 align-items-center">
+        <label class="small muted mb-0" for="exp-{{ x.batch_id }}">No date:</label>
+        <input type="date" id="exp-{{ x.batch_id }}" name="expiry" class="form-control form-control-sm" style="width:10rem" required>
+        <button class="btn btn-sm btn-outline-dark">Save</button></form>
+      {% if can_read %}<form method="post" action="/batches/{{ x.batch_id }}/expiry-photo" enctype="multipart/form-data" class="d-inline">
+        <label class="btn btn-sm btn-outline-secondary mb-0" title="Read the date from a photo of the pack">
+          <i class="bi bi-camera" aria-hidden="true"></i> Photo of the date
+          <input type="file" name="image" accept="image/*" capture="environment" hidden onchange="this.form.submit()"></label></form>{% endif %}
+      {% endif %}
       <span class="ms-auto"><i class="bi bi-geo-alt" aria-hidden="true"></i> {{ x.place or 'its shelf' }}:
         {% if x.how == 'front' %}<b>in front</b> of the {{ x.old_left }} already there (they expire later{% if x.old_expiry %}, {{ x.old_expiry }}{% endif %})
         {% elif x.how == 'behind' %}<b>behind</b> the {{ x.old_left }} already there{% if x.old_expiry %} (expire {{ x.old_expiry }}){% endif %}

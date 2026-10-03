@@ -79,11 +79,12 @@ def replay(conn: sqlite3.Connection, product_ids: list[int] | None = None) -> di
                 continue
             repaid = min(s.deficit, qty)        # stock that was sold before anyone knew it was there
             s.deficit -= repaid
-            if repaid == qty:
+            if m["type"] == "sale" and (repaid == qty or s.open):  # put back: to the batch it most likely left
+                if repaid < qty:
+                    s.open[0].left += qty - repaid
                 continue
-            if m["type"] == "sale" and s.open:  # put back on the shelf: to the batch it most likely left
-                s.open[0].left += qty - repaid
-                continue
+            # A receipt that only repaid earlier sales is still a batch (with nothing left): it came in,
+            # and put-away and its date belong to it.
             shelf_life = life.get(m["product_id"])
             est = None
             if not m["expiry_date"] and shelf_life:
@@ -181,7 +182,10 @@ def shelf_check(conn: sqlite3.Connection, within_days: int = 30, today: date | N
 
 def put_away(conn: sqlite3.Connection, batch_ids: list[int]) -> list[dict]:
     """Where each new batch goes: in front of what is already there if it expires sooner, behind
-    it if later (the usual case), or simply on its shelf when there is nothing left of the old."""
+    it if later (the usual case), or simply on its shelf when there is nothing left of the old.
+
+    It lists everything that came in, even when the books had sold more than ever arrived (the new
+    batch then repays that first): those units are still in the owner's hands and need a place."""
     if not batch_ids:
         return []
     moves = conn.execute(f"SELECT id, product_id FROM stock_movements WHERE id IN ({','.join('?' * len(batch_ids))})",
@@ -190,12 +194,13 @@ def put_away(conn: sqlite3.Connection, batch_ids: list[int]) -> list[dict]:
     where = places(conn)
     names = {r["id"]: r for r in conn.execute("SELECT id, name_en, name_km FROM products")}
     out = []
+    arriving = set(batch_ids)
     for m in moves:
         s = stocks.get(m["product_id"], Stock())
         new = next((b for b in s.batches if b.id == m["id"]), None)
-        if new is None or new.left <= 0:
+        if new is None:
             continue
-        older = [b for b in s.open if b.id != new.id and b.received_at <= new.received_at]
+        older = [b for b in s.open if b.id not in arriving and b.received_at <= new.received_at]
         how, old_left, old_expiry = "on", 0, None
         if older:
             old_left = sum(b.left for b in older)
@@ -205,8 +210,9 @@ def put_away(conn: sqlite3.Connection, batch_ids: list[int]) -> list[dict]:
         loc = where.get(new.location_id) if new.location_id else None
         p = names[m["product_id"]]
         out.append({"batch_id": new.id, "product_id": m["product_id"], "name_en": p["name_en"], "name_km": p["name_km"],
-                    "qty": new.left, "expiry": new.expiry, "place": loc["name"] if loc else None, "how": how,
+                    "qty": new.qty_in, "expiry": new.expiry, "place": loc["name"] if loc else None, "how": how,
                     "old_left": old_left, "old_expiry": old_expiry})
+    out.sort(key=lambda x: (x["name_en"], x["expiry"] or NO_DATE))  # one product's dates together, soonest first
     return out
 
 
