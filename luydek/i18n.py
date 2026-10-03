@@ -60,6 +60,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Swipe right when the camera is right, left to correct it.",
     },
     "add_named": {"km": "➕ បន្ថែម {name}", "en": "➕ Add {name}"},
+    "why_size": {"km": "\n📏 ទំហំមិនដូចធម្មតាទេ៖ ទំហំផ្សេងរបស់វាឬ?",
+                 "en": "\n📏 Not its usual size on the mat: another size of it?"},
+    "why_lookalike": {"km": "\n👯 កាមេរ៉ាច្រឡំវាជាមួយទំនិញស្រដៀងគ្នា៖ សូមពិនិត្យស្លាក។",
+                      "en": "\n👯 The camera mixes this up with a look-alike: check the label."},
     "looks_new": {
         "km": "\n🆕 នៅលើកញ្ចប់សរសេរថា «{name}» — មិនទាន់មានក្នុងបញ្ជីទំនិញរបស់អ្នកទេ",
         "en": "\n🆕 The package reads “{name}” — not in your products yet",
@@ -337,6 +341,21 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "expiry_no_key": {"km": "ការអានកាលបរិច្ឆេទត្រូវការកូនសោ Anthropic API។ សូមចុចថាវាទុកបានប៉ុន្មានជំនួសវិញ។",
                       "en": "Reading dates needs the Anthropic API key. Tap how long it keeps instead."},
+    "expiry_lot_mismatch": {"km": "\n⚠️ វិក្កយបត្រសរសេរឡូត៍ {expected}៖ សូមពិនិត្យថាកញ្ចប់នេះមកពី{supplier}។",
+                            "en": "\n⚠️ The invoice says lot {expected}: check this pack came from {supplier}."},
+    "the_supplier": {"km": "អ្នកផ្គត់ផ្គង់", "en": "the supplier"},
+    "src_title": {"km": "🔎 តើវាមកពីណា?", "en": "🔎 Where did it come from?"},
+    "src_unrecorded": {"km": "• {name}៖ លក់បាន {n} ក្នុង ៤ សប្តាហ៍ ដែលគ្មានការដឹកជញ្ជូនណាមួយនាំចូល",
+                       "en": "• {name}: sold {n} in 4 weeks that no delivery brought in"},
+    "src_lot": {"km": "• {name}៖ ឡូត៍ {found} លើកញ្ចប់ ប៉ុន្តែវិក្កយបត្រសរសេរ {expected}{supplier}",
+                "en": "• {name}: lot {found} on the pack, but the invoice says {expected}{supplier}"},
+    "src_from": {"km": " ({supplier})", "en": " ({supplier})"},
+    "src_hint": {
+        "km": "ការដឹកជញ្ជូនគ្មានវិក្កយបត្រ ការទិញពីផ្សារ ឬទំនិញពីកន្លែងផ្សេង (ទំនិញក្លែងក្លាយមើលទៅដូចម៉ាកពិតបេះបិទ)។ "
+              "សូមកត់ត្រាការដឹកជញ្ជូនទាំងអស់ ហើយសួរអ្នកផ្គត់ផ្គង់អំពីឡូត៍ផ្សេងៗ។",
+        "en": "A delivery without an invoice, a market run, or goods from somewhere else (copies look exactly like "
+              "the real brand). Record every delivery, and ask the supplier about other lots.",
+    },
     "expiry_more": {"km": "…និង {n} ទៀតដែលគ្មានកាលបរិច្ឆេទ៖ កំណត់វានៅលើទំព័រវិក្កយបត្រ។",
                     "en": "…and {n} more with no date: set them on the invoice page."},
 

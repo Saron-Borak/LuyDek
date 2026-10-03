@@ -13,9 +13,9 @@
 </div>
 
 <div class="row g-3 mb-3">
-  <div class="col-4"><div class="stat {{ 'bad' if counts.remove else 'ok' }}"><div class="n">{{ counts.remove }}</div><div class="l">to take off</div><div class="h">expired</div></div></div>
-  <div class="col-4"><div class="stat"><div class="n">{{ counts.front }}</div><div class="l">to put in front</div><div class="h">expires within {{ days }} days</div></div></div>
-  <div class="col-4"><div class="stat {{ 'warn' if counts.clear }}"><div class="n">{{ counts.clear }}</div><div class="l">won't sell in time</div><div class="h">discount, bundle or return</div></div></div>
+  <div class="col-4"><div class="stat {{ 'bad' if counts['remove'] else 'ok' }}"><div class="n">{{ counts['remove'] }}</div><div class="l">to take off</div><div class="h">expired</div></div></div>
+  <div class="col-4"><div class="stat"><div class="n">{{ counts['front'] }}</div><div class="l">to put in front</div><div class="h">expires within {{ days }} days</div></div></div>
+  <div class="col-4"><div class="stat {{ 'warn' if counts['clear'] }}"><div class="n">{{ counts['clear'] }}</div><div class="l">won't sell in time</div><div class="h">discount, bundle or return</div></div></div>
 </div>
 
 {% if not groups %}
@@ -64,6 +64,37 @@
   </ul>
 </div>
 {% endfor %}
+
+{% if unrecorded or lot_flags %}
+<div class="card mb-3" id="sources">
+  <div class="card-header"><i class="bi bi-search" aria-hidden="true"></i> Where did it come from?
+    <div class="sub">Stock that no delivery or invoice brought in. A delivery that skipped the paperwork, a market run,
+      or goods from somewhere else: copies of a brand can look exactly like the real thing, so the paperwork is the check.</div></div>
+  <ul class="list-group list-group-flush">
+    {% for r in unrecorded %}
+    <li class="list-group-item d-flex gap-3 align-items-center flex-wrap">
+      {{ pic(photos.product.get(r.product_id), 40) }}
+      <div class="flex-grow-1" style="min-width:12rem">
+        <a class="fw-semibold" href="/catalog/{{ r.product_id }}">{{ r.name_en }}</a>
+        <div class="small muted">Sold {{ r.units }} in the last 4 weeks that no delivery brought in{% if r.found %}: a count later found {{ r.found }} on the shelf{% endif %}{% if r.missing %}{{ ',' if r.found else ':' }} {{ r.missing }} still not covered by any stock{% endif %}.</div>
+      </div>
+      <a class="btn btn-sm btn-outline-dark" href="/stock-in"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> Record a delivery</a>
+    </li>
+    {% endfor %}
+    {% for f in lot_flags %}
+    <li class="list-group-item d-flex gap-3 align-items-center flex-wrap">
+      {{ pic(photos.product.get(f.product_id), 40) }}
+      <div class="flex-grow-1" style="min-width:12rem">
+        <a class="fw-semibold" href="/catalog/{{ f.product_id }}">{{ f.name_en }}</a>
+        <div class="small muted">The pack says lot <b>{{ f.found }}</b>, but the {% if f.invoice_id %}<a href="/invoices/{{ f.invoice_id }}">invoice</a>{% else %}invoice{% endif %}
+          {% if f.supplier %}from {{ f.supplier }} {% endif %}says <b>{{ f.expected }}</b>. Ask the supplier whether they sent that lot.</div>
+      </div>
+      <form method="post" action="/source-flags/{{ f.id }}/clear"><button class="btn btn-sm btn-outline-dark">Checked: it's fine</button></form>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
 
 <div class="row g-3" id="places">
   <div class="col-lg-5">

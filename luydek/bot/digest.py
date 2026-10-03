@@ -18,7 +18,7 @@ from .. import clock, db, render
 from ..config import Config
 from ..i18n import t
 from ..recognition import labels, tray
-from ..services import alerts, batches, catalog, forecast, invoices, metrics, stock, summary, transactions
+from ..services import alerts, batches, catalog, forecast, invoices, metrics, sources, stock, summary, transactions
 from . import keyboards
 
 log = logging.getLogger("luydek.bot")
@@ -55,6 +55,8 @@ def item_caption(item: sqlite3.Row, lang: str) -> str:
         else:
             key = "ask_low" if item["tier"] == "low" else "ask_medium"
         text = t(lang, key, n=item["id"], time=item["started_at"][11:16], name=name, count=count)
+        if item["hint"] in ("size", "lookalike"):
+            text += t(lang, f"why_{item['hint']}")
         if item["name_guess"]:
             text += t(lang, "looks_new", name=item["name_guess"])
         return text
@@ -387,17 +389,25 @@ async def close_count(bot: Bot, cfg: Config, product_id: int, counted: int, delt
                 log.warning("could not update count message: %s", exc)
 
 
+def _shelf_text(tasks: list, unrecorded: list, flags: list, lang: str, days: int) -> str:
+    text = render.shelf_check_message(tasks, lang, days)
+    more = render.sources_message(unrecorded, flags, lang)
+    return f"{text}\n\n{more}" if more else text
+
+
 async def send_shelf_check(bot: Bot, cfg: Config, chat_id: int | None = None, scheduled: bool = False) -> int:
-    """The walk round the shop. On schedule, nothing is sent when nothing needs doing."""
+    """The walk round the shop, and stock that didn't come in on any record. On schedule, nothing is
+    sent when nothing needs doing."""
     days = cfg.forecast.expiry_warning_days
     with db.session(cfg) as conn:
         tasks = batches.shelf_check(conn, days)
+        unrecorded, flags = sources.unrecorded(conn), sources.lot_flags(conn)
         recipients = [u for u in users(conn) if chat_id is None or u["chat_id"] == chat_id]
-    if scheduled and not tasks:
+    if scheduled and not (tasks or unrecorded or flags):
         return 0
     for u in recipients:
         try:
-            msg = await bot.send_message(u["chat_id"], render.shelf_check_message(tasks, u["lang"], days),
+            msg = await bot.send_message(u["chat_id"], _shelf_text(tasks, unrecorded, flags, u["lang"], days),
                                          parse_mode=ParseMode.HTML,
                                          reply_markup=keyboards.shelf_keyboard(tasks, u["lang"], cfg.telegram.miniapp_url))
             with db.session(cfg) as conn:
@@ -412,13 +422,14 @@ async def refresh_shelf_checks(bot: Bot, cfg: Config) -> None:
     days = cfg.forecast.expiry_warning_days
     with db.session(cfg) as conn:
         tasks = batches.shelf_check(conn, days)
+        unrecorded, flags = sources.unrecorded(conn), sources.lot_flags(conn)
         copies = conn.execute(
             "SELECT m.*, u.lang FROM bot_messages m LEFT JOIN bot_users u ON u.chat_id = m.chat_id "
             "WHERE m.kind = 'shelf' ORDER BY m.id DESC LIMIT 20").fetchall()
     for c in copies:
         lang = c["lang"] or cfg.shop.default_lang
         try:
-            await bot.edit_message_text(render.shelf_check_message(tasks, lang, days), c["chat_id"], c["message_id"],
+            await bot.edit_message_text(_shelf_text(tasks, unrecorded, flags, lang, days), c["chat_id"], c["message_id"],
                                         parse_mode=ParseMode.HTML,
                                         reply_markup=keyboards.shelf_keyboard(tasks, lang, cfg.telegram.miniapp_url))
         except TelegramError as exc:

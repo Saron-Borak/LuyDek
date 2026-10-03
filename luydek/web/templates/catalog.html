@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Products{% endblock %}
 {% block content %}
+{% from "_macros.html" import pic %}
 {% set need_photos = products|selectattr('photos', 'lt', min_photos)|list %}
 {% set learned = products|rejectattr('origin', 'equalto', 'catalog')|list %}
 <div class="page-head">
@@ -12,9 +13,31 @@
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <a href="/catalog/new" class="btn btn-lg btn-dark"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add product</a>
+    <a href="/stock-in?mode=count" class="btn btn-lg btn-outline-dark"><i class="bi bi-upc-scan" aria-hidden="true"></i> Count with the camera</a>
     <button class="btn btn-lg btn-outline-dark" data-bs-toggle="collapse" data-bs-target="#count"><i class="bi bi-clipboard-check" aria-hidden="true"></i> Count stock</button>
   </div>
 </div>
+
+{% if lookalikes %}
+<div class="card mb-3" id="lookalikes">
+  <div class="card-header"><i class="bi bi-intersect" aria-hidden="true"></i> Look-alikes the camera mixes up
+    <div class="sub">When it sees one of these it asks you, unless it is clearly sure{{ ' (or reads the label)' if cfg.labels.enabled }}.
+      To teach it the difference, take a few photos of the side where they differ: the size, flavour or strength printed on the pack.</div></div>
+  <ul class="list-group list-group-flush">
+    {% for x in lookalikes[:10] %}
+    <li class="list-group-item d-flex gap-2 align-items-center flex-wrap">
+      {{ pic(photos.pack.get(x.a.pack_id) or photos.product.get(x.a.product_id), 36) }}
+      <a class="fw-semibold" href="/catalog/enroll?pack_id={{ x.a.pack_id }}">{{ x.label_a }}</a>
+      <i class="bi bi-arrow-left-right muted" aria-label="and"></i>
+      {{ pic(photos.pack.get(x.b.pack_id) or photos.product.get(x.b.product_id), 36) }}
+      <a class="fw-semibold" href="/catalog/enroll?pack_id={{ x.b.pack_id }}">{{ x.label_b }}</a>
+      <span class="small muted ms-auto">{{ x.n }} photo{{ 's' if x.n != 1 }} mixed up</span>
+      <a class="btn btn-sm btn-outline-dark" href="/accuracy?pack={{ x.a.pack_id }}">Test them</a>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
 
 <!-- whole-shop stock count (install day, or a monthly recount) -->
 <div class="collapse mb-3" id="count">

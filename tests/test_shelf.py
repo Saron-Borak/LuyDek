@@ -122,6 +122,7 @@ def test_the_shelf_page_and_its_actions(cfg, conn, stub_encoder, monkeypatch):
     with client_for(cfg, monkeypatch) as c:
         page = c.get("/shelf").text
         assert "Expired: take it off" in page and "Won&#39;t sell in time" in page and "Fridge" in page
+        assert "built-in method" not in page                     # the counts, not dict methods ("clear")
         c.post("/shelf/places/suggested")
         shelf_b = next(r["id"] for r in locations.places(db.connect(cfg.db_path)) if r["name"] == "Shelf B")
         assert c.post(f"/batches/{soon}/edit", data={"location_id": shelf_b, "expiry": "2026-10-20"}).status_code == 200

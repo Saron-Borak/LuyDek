@@ -25,7 +25,8 @@
   ('/counter', 'camera-video', 'Counter camera', ('counter',)),
   ('/log', 'journal-text', 'Camera log', ('log',)),
   ('/setup', 'gear', 'Setup', ('setup',)),
-] + ([('/report', 'graph-up-arrow', 'Pilot report', ('report',))] if team else []) %}
+] + ([('/report', 'graph-up-arrow', 'Pilot report', ('report',)),
+       ('/accuracy', 'bullseye', 'Accuracy test', ('accuracy',))] if team else []) %}
 
 {% macro links() %}
   {% for href, icon, label, keys in nav %}

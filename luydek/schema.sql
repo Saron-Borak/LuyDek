@@ -284,3 +284,31 @@ CREATE TABLE IF NOT EXISTS stock_alerts (
     state      TEXT NOT NULL,      -- out / low
     sent_at    TEXT NOT NULL
 );
+
+-- Where stock came from, when something doesn't add up: the lot printed on a pack isn't the one on
+-- the invoice it supposedly came with. ("Sold more than came in" is worked out from the ledger.)
+CREATE TABLE IF NOT EXISTS source_flags (
+    id         INTEGER PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    batch_id   INTEGER,                -- the receipt (stock_movements.id) the pack was checked against
+    kind       TEXT    NOT NULL,       -- lot
+    expected   TEXT,                   -- what the invoice says
+    found      TEXT,                   -- what the pack says
+    created_at TEXT    NOT NULL,
+    cleared_at TEXT,
+    cleared_by TEXT
+);
+
+-- The accuracy test: a known product on the mat, what the camera said, in which light.
+CREATE TABLE IF NOT EXISTS accuracy_tests (
+    id            INTEGER PRIMARY KEY,
+    lighting      TEXT    NOT NULL,    -- daylight / lamp / dim
+    expected_pack INTEGER NOT NULL REFERENCES product_packs(id),
+    got_pack      INTEGER,
+    tier          TEXT,                -- high (it would have recorded the sale alone) / medium / low
+    score         REAL,
+    hint          TEXT,
+    method        TEXT,
+    crop_path     TEXT,
+    created_at    TEXT    NOT NULL
+);

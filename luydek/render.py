@@ -271,6 +271,21 @@ def shelf_check_message(tasks: list, lang: str, within_days: int) -> str:
     return "\n".join(out)
 
 
+def sources_message(unrecorded: list[dict], flags: list, lang: str) -> str:
+    """Stock that didn't come in on any record, and packs with the wrong lot."""
+    if not unrecorded and not flags:
+        return ""
+    out = [f"<b>{t(lang, 'src_title')}</b>"]
+    for r in unrecorded[:8]:
+        out.append(t(lang, "src_unrecorded", name=_name(r, lang), n=r["units"]))
+    for f in flags[:8]:
+        supplier = t(lang, "src_from", supplier=escape(f["supplier"], quote=False)) if f["supplier"] else ""
+        out.append(t(lang, "src_lot", name=_name(f, lang), found=escape(f["found"], quote=False),
+                     expected=escape(f["expected"], quote=False), supplier=supplier))
+    out.append(f"<i>{t(lang, 'src_hint')}</i>")
+    return "\n".join(out)
+
+
 def put_away_message(items: list[dict], lang: str) -> str:
     """Where each part of a delivery goes, in front of or behind the stock already there."""
     if not items:

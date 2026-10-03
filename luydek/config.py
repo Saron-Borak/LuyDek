@@ -85,6 +85,17 @@ class RecognitionCfg(BaseModel):
     colour_tiebreak: bool = True
     lookalike_gap: float = 0.05  # candidates within this CLIP score of the top one are look-alikes
     colour_margin: float = 0.15  # colour must beat the runner-up look-alike by this much to decide
+    # Size on the mat: a 330ml can and a 1.5L bottle of the same brand look alike but aren't the same
+    # size. From the calibrated counter camera, an item outside the size range of a pack's own photos
+    # (widened by this factor both ways) is asked about, never accepted on its own. Needs at least
+    # `size_min_photos` photos of the pack taken with the counter camera.
+    size_check: bool = True
+    size_tolerance: float = 1.4
+    size_min_photos: int = 3
+    # Look-alike pairs: two packs whose photos the camera mixes up with each other (found by matching
+    # every photo against all the others). When the top two guesses are such a pair, the item is
+    # asked about unless the first beats the second by at least this much.
+    pair_margin: float = 0.08
     segment: SegmentCfg = Field(default_factory=SegmentCfg)
     tray: TrayCfg = Field(default_factory=TrayCfg)
 

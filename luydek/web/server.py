@@ -34,8 +34,8 @@ from ..bot import digest
 from ..config import Config, get_config
 from ..i18n import t
 from ..recognition import cutout, labels, pipeline, segment, tray
-from ..services import (batches, catalog, forecast, invoices, learn, locations, loose, metrics, report, stock,
-                        stockin, transactions)
+from ..services import (accuracy, batches, catalog, forecast, invoices, learn, locations, loose, metrics, report,
+                        sources, stock, stockin, transactions)
 from . import charts as charts_mod
 from . import miniapp
 
@@ -831,8 +831,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "SELECT ignore_label, COUNT(*) AS n FROM gallery_images WHERE ignore_label IS NOT NULL "
                 "GROUP BY ignore_label")}
             boxes = loose.box_sizes(conn)
+            lookalikes = accuracy.lookalike_pairs(conn, cfg.recognition)
         return page(request, "catalog.html", products=products, suppliers=suppliers, ignore=ignore, boxes=boxes,
-                    ignore_labels=IGNORE_LABELS, min_photos=MIN_PHOTOS, weekdays=WEEKDAYS)
+                    ignore_labels=IGNORE_LABELS, min_photos=MIN_PHOTOS, weekdays=WEEKDAYS, lookalikes=lookalikes)
 
     @app.get("/catalog/new", response_class=HTMLResponse)
     def new_product_page(request: Request):
@@ -874,10 +875,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "SELECT * FROM gallery_images WHERE " + ("pack_id = ?" if pk else "ignore_label = ?")
                 + " ORDER BY id DESC", (pack_id if pk else ignore,)).fetchall()
             reference = db.get_setting(conn, pipeline.REFERENCE_KEY)
+            twins = [x["label_b"] if x["a"]["pack_id"] == pack_id else x["label_a"]
+                     for x in accuracy.lookalike_pairs(conn, cfg.recognition) if pk is not None
+                     and pack_id in (x["a"]["pack_id"], x["b"]["pack_id"])]
         if pk is None and ignore not in IGNORE_LABELS:
             raise HTTPException(404)
         return page(request, "enroll.html", pk=pk, ignore=ignore, photos=photos, min_photos=MIN_PHOTOS,
-                    calibrated=bool(reference))
+                    calibrated=bool(reference), twins=twins)
 
     @app.post("/api/enroll")
     async def api_enroll(image: UploadFile = File(...), pack_id: int | None = Form(None),
@@ -1106,6 +1110,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             dated = conn.execute("SELECT COUNT(DISTINCT m.product_id) FROM stock_movements m JOIN products p "
                                  "ON p.id = m.product_id WHERE m.qty > 0 AND m.expiry_date IS NOT NULL "
                                  "AND p.active = 1").fetchone()[0]
+            unrecorded, lot_flags = sources.unrecorded(conn), sources.lot_flags(conn)
         groups = []
         for task in tasks:
             if not groups or groups[-1]["place"] != task.place:
@@ -1113,7 +1118,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             groups[-1]["tasks"].append(task)
         counts = {a: sum(1 for x in tasks if x.action == a) for a in ("remove", "front", "clear")}
         return page(request, "shelf.html", groups=groups, counts=counts, places=places, products=products, days=days,
-                    dated=dated, suggested=locations.SUGGESTED)
+                    dated=dated, suggested=locations.SUGGESTED, unrecorded=unrecorded, lot_flags=lot_flags)
+
+    @app.post("/source-flags/{flag_id}/clear")
+    def clear_source_flag(request: Request, flag_id: int):
+        with db.session(cfg) as conn:
+            sources.clear(conn, flag_id, by="dashboard")
+        return back(request, "Marked as checked")
 
     @app.post("/shelf/places")
     def add_place(request: Request, name: str = Form("")):
@@ -1187,9 +1198,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             changes["lot_no"] = str(form["lot_no"]).strip() or None
         try:
             with db.session(cfg) as conn:
+                wrong_lot = batches.check_lot(conn, batch_id, changes.get("lot_no"))
                 batches.update(conn, batch_id, **changes)
         except ValueError as exc:
             return back(request, str(exc))
+        if wrong_lot:
+            return back(request, f"Saved. The invoice says lot {wrong_lot['expected']}: "
+                                 f"check it came from {wrong_lot['supplier'] or 'the supplier'}")
         return back(request, "Saved")
 
     @app.post("/batches/{batch_id}/expiry-photo")
@@ -1202,18 +1217,67 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if not reading["expiry"] or not reading["sure"]:
             return back(request, "Couldn't read the date on that photo: type it instead")
         with db.session(cfg) as conn:
+            wrong_lot = batches.check_lot(conn, batch_id, reading["lot"])
             batches.update(conn, batch_id, expiry=reading["expiry"],
                            **({"lot_no": reading["lot"]} if reading["lot"] else {}))
-        return back(request, f"Expiry set to {render.short_date(reading['expiry'])}")
+        said = f"Expiry set to {render.short_date(reading['expiry'])}"
+        if wrong_lot:
+            said += (f". But the pack says lot {reading['lot']} and the invoice says {wrong_lot['expected']}: "
+                     f"check it came from {wrong_lot['supplier'] or 'the supplier'} (see Shelf check)")
+        return back(request, said)
+
+    # --- the accuracy test: a known product on the mat, in the shop's own light --------------------
+
+    @app.get("/accuracy", response_class=HTMLResponse)
+    def accuracy_page(request: Request, pack: int | None = None):
+        with db.session(cfg) as conn:
+            pairs = accuracy.lookalike_pairs(conn, cfg.recognition)
+            twins = {p for x in pairs for p in (x["a"]["pack_id"], x["b"]["pack_id"])}
+            packs = [{"pack_id": r["pack_id"], "label": catalog.pack_label(r, "en"), "twin": r["pack_id"] in twins,
+                      "photos": r["photos"]} for r in catalog.packs(conn)]
+            result = accuracy.summary(conn)
+        packs.sort(key=lambda r: (not r["twin"], r["label"]))
+        return page(request, "accuracy.html", packs=packs, chosen=pack, lighting=accuracy.LIGHTING, summary=result,
+                    pairs=pairs)
+
+    @app.post("/api/accuracy/test")
+    async def api_accuracy_test(image: UploadFile = File(...), pack_id: int = Form(...), lighting: str = Form(...),
+                                use_reference: bool = Form(True)):
+        data = await image.read()
+
+        def run() -> dict:
+            frame = segment.decode(data)
+            rec = pipeline.get_recognizer(cfg)
+            with db.session(cfg) as conn:
+                try:
+                    found = rec.recognize(conn, frame, f"a{uuid.uuid4().hex[:8]}", use_reference=use_reference)
+                except segment.SceneChanged:
+                    found = rec.recognize(conn, frame, f"a{uuid.uuid4().hex[:8]}", use_reference=False)
+                results = accuracy.record(conn, lighting, pack_id, found)
+                result = accuracy.summary(conn)
+            html = templates.get_template("_accuracy_summary.html").render(summary=result)
+            return {"results": results, "summary_html": html}
+        try:
+            return await run_in_threadpool(run)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/accuracy/reset")
+    def accuracy_reset(request: Request):
+        with db.session(cfg) as conn:
+            n = accuracy.reset(conn)
+        return back(request, f"Cleared {n} test{'s' if n != 1 else ''}")
 
     # --- stock in: count it on the mat, read the date, one save --------------------------------
 
     def _crop_ok(path) -> bool:
         return isinstance(path, str) and path.startswith("crops/") and ".." not in path and "\\" not in path
 
+    scan_sizes: dict[str, float] = {}  # crop -> its size on the calibrated mat, from stock-in scans
+
     def _teacher():
         rec = pipeline.get_recognizer(cfg)
-        return lambda conn, crop, pack_id: rec.teach(conn, crop, pack_id, MIN_PHOTOS)
+        return lambda conn, crop, pack_id: rec.teach(conn, crop, pack_id, MIN_PHOTOS, scan_sizes.pop(crop, None))
 
     async def _read_date(data: bytes) -> dict:
         if not cfg.anthropic_key_present:
@@ -1257,6 +1321,10 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 except segment.SceneChanged:  # another camera, or held by hand: find items on their own background
                     own = True
                     found = rec.recognize(conn, frame, scan, use_reference=False)
+                if use_reference and not own and pipeline.load_reference(conn, cfg) is not None:
+                    if len(scan_sizes) > 5000:
+                        scan_sizes.clear()
+                    scan_sizes.update({d.record.crop_path: d.area_frac for d in found})
                 homes = {r["id"]: r["location_id"] for r in conn.execute("SELECT id, location_id FROM products")}
                 unknown = [d for d in found if d.ignored or d.record.tier == "low" or d.record.pack_id is None]
                 groups = dict(zip(map(id, unknown), stockin.group_unknowns([d.vec for d in unknown]), strict=True))

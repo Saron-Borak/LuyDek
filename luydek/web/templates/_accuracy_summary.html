@@ -1,0 +1,29 @@
+{% if summary.lights %}
+<div class="table-responsive">
+  <table class="table align-middle mb-0">
+    <thead><tr><th>Light</th><th class="text-end">Tests</th><th class="text-end">Right</th>
+      <th class="text-end" title="Right, and it would have recorded the sale with nobody asked">Right, on its own</th>
+      <th class="text-end" title="It asked the owner instead of recording it">Asked you</th>
+      <th class="text-end" title="Wrong, and it would have recorded the sale with nobody asked">Wrong, on its own</th></tr></thead>
+    <tbody>
+      {% for l in summary.lights %}
+      <tr><td class="fw-semibold">{{ l.name }}</td><td class="text-end">{{ l.n }}</td>
+        <td class="text-end">{{ (100 * l.right / l.n)|round|int }}%</td>
+        <td class="text-end">{{ l.auto_right }}</td><td class="text-end">{{ l.asked }}</td>
+        <td class="text-end {{ 'text-danger fw-bold' if l.auto_wrong }}">{{ l.auto_wrong }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="small muted mt-2 mb-0">"Wrong, on its own" is the one that matters: a sale recorded as the wrong product with nobody
+  asked. Anything it asks about costs a tap, not a mistake.</p>
+{% if summary.mixups %}
+<h3 class="h6 mt-3">Mix-ups</h3>
+<ul class="mb-0">
+  {% for m in summary.mixups[:10] %}<li>{{ m.expected }} → {{ m.got }} <span class="muted">×{{ m.n }}</span></li>{% endfor %}
+</ul>
+{% endif %}
+{% else %}
+<div class="empty-state py-3"><div class="ico"><i class="bi bi-bullseye" aria-hidden="true"></i></div>
+  <div class="t">No tests yet</div><div>Put a product on the mat, say which it is, and press Test.</div></div>
+{% endif %}

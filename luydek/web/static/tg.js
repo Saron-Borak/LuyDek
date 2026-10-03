@@ -21,6 +21,8 @@
       not_sale: "Not a sale", later: "Not now", is_it: "Is this", what_is: "What is this?", its: "It's",
       add_new: "Add as new:", not_sure: "not sure", fairly_sure: "fairly sure", clutter: "It looked like clutter to the camera. If it's a product, say which.",
       mat: "It looks a lot like the mat itself. A shadow, a paper that moved? Then: Not a sale.",
+      size: "It isn't the size this product usually is on the mat. Another size of it?",
+      lookalike: "The camera mixes this up with a look-alike. Check the label.",
       reads: "The package reads", saved: "Saved", undo: "Undo", fix_title: "Fix this sale", recorded_as: "Recorded as",
       what_was: "What was it?", pick_each: "Pick each item in the photo", auto: "automatic", checked: "checked",
       rest_right: (n) => `All ${n} are right`, left: (n) => `${n} left`, done_s: (a, b) => `${a} right, ${b} corrected. Thank you!`,
@@ -54,6 +56,8 @@
       not_sale: "មិនមែនលក់", later: "ពេលក្រោយ", is_it: "តើនេះជា", what_is: "តើនេះជាអ្វី?", its: "វាជា",
       add_new: "បន្ថែមថ្មី៖", not_sure: "មិនច្បាស់", fairly_sure: "ប្រហែលត្រូវ", clutter: "កាមេរ៉ាគិតថាជារបស់ផ្សេងៗ។ បើជាទំនិញ សូមប្រាប់ថាមួយណា។",
       mat: "មើលទៅដូចកម្រាលតុ។ ស្រមោល ឬក្រដាសរំកិល? បើដូច្នេះ៖ មិនមែនលក់។",
+      size: "ទំហំវាមិនដូចទំនិញនេះធម្មតានៅលើកម្រាលទេ។ ទំហំផ្សេងរបស់វាឬ?",
+      lookalike: "កាមេរ៉ាច្រឡំវាជាមួយទំនិញស្រដៀងគ្នា។ សូមពិនិត្យស្លាក។",
       reads: "នៅលើកញ្ចប់សរសេរថា", saved: "បានរក្សាទុក", undo: "មិនធ្វើវិញ", fix_title: "កែការលក់នេះ", recorded_as: "បានកត់ថាជា",
       what_was: "តើវាជាអ្វី?", pick_each: "ជ្រើសទំនិញនីមួយៗក្នុងរូប", auto: "ស្វ័យប្រវត្តិ", checked: "បានពិនិត្យ",
       rest_right: (n) => `ត្រូវទាំង ${n}`, left: (n) => `នៅសល់ ${n}`, done_s: (a, b) => `ត្រូវ ${a} កែ ${b}។ អរគុណ!`,
@@ -187,6 +191,8 @@
     info.append(q);
     if (c.hint === "junk") info.append(el("div", "note", W.clutter));
     if (c.hint === "background") info.append(el("div", "note", W.mat));
+    if (c.hint === "size") info.append(el("div", "note", W.size));
+    if (c.hint === "lookalike") info.append(el("div", "note", W.lookalike));
     if (c.name_guess) info.append(el("div", "note new", `${W.reads} “${c.name_guess}”`));
     root.append(info);
     return root;

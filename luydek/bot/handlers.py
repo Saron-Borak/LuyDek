@@ -246,6 +246,7 @@ async def _expiry_photo(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         b = batches.get(conn, ask["ref_id"])
         if b is None:
             return True
+        wrong_lot = batches.check_lot(conn, b.id, reading.lot)
         batches.update(conn, b.id, expiry=reading.expiry, **({"lot_no": reading.lot} if reading.lot else {}))
         p = catalog.product(conn, b.product_id)
         keeps = (date.fromisoformat(reading.expiry) - date.fromisoformat(b.received_at[:10])).days
@@ -253,6 +254,9 @@ async def _expiry_photo(update: Update, context: ContextTypes.DEFAULT_TYPE, user
             catalog.update_product(conn, p["id"], shelf_life_days=keeps)
     text = t(lang, "expiry_read", name=catalog.display_name(p, lang), n=b.left, date=render.short_date(reading.expiry),
              lot=t(lang, "expiry_lot", lot=reading.lot) if reading.lot else "")
+    if wrong_lot:
+        text += t(lang, "expiry_lot_mismatch", expected=wrong_lot["expected"],
+                  supplier=wrong_lot["supplier"] or t(lang, "the_supplier"))
     try:
         await context.bot.edit_message_text(text, chat_id=user["chat_id"], message_id=asked)
     except BadRequest:

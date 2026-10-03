@@ -33,6 +33,16 @@ recognition:
   colour_tiebreak: true
   lookalike_gap: 0.05  # candidates within this CLIP score of the top one count as look-alikes
   colour_margin: 0.15  # the colour match must beat the runner-up by this much to decide
+  # Size on the mat (calibrated counter camera only): an item outside the size range of a product's own
+  # photos, widened by size_tolerance both ways, is asked about, never recorded on its own. A 330ml can
+  # and a 1.5L bottle of the same brand look alike; their size doesn't. Changing the counter camera's
+  # zoom changes sizes too: re-take a few photos of each product after that, or switch this off.
+  size_check: true
+  size_tolerance: 1.4
+  size_min_photos: 3   # counter-camera photos a product needs before its size is used
+  # Look-alike pairs are found from the shop's own photos (Products page). When the top two guesses
+  # are such a pair, the item is asked about unless the first leads by at least this much.
+  pair_margin: 0.08
   # Nothing that might be a sale is dropped silently. Things you taught it to ignore (phone, cash, a
   # hand) are set aside only on a clear match; "other" (from "Not a sale" answers) is always asked
   # about, except a patch of mat this close to one you already said wasn't a sale. Set-aside things

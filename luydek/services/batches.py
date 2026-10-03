@@ -50,6 +50,26 @@ class Stock:
     batches: list[Batch] = field(default_factory=list)   # every batch, in the order they came in
     deficit: int = 0           # sold or taken beyond everything known to have come in
 
+    # Units sold with no recorded stock to come from, waiting for a receipt: [sold at, units, a sale?]
+    owed: list[list] = field(default_factory=list)
+    # Of those, the ones no delivery ever explained: a later count found them on the shelf ("count"),
+    # or nothing has covered them yet ("missing"). (sold at, units, how)
+    unrecorded: list[tuple[str, int, str]] = field(default_factory=list)
+
+    def repay(self, units: int, kind: str) -> None:
+        """Earlier sales covered by stock coming in. A delivery or freebie recorded late is just late
+        paperwork, and so is the first count of a product learned at the counter; a later count that
+        finds them, or a put-back, means the stock came from somewhere no record shows."""
+        while units and self.owed:
+            entry = self.owed[0]
+            take = min(units, entry[1])
+            entry[1] -= take
+            units -= take
+            if entry[2] and kind in ("spot_check", "adjustment"):
+                self.unrecorded.append((entry[0], take, "count"))
+            if not entry[1]:
+                self.owed.pop(0)
+
     @property
     def open(self) -> list[Batch]:
         return sorted((b for b in self.batches if b.left > 0), key=lambda b: b.order)
@@ -79,6 +99,7 @@ def replay(conn: sqlite3.Connection, product_ids: list[int] | None = None) -> di
                 continue
             repaid = min(s.deficit, qty)        # stock that was sold before anyone knew it was there
             s.deficit -= repaid
+            s.repay(repaid, m["type"])
             if m["type"] == "sale" and (repaid == qty or s.open):  # put back: to the batch it most likely left
                 if repaid < qty:
                     s.open[0].left += qty - repaid
@@ -103,7 +124,11 @@ def replay(conn: sqlite3.Connection, product_ids: list[int] | None = None) -> di
                 take = min(b.left, need)
                 b.left -= take
                 need -= take
-            s.deficit += need
+            if need:
+                s.deficit += need
+                s.owed.append([m["created_at"], need, m["type"] == "sale"])
+    for s in out.values():
+        s.unrecorded += [(at, n, "missing") for at, n, sale in s.owed if sale and n]
     return out
 
 
@@ -224,6 +249,35 @@ def for_invoice(conn: sqlite3.Connection, invoice_id: int) -> list[int]:
 
 
 # --- changing a batch ---------------------------------------------------------------------------
+
+def _lot(text: str | None) -> str:
+    """A lot number as compared: capitals and digits only, without a "LOT"/"BATCH"/"B/N" in front."""
+    norm = "".join(ch for ch in (text or "").upper() if ch.isalnum())
+    for prefix in ("LOTNO", "LOT", "BATCHNO", "BATCH", "BNO", "BN"):
+        if norm.startswith(prefix) and len(norm) > len(prefix):
+            return norm[len(prefix):]
+    return norm
+
+
+def check_lot(conn: sqlite3.Connection, batch_id: int, found: str | None) -> dict | None:
+    """The lot read off a pack, against the lot on the invoice its batch came with. When they differ
+    it is noted for the shelf page, and {"expected": the invoice's lot, "supplier": who sent it} is
+    returned; None when they match or there is nothing to compare."""
+    if not _lot(found):
+        return None
+    row = conn.execute(
+        "SELECT m.product_id, l.lot_no, s.name AS supplier FROM stock_movements m "
+        "JOIN invoice_lines l ON l.id = m.ref_id JOIN invoices i ON i.id = l.invoice_id "
+        "LEFT JOIN suppliers s ON s.id = i.supplier_id WHERE m.id = ? AND m.ref_type = 'invoice_line'",
+        (batch_id,)).fetchone()
+    if row is None or not _lot(row["lot_no"]) or _lot(row["lot_no"]) == _lot(found):
+        return None
+    if not conn.execute("SELECT 1 FROM source_flags WHERE batch_id = ? AND kind = 'lot' AND found = ? "
+                        "AND cleared_at IS NULL", (batch_id, found)).fetchone():
+        conn.execute("INSERT INTO source_flags (product_id, batch_id, kind, expected, found, created_at) "
+                     "VALUES (?, ?, 'lot', ?, ?, ?)", (row["product_id"], batch_id, row["lot_no"], found, clock.stamp()))
+    return {"expected": row["lot_no"], "supplier": row["supplier"]}
+
 
 def get(conn: sqlite3.Connection, batch_id: int) -> Batch | None:
     row = conn.execute("SELECT product_id FROM stock_movements WHERE id = ? AND qty > 0", (batch_id,)).fetchone()

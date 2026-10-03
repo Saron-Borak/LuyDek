@@ -15,6 +15,7 @@ Hackathon MVP for the *Dead Stock, Empty Shelf* challenge. It runs all four demo
 | 3. A photographed invoice raises stock | Send the photo to the bot (or `/invoices`); Claude reads it, the owner confirms with one tap |
 | 4. Weekly order list per supplier | `/orders` and Telegram, built from **clearly labelled SIMULATED** history |
 | + The 60-day proof | `/report`: before (watching weeks) vs now, per pilot metric |
+| + The shelf by batch | `/shelf`, `/stock-in`, Telegram: expiry, places, put-away, quick counts, where stock came from |
 
 ---
 
@@ -291,6 +292,74 @@ app. `/check` opens it too.
 - With a Mini App address, the summary also has a button that opens the Mini App's **Stock** tab.
 - Typing `/` in the chat lists these commands, in Khmer on a Khmer phone.
 
+## The shelf: batches, expiry dates and places
+
+Stock is kept **by batch**. Everything that comes in (a delivery, a free bonus, a count that found
+more) is a batch with its own expiry date, lot number and place in the shop. Nothing stores what
+is left of a batch: it is worked out by replaying the ledger. A sale takes from the batch that
+expires first, which is how the shop is told to shelve ("first expired, first out"); the weekly
+walk checks that this is true.
+
+- **Places.** On **Shelf check**, name the shop's places in walking order (Counter, Shelf A, Fridge…,
+  or one tap for the usual ones) and pick where each product lives. New stock goes where its
+  product lives unless told otherwise.
+- **Put-away.** When a delivery is confirmed (Telegram or the invoice page) or saved on **Stock in**,
+  LuyDek says where each part goes: *Dutch Lady ×24 (exp 20/01/27) → Fridge, behind the 6 already
+  there (exp 12/10/26)*, or **in front** when the new one expires sooner.
+- **The weekly shelf check.** Every week (Monday 08:30, or `/shelf` and **🗓 Shelf check** any time)
+  every phone gets the walk, place by place: **take off** what has expired (one tap: *Removed*),
+  **put in front** what expires within 30 days, and **won't sell in time**: what, at its pace,
+  will still be there on its date (discount it, bundle it, send it back). The same list is on
+  `/shelf` and in the Mini App (*Expiring*). Only batches with a printed date are on it.
+- **Out of stock, at once.** A product that runs out or runs low is announced to every phone the
+  moment it happens, once, until it is back.
+- **Quick counts.** Every afternoon (15:00) three products get a one-tap count: *LuyDek has 4. How
+  many are on the shelf?* `[3] [4] [5] [✏️ Another number]`. The ones about to be reordered or
+  already out come first, then the best sellers, never the same one twice in a week. A count adds
+  the sales still waiting to be checked, so nothing is taken off twice. Every count is logged,
+  the ones that matched too.
+
+### Bringing stock in (`/stock-in`)
+
+The camera does the counting, for a shop's first day and for any delivery without an invoice.
+
+1. Put a few items on the mat, a little apart, and press **Scan**. Take them off, put the next
+   ones on, scan again: each scan adds to one line per product.
+2. Something the camera doesn't know comes grouped by look ("Not known yet ×12"), so a dozen of
+   something new is one question: pick it from the closest products, type its name, or **Read the
+   name** off the pack (Claude). Its photos teach the camera on the spot, so the next scan counts
+   it by itself.
+3. For dates, press 📅 on a line and hold the date stamp up to the camera (Claude reads EXP vs MFG,
+   day-first dates and Thai Buddhist years, and the lot number), or type it. **Another date** splits
+   a line's units into batches.
+4. Pick the place, then **Add to stock** (a delivery: new batches and the put-away list) or, in
+   **Count the shelf**, **Save the count** (the shelf is set to exactly what was counted, batch
+   by batch with its dates).
+
+After an invoice is confirmed in Telegram, each product that came with no date and whose shelf life
+isn't known gets one question: reply with a photo of the date, or tap how long it keeps
+(3 months / 6 months / a year / doesn't expire); it isn't asked again. The confirmed invoice page has
+a date field and a **Photo of the date** button for every undated batch.
+
+### How sure is the camera?
+
+- **Size on the mat.** From the calibrated counter camera every product photo also records its size.
+  A 330ml can and a 1.5L bottle of the same brand look alike, but not at the same size: an item that
+  isn't the size of its best match is asked about, and a close runner-up of the right size becomes
+  the guess (`recognition.size_check`).
+- **Look-alike pairs.** Products the camera mixes up are found from the shop's own photos (each
+  matched against all the others) and listed on **Products** and on the product's photo page, with
+  what to do: photograph the side where they differ. When the top two guesses are such a pair, the
+  item is asked about (and the label reader tries first) unless colour or a clear lead settled it.
+- **The accuracy test** (`/accuracy`, under team tools). Put a known product on the mat, say which
+  it is, press **Test**, in daylight, under the evening lamp and in shadow. Per light: right, asked,
+  and **wrong on its own**: a wrong sale recorded with nobody asked, the number that matters.
+- **Copies of a brand** can be the same colour and design as the real thing, so the camera isn't the
+  check: the paperwork is. **Where did it come from?** on Shelf check (and in the weekly shelf
+  check) lists products that sold more than any delivery brought in (a later count found them, or
+  nothing has covered them yet; late paperwork is not flagged), and packs whose lot, read from a
+  photo of the date stamp, isn't the one on their invoice. Invoices are read for lot numbers too.
+
 ## How it works
 
 ```
@@ -374,10 +443,11 @@ improvement, as it shouldn't.
 
 ```
 luydek/
-  services/     catalog · stock (ledger) · transactions · invoices (Claude) · learn (new products from
-                sales) · forecast · metrics · report
+  services/     catalog · stock (ledger) · batches (expiry, put-away, shelf check) · locations · alerts
+                (out of stock, quick counts) · stockin · sources (where stock came from) · accuracy ·
+                transactions · invoices (Claude) · learn (new products from sales) · forecast · metrics · report
   recognition/  segment · barcode · encoder (CLIP) · matcher (gallery + tiers) · labels (Claude: labels
-                and new-product names) · tray · cutout (clean product photos) · pipeline
+                and new-product names, expiry dates) · tray · cutout (clean product photos) · pipeline
   bot/          app (jobs) · handlers · digest (outgoing messages) · keyboards
   web/          server (FastAPI; the bot runs in its event loop) · charts (inline SVG) · templates · static
   i18n.py       Khmer/English strings    render.py  owner-facing message text
@@ -386,9 +456,11 @@ scripts/        seed_demo · simulate_history · calibrate · synthetic_demo · 
 configs/        config.yaml (thresholds, digest times, forecast rules) · synthetic.yaml
 ```
 
-`.venv/Scripts/python.exe -m pytest` runs 211 tests covering the ledger, forecast math, recognition,
-touching-item splitting, the tablet tray, the label reader and invoices (mocked Claude), the pilot
-report, transactions, bot flows (fake Telegram) including the day's summary and stock left, and the web app, including its look (offline assets,
+`.venv/Scripts/python.exe -m pytest` runs 254 tests covering the ledger, batches (expiry order,
+put-away, the shelf check), forecast math, recognition (size on the mat, look-alike pairs),
+touching-item splitting, the tablet tray, the label, date and invoice readers (mocked Claude), stock
+in, the source checks, the pilot report, transactions, bot flows (fake Telegram) including the day's
+summary, quick counts and expiry questions, and the web app, including its look (offline assets,
 cut-out photos, charts). The tests use a colour-histogram encoder, so they don't need CLIP.
 
 ## Not built yet (and what to say if asked)
@@ -404,7 +476,12 @@ cut-out photos, charts). The tests use a colour-histogram encoder, so they don't
   pocket scale under the tray to count by weight.
 - **Label reading offline.** The label reader needs the internet. Without it, look-alikes go to
   the owner as before. A local OCR model is the offline alternative.
-- **Multiple stores.** It is single-store (one database per shop). There is no weekly shelf-photo
-  spot check yet, no Croston's method or seasonality, and no warm start from distributor history.
+- **Multiple stores.** It is single-store (one database per shop). Counts are typed (quick counts,
+  stock-in on the mat), not read from a photo of the shelf; there is no Croston's method or
+  seasonality, and no warm start from distributor history.
+- **Which batch a sale came from.** The camera sees the product, not its date, so sales are assumed
+  to come from the batch that expires first; the weekly shelf check is where that is put right.
+- **Copies of a brand.** They are not told apart by the camera. The defence is the paperwork: stock
+  that came in on no record, and lots that don't match their invoice (see *How sure is the camera?*).
 - **Khmer strings.** `luydek/i18n.py` was written by a non-native author. Have a native speaker
   proofread it before a pilot.

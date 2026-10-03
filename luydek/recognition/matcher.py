@@ -75,10 +75,14 @@ def colour_signature(img: Image.Image) -> np.ndarray:
 
 
 class Gallery:
-    def __init__(self, vectors: np.ndarray, labels: list[Label], colours: np.ndarray | None = None) -> None:
+    def __init__(self, vectors: np.ndarray, labels: list[Label], colours: np.ndarray | None = None,
+                 areas: np.ndarray | None = None) -> None:
         self.vectors = vectors
         self.labels = labels
         self.colours = colours  # (N, D) colour signatures aligned with labels, when available
+        # Each photo's size on the calibrated counter mat (share of the frame); NaN when not known.
+        self.areas = areas if areas is not None else np.full(len(labels), np.nan, np.float32)
+        self._pairs: dict[frozenset, int] | None = None
         self.index: dict[Label, np.ndarray] = {}
         for i, lab in enumerate(labels):
             self.index.setdefault(lab, []).append(i)
@@ -95,7 +99,7 @@ class Gallery:
         """
         source = ACTIVE_GALLERY if active_only else "FROM gallery_images g"
         rows = conn.execute(
-            f"SELECT g.id, g.pack_id, g.ignore_label, g.embedding, g.crop_path {source} ORDER BY g.id"
+            f"SELECT g.id, g.pack_id, g.ignore_label, g.embedding, g.crop_path, g.area_frac {source} ORDER BY g.id"
         ).fetchall()
         if not rows:
             return cls(np.zeros((0, 1), np.float32), [])
@@ -113,7 +117,8 @@ class Gallery:
                         cache[r["id"]] = np.zeros(SIG_DIM, np.float32)  # photo file gone: never wins
                 sigs.append(cache[r["id"]])
             colours = np.stack(sigs)
-        return cls(vectors, labels, colours)
+        areas = np.array([r["area_frac"] if r["area_frac"] is not None else np.nan for r in rows], np.float32)
+        return cls(vectors, labels, colours, areas)
 
     def __len__(self) -> int:
         return len(self.labels)
@@ -130,6 +135,46 @@ class Gallery:
         if best_label[0] == "ignore":
             return Match(None, str(best_label[1]), round(best, 4), round(best - runner_up, 4), candidates, ignore_score)
         return Match(int(best_label[1]), None, round(best, 4), round(best - runner_up, 4), candidates, ignore_score)
+
+    def size_range(self, pack_id: int, min_photos: int = 3) -> tuple[float, float] | None:
+        """Smallest and largest a pack has looked on the counter mat, from its own photos."""
+        ix = self.index.get(("pack", pack_id))
+        if ix is None:
+            return None
+        known = self.areas[ix][~np.isnan(self.areas[ix])]
+        return (float(known.min()), float(known.max())) if len(known) >= min_photos else None
+
+    def pairs(self, k: int = 3, gap: float = 0.05) -> dict[frozenset, int]:
+        """Packs the camera mixes up, found the way calibrate.py does: every photo is matched against
+        all the others, as if it were a sale. A pair counts each photo of one that the other beat, or
+        came within `gap` of. Worked out once per gallery (it is reloaded when photos change)."""
+        if self._pairs is not None:
+            return self._pairs
+        packs = [lab for lab in self.index if lab[0] == "pack"]
+        out: dict[frozenset, int] = {}
+        if len(packs) >= 2:
+            norm = self.vectors / (np.linalg.norm(self.vectors, axis=1, keepdims=True) + 1e-9)
+            sims = norm @ norm.T
+            np.fill_diagonal(sims, -np.inf)
+            for lab in packs:
+                for i in self.index[lab]:
+                    scores = {}
+                    for other in packs:
+                        col = sims[i, self.index[other]]
+                        col = np.sort(col[np.isfinite(col)])[::-1][:k]
+                        if len(col):
+                            scores[other] = float(col.mean())
+                    if lab not in scores:
+                        continue  # the pack's only photo: nothing to compare it with
+                    own = scores.pop(lab)
+                    if not scores:
+                        continue
+                    rival, best = max(scores.items(), key=lambda kv: kv[1])
+                    if best >= own - gap:
+                        pair = frozenset((int(lab[1]), int(rival[1])))
+                        out[pair] = out.get(pair, 0) + 1
+        self._pairs = out
+        return out
 
     def colour_score(self, signature: np.ndarray, pack_id: int, k: int = 3) -> float:
         """How well the crop's colours match a pack's photos (mean of the best k)."""
@@ -163,6 +208,11 @@ def colour_tiebreak(gallery: Gallery, match: Match, signature: np.ndarray, cfg: 
     candidates = [(pack_id, clip[pack_id])] + [c for c in match.candidates if c[0] != pack_id]
     return Match(pack_id, None, clip[pack_id], round(clip[pack_id] - outside, 4), candidates, match.ignore_score,
                  "colour")
+
+
+def fits_size(area: float, size: tuple[float, float] | None, tolerance: float) -> bool:
+    """Whether an item this size could be the pack (True when its size isn't known)."""
+    return size is None or size[0] / tolerance <= area <= size[1] * tolerance
 
 
 def tier(score: float, margin: float, cfg: RecognitionCfg) -> str:
