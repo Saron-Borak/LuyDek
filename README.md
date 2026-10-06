@@ -377,6 +377,32 @@ swipe on a phone. Fridges, the counter and the back room are drawn as what they 
 batch on each shelf (level, position, facings, quantity, expiry, lot), the products on no shelf
 first. Fill it in or correct it in Excel and bring it back: the same sheet makes the same shelves.
 
+**3D shop** (the switch at the top of `/map`) shows the whole shop the way a warehouse visualisation
+shows a warehouse:
+
+- **Racks and boxes:** every place is a rack on the shop floor, drawn from its levels and what stands
+  on them. Every product is a box in its spot, coloured by one measure: what to do (expired,
+  expires soon, won't sell in time, sleeping, fine), days to the first expiry, units on the shelf,
+  money on the shelf, sleeping money, sales in the last 4 weeks, or days since the last sale. Pick
+  the colours, the spread (even, square root, log) and turn them round; a legend explains them. An
+  out-of-stock product is a see-through gap. Stock on no level sits in a crate in front of its rack,
+  and stock with no place on a pallet.
+- **Moving around:** drag to turn, scroll or pinch to zoom, and right-drag (or two fingers) to move.
+  Hover or tap a box for what it is and where. The panel lists the boxes that need attention first,
+  and tapping a rack's name opens it face on. Photos puts each product's photo on its box. Search
+  and the filters dim everything else.
+- **Arrange the shop:** racks start out laid out by what they are (fridges and the back room along
+  the back, shelves in rows of four, the counter at the front). Drag them to where they really
+  stand, turn them, and save; *Lay them out on their own* goes back.
+- **Suggested move:** the shop's version of re-slotting. A best seller in a spot that is hard to
+  reach (low, high, or far from the counter) swaps with a slow seller at hand height near the
+  counter, drawn as two animated arcs. It only appears when the ledger's sales are clear enough: at
+  least 8 sold in 4 weeks, and 3 times what the other sold. Fridge stock only swaps with fridge
+  stock.
+
+It is drawn on a canvas with a small 3D camera of its own, so no 3D library is downloaded and the
+page works offline like the rest of LuyDek.
+
 ### Bringing stock in (`/stock-in`)
 
 The camera does the counting, for a shop's first day and for any delivery without an invoice.

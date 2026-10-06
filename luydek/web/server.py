@@ -35,7 +35,7 @@ from ..config import Config, get_config
 from ..i18n import t
 from ..recognition import cutout, labels, pipeline, segment, tray
 from ..services import (accuracy, batches, catalog, forecast, invoices, learn, locations, loose, metrics, report,
-                        shelfphoto, shelfsheet, sources, stock, stockin, stockmap, transactions)
+                        shelfphoto, shelfsheet, shop3d, sources, stock, stockin, stockmap, transactions)
 from . import charts as charts_mod
 from . import miniapp
 
@@ -1208,6 +1208,17 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 return stockmap.stock_map(conn, cfg)
         except (TypeError, ValueError) as exc:
             raise HTTPException(400, str(exc))
+
+    @app.post("/api/map/floor")
+    async def api_map_floor(request: Request):
+        """Where the owner put the racks on the shop floor in the 3D view (or "lay them out on their own")."""
+        body = await request.json()
+        try:
+            with db.session(cfg) as conn:
+                shop3d.save(conn, list(body.get("places") or []))
+                return stockmap.stock_map(conn, cfg)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(400, f"That layout doesn't look right ({exc})")
 
     @app.post("/api/map/places/{location_id}/remove")
     def api_map_remove_place(location_id: int):

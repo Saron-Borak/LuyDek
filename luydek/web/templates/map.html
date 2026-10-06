@@ -4,10 +4,16 @@
 <div class="page-head">
   <div>
     <h1><i class="bi bi-map" aria-hidden="true"></i> Stock map</h1>
-    <div class="lead-line">Each shelf face on, the way you see it in the shop. Find any product, see what has expired
-      and where money is sleeping; go from shelf to shelf with the arrows.</div>
+    <div class="lead-line">Each shelf face on, the way you see it in the shop, or the whole shop in 3D. Find any product,
+      see what has expired and where money is sleeping.</div>
   </div>
-  <button type="button" class="btn btn-dark" id="btn-new"><i class="bi bi-plus-lg" aria-hidden="true"></i> New shelf</button>
+  <div class="d-flex gap-2 flex-wrap">
+    <div class="btn-group view-switch" role="group" aria-label="How to see the shop" id="views">
+      <button type="button" class="btn btn-outline-dark" data-view="face" aria-pressed="true"><i class="bi bi-bookshelf" aria-hidden="true"></i> Face on</button>
+      <button type="button" class="btn btn-outline-dark" data-view="3d" aria-pressed="false"><i class="bi bi-box" aria-hidden="true"></i> 3D shop</button>
+    </div>
+    <button type="button" class="btn btn-dark" id="btn-new"><i class="bi bi-plus-lg" aria-hidden="true"></i> New shelf</button>
+  </div>
 </div>
 
 <div class="map-tools card mb-3"><div class="card-body d-flex flex-column gap-2">
@@ -17,7 +23,7 @@
       <input type="search" id="q" class="form-control form-control-lg" placeholder="Find a product, or a lot number"
              value="{{ q }}" aria-label="Find a product or a lot number" autocomplete="off">
     </div>
-    <div class="btn-group" role="group" aria-label="What the colours show" id="layers">
+    <div class="btn-group view-face" role="group" aria-label="What the colours show" id="layers">
       <button type="button" class="btn btn-outline-dark" data-layer="expiry"><i class="bi bi-calendar2-x" aria-hidden="true"></i> Expiry</button>
       <button type="button" class="btn btn-outline-dark" data-layer="dead"><i class="bi bi-moon-stars" aria-hidden="true"></i> Dead stock</button>
       <button type="button" class="btn btn-outline-dark" data-layer="stock"><i class="bi bi-boxes" aria-hidden="true"></i> Stock</button>
@@ -27,7 +33,7 @@
 </div></div>
 
 <div class="row g-3">
-  <div class="col-lg-8">
+  <div class="col-lg-8 view-face">
     <div class="card shelf-card">
       <div class="shelf-head">
         <button type="button" class="btn btn-light nav-btn" id="prev" aria-label="Previous shelf"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
@@ -57,8 +63,54 @@
       <div class="card-footer map-legend" id="legend"></div>
     </div>
   </div>
-  <div class="col-lg-4">
+  <div class="col-lg-4 view-face">
     <div class="card map-panel" id="panel" aria-live="polite"></div>
+  </div>
+
+  {# The whole shop in 3D: every place a rack on the floor, every product a box, coloured by one measure #}
+  <div class="col-lg-8 view-3d d-none">
+    <div class="card shop3d-card">
+      <div class="shop3d-tools">
+        <label class="tool"><span>Colour by</span><select id="m3-metric" class="form-select form-select-sm"></select></label>
+        <label class="tool"><span>Colours</span><select id="m3-palette" class="form-select form-select-sm"></select></label>
+        <label class="tool"><span>Spread</span><select id="m3-spread" class="form-select form-select-sm">
+          <option value="linear">Even</option><option value="sqrt">Square root</option><option value="log">Log</option></select></label>
+        <div class="form-check form-switch tool-check"><input class="form-check-input" type="checkbox" id="m3-invert">
+          <label class="form-check-label" for="m3-invert">Turn the colours round</label></div>
+        <div class="form-check form-switch tool-check"><input class="form-check-input" type="checkbox" id="m3-photos">
+          <label class="form-check-label" for="m3-photos">Photos</label></div>
+        <div class="form-check form-switch tool-check"><input class="form-check-input" type="checkbox" id="m3-move" checked>
+          <label class="form-check-label" for="m3-move">Suggested move</label></div>
+      </div>
+      <div class="shop3d-stage" id="stage3d">
+        <canvas id="shop3d" tabindex="0" role="img" aria-label="The shop in 3D: racks on the floor, products coloured by the measure chosen. The Face on view lists the same, shelf by shelf."></canvas>
+        <div class="tip3d d-none" id="tip3d" role="status"></div>
+        <div class="map-zoom" role="group" aria-label="View">
+          <button type="button" class="btn btn-light" data-cam="in" aria-label="Zoom in"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+          <button type="button" class="btn btn-light" data-cam="out" aria-label="Zoom out"><i class="bi bi-dash-lg" aria-hidden="true"></i></button>
+          <button type="button" class="btn btn-light" data-cam="front" aria-label="From the front"><i class="bi bi-arrows-angle-contract" aria-hidden="true"></i></button>
+          <button type="button" class="btn btn-light" data-cam="above" aria-label="From above"><i class="bi bi-grid-3x3" aria-hidden="true"></i></button>
+        </div>
+        <div class="hint3d" id="hint3d">Drag to turn · scroll or pinch to zoom · right-drag or two fingers to move</div>
+      </div>
+      <div class="shelf-bar">
+        <button type="button" class="btn btn-sm btn-outline-dark" id="btn-arrange3d" aria-pressed="false">
+          <i class="bi bi-arrows-move" aria-hidden="true"></i> Arrange the shop</button>
+      </div>
+      <div class="shelf-edit d-none" id="arrange3d">
+        <span class="small" id="arrange3d-text">Drag a rack to where it stands in your shop.</span>
+        <span class="ms-auto d-flex gap-2 flex-wrap">
+          <button type="button" class="btn btn-sm btn-outline-dark" id="a3-turn" disabled><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Turn it</button>
+          <button type="button" class="btn btn-sm btn-outline-dark" id="a3-auto">Lay them out on their own</button>
+          <button type="button" class="btn btn-sm btn-outline-dark" id="a3-cancel">Cancel</button>
+          <button type="button" class="btn btn-sm btn-success" id="a3-save">Save the layout</button>
+        </span>
+      </div>
+      <div class="card-footer map-legend" id="legend3d"></div>
+    </div>
+  </div>
+  <div class="col-lg-4 view-3d d-none">
+    <div class="card map-panel" id="panel3d" aria-live="polite"></div>
   </div>
 </div>
 
@@ -122,4 +174,5 @@
 <script type="application/json" id="map-data">{{ {"map": data, "show": show, "shelf": shelf}|tojson }}</script>
 {% endblock %}
 {% block scripts %}<script src="{{ asset('stockmap.js') }}"></script>
-<script src="{{ asset('shelfmaker.js') }}"></script>{% endblock %}
+<script src="{{ asset('shelfmaker.js') }}"></script>
+<script src="{{ asset('shop3d.js') }}"></script>{% endblock %}

@@ -476,10 +476,12 @@
     $("edit-bar").classList.toggle("d-none", mode !== "edit");
   }
 
+  const listeners = [];   // the 3D view (shop3d.js), told whenever the data, the search or a filter change
   function render() {
     const all = slides();
     if (!all.includes(cur)) cur = all.length ? all[0] : null;
     controls(); drawHead(); drawStrip(); drawStage(); panel(); legend(); remember();
+    for (const fn of listeners) fn();
   }
   function remember() {
     const u = new URL(location.href);
@@ -520,6 +522,7 @@
   });
   document.addEventListener("keydown", (e) => {
     if (e.target.closest("input, select, textarea, dialog[open]") || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (document.body.dataset.view === "3d") return;
     if (e.key === "ArrowLeft") { step(-1); e.preventDefault(); }
     if (e.key === "ArrowRight") { step(1); e.preventDefault(); }
     if (e.key === "Escape" && (sel != null || adding != null)) { sel = null; adding = null; render(); }
@@ -770,10 +773,22 @@
     render();
   };
 
-  // For the new-shelf maker (shelfmaker.js): the data, and a way to show what it made.
+  // For the new-shelf maker (shelfmaker.js) and the 3D view (shop3d.js): the data, the shelves as this page
+  // sees them, the search, and ways to show something.
   window.LuyMap = {
     data: () => M,
     current: () => cur,
+    shelf: (id) => shelf(id),
+    isHit: (s) => isHit(s),
+    looking: () => looking(),
+    firstDate: (s) => firstDate(s),
+    onChange(fn) { listeners.push(fn); },
+    set(data) { M = data; render(); },
+    open(id, product = null) {      // a shelf face on, with a product picked
+      if (mode !== "view") { mode = "view"; draft = null; }
+      enter = "from-right"; cur = id; sel = product; adding = null;
+      render();
+    },
     update(data, { goTo = null, edit = false } = {}) {
       M = data;
       if (mode === "edit") { mode = "view"; draft = null; }

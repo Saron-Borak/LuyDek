@@ -22,7 +22,7 @@ from datetime import date, datetime, timedelta
 
 from .. import clock
 from ..config import Config
-from . import batches, catalog, locations, stock
+from . import batches, catalog, locations, shop3d, stock
 
 KINDS = ("shelf", "fridge", "counter", "storage", "other")
 LEVELS = {"shelf": 4, "fridge": 4, "counter": 1, "storage": 3, "other": 2}  # usual levels, top to bottom
@@ -50,7 +50,8 @@ def shelves(conn: sqlite3.Connection) -> list[dict]:
     for r in conn.execute("SELECT * FROM locations WHERE active = 1 ORDER BY sort, name COLLATE NOCASE"):
         kind = r["kind"] if r["kind"] in KINDS else kind_of(r["name"])
         out.append({"id": r["id"], "name": r["name"], "sort": r["sort"], "kind": kind,
-                    "levels": r["levels"] or LEVELS[kind]})
+                    "levels": r["levels"] or LEVELS[kind], "floor_x": r["floor_x"], "floor_z": r["floor_z"],
+                    "floor_turn": r["floor_turn"]})
     return out
 
 
@@ -222,10 +223,19 @@ def stock_map(conn: sqlite3.Connection, cfg: Config) -> dict:
         stop["tasks"].append({"batch": t.batch.id, "product": t.product["id"], "name": t.product["name_en"],
                               "left": t.batch.left, "expiry": t.batch.expiry, "days_left": t.days_left,
                               "action": t.action})
-    products = {r["id"]: {"name": r["name_en"], "name_km": r["name_km"], "sku": r["sku"], "photo": photos.get(r["id"]),
-                          "home": homes.get(r["id"])}
-                for r in conn.execute("SELECT id, name_en, name_km, sku FROM products WHERE active = 1 ORDER BY name_en")}
+    def since(last: str | None) -> int | None:
+        return (today - date.fromisoformat(last[:10])).days if last else None
+
+    products = {pid: {"name": r["name_en"], "name_km": r["name_km"], "sku": r["sku"], "photo": photos.get(pid),
+                      "home": homes.get(pid), "sold_7d": r["sold_7d"], "sold_28d": r["sold_28d"],
+                      "since_sale": since(r["last_sale"]), "tracked": bool(r["tracked"])}
+                for pid, r in sorted(table.items(), key=lambda kv: kv[1]["name_en"])}
+    floor = shop3d.arrange(places)
+    for p in places:
+        for k in ("floor_x", "floor_z", "floor_turn"):
+            del p[k]
     return {"places": places, "batches": rows, "out": out_of_stock, "walk": walk, "products": products,
+            "floor": floor, "move": shop3d.suggest(places, products), "simulated": stock.has_simulated(conn),
             "unplaced": {"products": len(loose["products"]), "units": loose["units"]},
             "kinds": list(KINDS), "default_levels": LEVELS,
             "warning_days": days, "sleeping_days": cfg.forecast.sleeping_days, "today": today.isoformat()}

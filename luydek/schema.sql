@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS locations (
     sort   INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1,
     kind   TEXT,                       -- shelf / fridge / counter / storage / other (guessed from the name if empty)
-    levels INTEGER                     -- how many levels it has, top to bottom (empty: the usual for its kind)
+    levels INTEGER,                    -- how many levels it has, top to bottom (empty: the usual for its kind)
+    floor_x REAL, floor_z REAL,        -- its centre on the shop floor in the 3D view, metres (empty: laid out on its own)
+    floor_turn INTEGER                 -- quarter turns from facing the front of the shop
 );
 
 -- What stands where, seen from the front: each product's spot on a level (1 is the top), left to
