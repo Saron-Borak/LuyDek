@@ -103,6 +103,37 @@
             <input id="counted" name="counted" type="number" min="0" inputmode="numeric" class="form-control form-control-lg" style="width:9rem" placeholder="{{ level if level is not none and level >= 0 else '' }}" required></div>
           <button class="btn btn-lg btn-dark">Set stock</button>
         </form>
+        <form method="post" action="/catalog/{{ p.id }}/place" class="d-flex gap-2 align-items-end flex-wrap mt-3">
+          <div><label class="form-label" for="home"><i class="bi bi-geo-alt" aria-hidden="true"></i> Lives on</label>
+            <select id="home" name="location_id" class="form-select" style="min-width:12rem">
+              <option value="">No place yet</option>
+              {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == p.location_id }}>{{ l.name }}</option>{% endfor %}
+            </select></div>
+          <button class="btn btn-outline-dark">Save</button>
+          {% if not places %}<a href="/shelf#places" class="small">Name the shop's places first</a>{% endif %}
+        </form>
+        {% if lots %}
+        <div class="mt-3">
+          <div class="small fw-semibold mb-1">On the shelf, by batch <span class="muted fw-normal">· sold oldest expiry first</span></div>
+          <table class="table table-sm small mb-0 batch-table">
+            <tr class="muted"><th>Came in</th><th class="text-end">Left</th><th>Expires</th><th>Place</th><th></th></tr>
+            {% for x in lots %}
+            <tr><td class="text-nowrap">{{ x.b.received_at[:10] }}</td>
+              <td class="num text-end fw-semibold">{{ x.b.left }}</td>
+              <td><form method="post" action="/batches/{{ x.b.id }}/edit" class="d-flex gap-1">
+                <input name="expiry" type="date" value="{{ x.b.expiry or '' }}" class="form-control form-control-sm {{ 'is-invalid' if x.b.expiry and x.b.expiry < today }}" aria-label="expiry date" onchange="this.form.submit()">
+                </form>{% if not x.b.expiry and x.b.est_expiry %}<div class="muted">about {{ x.b.est_expiry }}</div>{% endif %}</td>
+              <td><form method="post" action="/batches/{{ x.b.id }}/edit">
+                <select name="location_id" class="form-select form-select-sm" aria-label="place" onchange="this.form.submit()">
+                  <option value="">-</option>
+                  {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == x.b.location_id }}>{{ l.name }}</option>{% endfor %}
+                </select></form></td>
+              <td><form method="post" action="/batches/{{ x.b.id }}/remove" onsubmit='return confirm("Take all {{ x.b.left }} of this batch off the stock (expired or damaged)?")'>
+                <button class="btn btn-sm btn-light" title="Take this batch off the stock"><i class="bi bi-trash3" aria-hidden="true"></i></button></form></td></tr>
+            {% endfor %}
+          </table>
+        </div>
+        {% endif %}
         {% if moves %}
         <details class="mt-3">
         <summary class="small muted">Latest changes · <a href="/catalog/{{ p.id }}/history?tab=stock">all of them</a></summary>
@@ -168,7 +199,9 @@
         <div class="col-6"><label class="form-label" for="e-cost">Cost each ($)</label>
           <input id="e-cost" name="unit_cost" type="number" min="0" step="0.01" value="{{ '%.2f'|format(p.unit_cost) }}" class="form-control"></div>
         <div class="col-6"><label class="form-label" for="e-life">Keeps for (days)</label>
-          <input id="e-life" name="shelf_life_days" type="number" min="1" value="{{ p.shelf_life_days or '' }}" class="form-control"></div>
+          <input id="e-life" name="shelf_life_days" type="number" min="1" value="{{ p.shelf_life_days or '' }}" class="form-control">
+          <div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="no_expiry" value="1" id="e-noexp" {% if p.shelf_life_days == 0 %}checked{% endif %}>
+            <label class="form-check-label small" for="e-noexp">doesn't expire</label></div></div>
         <div class="col-12"><label class="form-label" for="e-bar">Barcode</label>
           <input id="e-bar" name="barcode" value="{{ (packs[-1] if p.sold_loose else packs[0]).barcode or '' }}" class="form-control" inputmode="numeric"></div>
         <div class="col-12"><div class="form-check form-switch">

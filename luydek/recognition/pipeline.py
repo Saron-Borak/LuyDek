@@ -23,7 +23,7 @@ from ..services import catalog, transactions
 from ..services.transactions import DetectionRecord
 from . import barcode, detector, segment, tray
 from .encoder import Encoder, get_encoder, loaded
-from .matcher import GalleryCache, colour_signature, colour_tiebreak, tier
+from .matcher import Gallery, GalleryCache, colour_signature, colour_tiebreak, fits_size, tier
 
 REFERENCE_KEY = "reference_path"
 LEARNED_JUNK = "other"  # learned from "Not a sale" answers: clutter, but sometimes a product or the mat
@@ -37,6 +37,8 @@ class Detection:
     label: str               # display name for the counter overlay
     ignored: str | None = None  # why it wasn't recorded: an ignore class, or "background"
     background: float = 0.0     # how much it looks like the same spot of the empty mat (0 without one)
+    vec: np.ndarray | None = None  # its CLIP vector, for grouping things the camera doesn't know yet
+    area_frac: float = 0.0      # its size, as a share of the frame
 
 
 class Skipped(Exception):
@@ -100,7 +102,8 @@ class Recognizer:
                 if why is not None:
                     best = m.candidates[0] if m.candidates else (None, None)
                     out.append(Detection(DetectionRecord(best[0], round(how_sure, 4), "high", "image", blob.bbox, rel,
-                                                         m.candidates), why, ignored=why, background=round(bg, 4)))
+                                                         m.candidates), why, ignored=why, background=round(bg, 4),
+                                         vec=vec, area_frac=blob.area_frac))
                     continue
                 hint = None
                 if m.ignore_label:
@@ -113,6 +116,11 @@ class Recognizer:
                     pack_id, score, cands = m.pack_id, m.score, m.candidates
                     t = tier(m.score, m.margin, rc) if pack_id is not None else "low"
                     method = m.method
+                    if pack_id is not None:
+                        pack_id, score, cands, hint = self._doubt(gallery, pack_id, score, cands, method,
+                                                                  blob.area_frac if reference is not None else None)
+                        if hint and t == "high":
+                            t = "medium"  # the wrong size, or one of a pair it mixes up: ask
                 if bg >= rc.background_sim:
                     hint = hint or "background"
                     if t == "high":
@@ -123,7 +131,7 @@ class Recognizer:
             label = catalog.pack_label(pk, "en") if pk is not None else "?"
             out.append(Detection(DetectionRecord(pack_id, score, t, method, blob.bbox, rel, cands,
                                                  None if code_pack is not None else hint), label,
-                                 background=round(bg, 4)))
+                                 background=round(bg, 4), vec=vec, area_frac=blob.area_frac))
         return out
 
     def _detect(self, frame: np.ndarray, reference: np.ndarray | None, roi, tray_roi,
@@ -235,6 +243,29 @@ class Recognizer:
         b = empty / (np.linalg.norm(empty, axis=1, keepdims=True) + 1e-9)
         return [float(v) for v in (a * b).sum(axis=1)]
 
+    def _doubt(self, gallery: Gallery, pack_id: int, score: float, cands: list, method: str, area: float | None
+               ) -> tuple[int, float, list, str | None]:
+        """Reasons not to trust a confident match: "size" when the item isn't the size of that pack on
+        the mat (a close runner-up that is the right size becomes the guess instead), "lookalike" when
+        the runner-up is a pack the camera is known to mix it up with and doesn't trail by much (unless
+        colour already told the two apart, clearly: that is what the colour tie-break is for)."""
+        rc = self.cfg.recognition
+        if rc.size_check and area is not None:
+            size = gallery.size_range(pack_id, rc.size_min_photos)
+            if not fits_size(area, size, rc.size_tolerance):
+                for other, other_score in cands:
+                    other_size = gallery.size_range(other, rc.size_min_photos)
+                    if (other != pack_id and score - other_score <= 2 * rc.lookalike_gap and other_size is not None
+                            and fits_size(area, other_size, rc.size_tolerance)):
+                        cands = [(other, other_score)] + [c for c in cands if c[0] != other]
+                        return other, other_score, cands, "size"
+                return pack_id, score, cands, "size"
+        rivals = [(p, s) for p, s in cands if p != pack_id]
+        if rivals and method != "colour" and score - rivals[0][1] < rc.pair_margin:
+            if frozenset((pack_id, rivals[0][0])) in gallery.pairs(rc.top_k_per_pack, rc.lookalike_gap):
+                return pack_id, score, cands, "lookalike"
+        return pack_id, score, cands, None
+
     def read_tray(self, conn: sqlite3.Connection, frame: np.ndarray) -> tray.TrayReading | None:
         """What lies on the tablet tray, if a tray is marked and the counter is calibrated."""
         tray_roi = load_roi(conn, TRAY_KEY)
@@ -246,7 +277,8 @@ class Recognizer:
     # --- the gallery -------------------------------------------------------------
 
     def add_example(self, conn: sqlite3.Connection, image: Image.Image, pack_id: int | None,
-                    ignore_label: str | None, source: str, vec: np.ndarray | None = None) -> int:
+                    ignore_label: str | None, source: str, vec: np.ndarray | None = None,
+                    area_frac: float | None = None) -> int:
         rel = f"gallery/{uuid.uuid4().hex[:12]}.jpg"
         path = self.cfg.media_dir / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -254,9 +286,9 @@ class Recognizer:
         if vec is None:
             vec = self.encoder.encode_images([image])[0]
         cur = conn.execute(
-            "INSERT INTO gallery_images (pack_id, ignore_label, crop_path, embedding, source, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (pack_id, ignore_label, rel, vec.astype(np.float32).tobytes(), source, clock.stamp()),
+            "INSERT INTO gallery_images (pack_id, ignore_label, crop_path, embedding, source, created_at, area_frac) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (pack_id, ignore_label, rel, vec.astype(np.float32).tobytes(), source, clock.stamp(), area_frac),
         )
         return cur.lastrowid
 
@@ -304,10 +336,12 @@ class Recognizer:
                 m = m / (np.linalg.norm(m, axis=1, keepdims=True) + 1e-9)
                 if float((m @ v).max()) >= self.cfg.recognition.enroll_duplicate:
                     raise Skipped("same")
-        return self.add_example(conn, crop, pack_id, ignore_label, "enrollment", vec), bbox
+        # Its size counts only from the calibrated counter camera: another camera sees it at another scale.
+        area = blob.area_frac if blob is not None and reference is not None else None
+        return self.add_example(conn, crop, pack_id, ignore_label, "enrollment", vec, area), bbox
 
     def learn(self, conn: sqlite3.Connection, crop_path: str, pack_id: int | None, ignore_label: str | None,
-              source: str = "correction") -> None:
+              source: str = "correction", vec: np.ndarray | None = None, area_frac: float | None = None) -> None:
         """An owner answer becomes a new gallery example for this store.
 
         Learned photos are capped per product (newest kept) so the gallery keeps
@@ -316,7 +350,7 @@ class Recognizer:
         path = self.cfg.media_dir / crop_path
         if not path.exists():
             return
-        self.add_example(conn, Image.open(path), pack_id, ignore_label, source)
+        self.add_example(conn, Image.open(path), pack_id, ignore_label, source, vec, area_frac)
         where, arg = ("pack_id = ?", pack_id) if pack_id is not None else ("ignore_label = ?", ignore_label)
         cap = self.cfg.recognition.learn_cap * (2 if pack_id is None else 1)  # "other" junk is more varied
         for old in conn.execute(
@@ -325,6 +359,32 @@ class Recognizer:
         ).fetchall():
             (self.cfg.media_dir / old["crop_path"]).unlink(missing_ok=True)
             conn.execute("DELETE FROM gallery_images WHERE id = ?", (old["id"],))
+
+    def teach(self, conn: sqlite3.Connection, crop_path: str, pack_id: int, min_enrolled: int,
+              area_frac: float | None = None) -> bool:
+        """A photo taken while bringing stock in joins the product's gallery, unless it is a near-copy of
+        one it has. The first `min_enrolled` count as enrollment photos (kept for good); after that they
+        are owner-confirmed photos, which the gallery caps like any other (see `learn`)."""
+        path = self.cfg.media_dir / crop_path
+        if not path.exists():
+            return False
+        image = Image.open(path)
+        vec = self.encoder.encode_images([image])[0]
+        have = [np.frombuffer(r[0], np.float32)
+                for r in conn.execute("SELECT embedding FROM gallery_images WHERE pack_id = ?", (pack_id,))]
+        if have:
+            v = vec / (np.linalg.norm(vec) + 1e-9)
+            m = np.stack(have)
+            m = m / (np.linalg.norm(m, axis=1, keepdims=True) + 1e-9)
+            if float((m @ v).max()) >= self.cfg.recognition.enroll_duplicate:
+                return False
+        enrolled = conn.execute("SELECT COUNT(*) FROM gallery_images WHERE pack_id = ? AND source = 'enrollment'",
+                                (pack_id,)).fetchone()[0]
+        if enrolled < min_enrolled:
+            self.add_example(conn, image, pack_id, None, "enrollment", vec, area_frac)
+        else:
+            self.learn(conn, crop_path, pack_id, None, source="confirmed", vec=vec, area_frac=area_frac)
+        return True
 
     def regroup(self, conn: sqlite3.Connection, pack_id: int, skip: int | None = None) -> list[int]:
         """After the owner names a new product, unanswered sales that look like it are re-guessed as it.

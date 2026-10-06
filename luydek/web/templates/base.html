@@ -18,12 +18,15 @@
 {% set nav = [
   ('/', 'house', 'Today', ('dashboard',)),
   ('/orders', 'cart3', 'Order lists', ('orders',)),
+  ('/shelf', 'calendar2-check', 'Shelf check', ('shelf',)),
+  ('/stock-in', 'box-arrow-in-down', 'Stock in', ('stock_in',)),
   ('/invoices', 'truck', 'Deliveries', ('invoices', 'invoice')),
   ('/catalog', 'box-seam', 'Products', ('catalog', 'enroll', 'product', 'product_new')),
   ('/counter', 'camera-video', 'Counter camera', ('counter',)),
   ('/log', 'journal-text', 'Camera log', ('log',)),
   ('/setup', 'gear', 'Setup', ('setup',)),
-] + ([('/report', 'graph-up-arrow', 'Pilot report', ('report',))] if team else []) %}
+] + ([('/report', 'graph-up-arrow', 'Pilot report', ('report',)),
+       ('/accuracy', 'bullseye', 'Accuracy test', ('accuracy',))] if team else []) %}
 
 {% macro links() %}
   {% for href, icon, label, keys in nav %}

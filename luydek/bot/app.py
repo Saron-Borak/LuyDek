@@ -43,6 +43,8 @@ def build(cfg: Config) -> Application | None:
     app.add_handler(CommandHandler("invoice", handlers.cmd_invoice))
     app.add_handler(CommandHandler("today", handlers.cmd_today))
     app.add_handler(CommandHandler("stock", handlers.cmd_stock))
+    app.add_handler(CommandHandler("shelf", handlers.cmd_shelf))
+    app.add_handler(CommandHandler("count", handlers.cmd_count))
     app.add_handler(CallbackQueryHandler(handlers.on_callback))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handlers.on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.on_text))
@@ -55,15 +57,23 @@ def build(cfg: Config) -> Application | None:
     jq.run_daily(_job_end_of_day, parse_hhmm(cfg.verification.end_of_day, tz), name="end of day")
     jq.run_daily(_job_orders, parse_hhmm(cfg.forecast.order_list_time, tz), name="order lists")
     jq.run_daily(_job_week, parse_hhmm(cfg.verification.weekly_summary_time, tz), name="weekly summary")
+    if cfg.verification.spot_checks:
+        jq.run_daily(_job_spot_checks, parse_hhmm(cfg.verification.spot_check_time, tz), name="quick counts")
+    # The job queue counts days from Sunday (0); the config, like Python, from Monday.
+    jq.run_daily(_job_shelf_check, parse_hhmm(cfg.verification.shelf_check_time, tz),
+                 days=((cfg.verification.shelf_check_weekday + 1) % 7,), name="shelf check")
     jq.run_repeating(_job_housekeeping, interval=300, first=60, name="housekeeping")
     return app
 
 
 COMMANDS = {
     "en": [("today", "What sold today, and what is running out"), ("stock", "Stock left: one product or every item"),
+           ("shelf", "Shelf check: what has expired, what goes in front"), ("count", "A few quick counts"),
            ("check", "Check the items the camera wasn't sure of"), ("orders", "Order lists for the agents"),
            ("adjust", "Credit sale, family use, damaged…"), ("lang", "ភាសាខ្មែរ / English")],
     "km": [("today", "លក់អ្វីខ្លះថ្ងៃនេះ និងអ្វីជិតអស់"), ("stock", "ស្តុកនៅសល់៖ មួយមុខ ឬទាំងអស់"),
+           ("shelf", "ពិនិត្យធ្នើ៖ អ្វីផុតកំណត់ អ្វីដាក់ខាងមុខ"),
+           ("count", "រាប់រហ័សពីរបីមុខ"),
            ("check", "ពិនិត្យទំនិញដែលកាមេរ៉ាមិនច្បាស់"), ("orders", "បញ្ជីបញ្ជាទិញសម្រាប់ភ្នាក់ងារ"),
            ("adjust", "លក់ជំពាក់ គ្រួសារប្រើ ខូច…"), ("lang", "ភាសាខ្មែរ / English")],
 }
@@ -115,8 +125,18 @@ async def _job_week(context: ContextTypes.DEFAULT_TYPE) -> None:
         await digest.send_week_summary(context.bot, _cfg(context))
 
 
+async def _job_spot_checks(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await digest.send_spot_checks(context.bot, _cfg(context))
+
+
+async def _job_shelf_check(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await digest.send_shelf_check(context.bot, _cfg(context), scheduled=True)
+
+
 async def _job_housekeeping(context: ContextTypes.DEFAULT_TYPE) -> None:
     cfg = _cfg(context)
+    if cfg.verification.stock_alerts:
+        await digest.send_stock_alerts(context.bot, cfg)
     with db.session(cfg) as conn:
         transactions.close_stale(conn, cfg.verification.stale_transaction_minutes, cfg.media_dir,
                                  cfg.verification.delete_photos_after_verify, cfg.recognition.tray)

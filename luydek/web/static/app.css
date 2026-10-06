@@ -511,6 +511,29 @@ a.stat:hover { transform: translateY(-1px); box-shadow: var(--shadow-lift); colo
   .hide-xs { display: none !important; }
 }
 
+/* ---------- the shelf check: what to do with each batch ---------- */
+.pill.action-remove { background: var(--bad-bg); color: #6E1F1F; }
+.pill.action-front { background: var(--violet-50); color: var(--violet-800); }
+.pill.action-clear { background: var(--amber-50); color: var(--amber-800); }
+.batch-table td { vertical-align: middle; }
+
+/* ---------- stock in: what is on the mat, line by line ---------- */
+.cam-bar .cam-left { justify-self: start; }
+.si-thumbs { display: flex; flex-shrink: 0; }
+.si-thumbs img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; background: #fff; border: 2px solid var(--surface); }
+.si-thumbs img + img { margin-left: -22px; }
+.si-unknown { background: var(--bad-bg); }
+.si-qty b { display: inline-block; min-width: 2ch; text-align: center; font-size: 1.1rem; }
+.si-group { display: grid; grid-template-columns: 3rem minmax(8rem, 1fr) auto minmax(4rem, 6rem) 1.25rem; gap: .4rem;
+  align-items: center; margin-top: .5rem; }
+.si-n { font-weight: 650; text-align: center; }
+.si-choices { display: flex; flex-wrap: wrap; gap: .4rem; }
+.si-details { padding-left: calc(44px + 1rem); }
+@media (max-width: 575.98px) {
+  .si-details { padding-left: 0; }
+  .si-thumbs img + img { display: none; }   /* one photo is enough on a phone: room for the name */
+  .si-qty .btn { padding: .2rem .55rem; }
+
 /* ---------- counter: each item as it is seen, and the sale it became ---------- */
 .seen-feed { position: absolute; top: 10px; left: 10px; z-index: 5; display: flex; flex-direction: column; gap: 6px;
   pointer-events: none; max-width: calc(100% - 20px); }

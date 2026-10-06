@@ -12,7 +12,7 @@ import sqlite3
 from datetime import date, timedelta
 
 from .. import clock
-from . import stock
+from . import batches, stock
 from .forecast import next_visit
 
 SOLD_LINES = 25      # the day summary lists at most this many products sold ("+N more" after)
@@ -55,6 +55,12 @@ def product_stock(conn: sqlite3.Connection, product_id: int, expiry_warning_days
         (product_id,),
     ).fetchone()
     row["next_visit"] = next_visit(sup["visit_weekday"], clock.today()) if sup else None
+    where = batches.places(conn)
+    home = conn.execute("SELECT location_id FROM products WHERE id = ?", (product_id,)).fetchone()["location_id"]
+    row["place"] = where[home]["name"] if home in where else None
+    row["batches"] = [{"id": b.id, "left": b.left, "expiry": b.expiry,
+                       "place": where[b.location_id]["name"] if b.location_id in where else None}
+                      for b in batches.open_batches(conn, product_id)]
     return row
 
 

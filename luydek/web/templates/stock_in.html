@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Stock in{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> Stock in</h1>
+    <div class="lead-line">{% if mode == 'count' %}Count what is on the shelf: put it on the mat a few at a time and press
+      Scan. What you count here replaces what LuyDek had, batch by batch with their dates.
+      {% else %}A delivery with no invoice: put it on the mat a few at a time and press Scan. Then read the dates, check
+      the numbers and add it to stock in one go.{% endif %}</div>
+  </div>
+  <div class="chips" role="group" aria-label="What you are doing">
+    <a class="chip {{ 'active' if mode == 'delivery' }}" href="/stock-in"{% if mode == 'delivery' %} aria-current="page"{% endif %}><i class="bi bi-truck" aria-hidden="true"></i> Delivery, no invoice</a>
+    <a class="chip {{ 'active' if mode == 'count' }}" href="/stock-in?mode=count"{% if mode == 'count' %} aria-current="page"{% endif %}><i class="bi bi-123" aria-hidden="true"></i> Count the shelf</a>
+  </div>
+</div>
+
+{% if not packs %}
+<div class="alert alert-info">No products yet: that's fine. Put one kind of product on the mat (all of it), press Scan,
+  and say what it is. The camera learns it from that scan, so the next ones are counted by themselves.</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="camera" id="cam">
+      <div class="stage viewfinder" id="stage">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="overlay" aria-hidden="true"></canvas>
+        <span class="cam-res" id="cam-res" hidden></span>
+        <div class="cam-top">
+          <button type="button" class="cam-icon" id="btn-torch" hidden aria-label="Flash" aria-pressed="false"><i class="bi bi-lightning-charge-fill" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <div class="cam-bar">
+        <button type="button" class="btn btn-outline-light btn-sm cam-left" id="btn-undo" disabled>
+          <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Undo scan</button>
+        <button id="snap" class="btn shutter" aria-label="Scan what is on the mat"><i class="bi bi-upc-scan" aria-hidden="true"></i></button>
+        <button type="button" class="cam-icon big" id="btn-flip" hidden aria-label="Switch camera"><i class="bi bi-arrow-repeat" aria-hidden="true"></i></button>
+      </div>
+      <div id="status" class="cam-status" aria-live="polite"></div>
+    </div>
+    <ol class="mt-3 mb-0 muted">
+      <li>Put a few items on the mat, a little apart, labels up. Several kinds at once is fine.</li>
+      <li>Press <b>Scan</b>. Take them off, put the next ones on, scan again: every scan adds to the list.</li>
+      <li>Something new? Say what it is once{% if can_read %} (or let LuyDek read the name off the pack){% endif %}: the camera learns it on the spot.</li>
+      <li>For dates, press <i class="bi bi-calendar-event" aria-hidden="true"></i> on a line and hold the date stamp up to the camera{% if not can_read %}, or type it{% endif %}.
+        Different dates become different batches, so the oldest is sold first.</li>
+    </ol>
+    {% if not calibrated %}<p class="small muted mt-2 mb-0">The counter mat isn't calibrated, so items are found against their
+      own background: a plain surface with space around each item works best.</p>{% endif %}
+    <details class="mt-3" id="no-camera">
+      <summary class="py-2">No camera here? Use photos instead</summary>
+      <div class="d-flex flex-column gap-2 mt-2">
+        <label class="form-label mb-0" for="scan-files">Photos of items on the mat</label>
+        <input type="file" id="scan-files" accept="image/*" capture="environment" multiple class="form-control" style="max-width:22rem">
+      </div>
+    </details>
+    <input type="file" id="date-file" accept="image/*" capture="environment" hidden>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card" id="list-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>On the mat so far <span class="badge rounded-pill text-bg-secondary" id="n-items">0</span></span>
+        <span class="sub" id="n-scans"></span>
+      </div>
+      <ul class="list-group list-group-flush" id="rows"></ul>
+      <div class="card-body" id="rows-empty">
+        <div class="empty-state py-3"><div class="ico"><i class="bi bi-upc-scan" aria-hidden="true"></i></div>
+          <div class="t">Nothing scanned yet</div><div>Put some items on the mat and press Scan.</div></div>
+      </div>
+      <div class="card-footer d-flex gap-2 align-items-center flex-wrap">
+        <div class="flex-grow-1 small muted" id="save-note"></div>
+        <button class="btn btn-lg btn-success" id="btn-save" disabled>
+          {% if mode == 'count' %}<i class="bi bi-check2-all" aria-hidden="true"></i> Save the count{% else %}<i class="bi bi-plus-lg" aria-hidden="true"></i> Add to stock{% endif %}</button>
+      </div>
+    </div>
+
+    <div class="card mt-3 d-none" id="done-card">
+      <div class="card-header"><i class="bi bi-check2-circle" aria-hidden="true"></i> <span id="done-title"></span></div>
+      <ul class="list-group list-group-flush" id="putaway"></ul>
+      <div class="card-body d-flex gap-2 flex-wrap">
+        <a class="btn btn-primary" href="/stock-in{{ '?mode=count' if mode == 'count' }}">Scan more</a>
+        <a class="btn btn-outline-dark" href="/shelf">Shelf check</a>
+        <a class="btn btn-outline-dark" href="/">Today</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<datalist id="pack-names">{% for p in packs %}<option value="{{ p.label }}">{% endfor %}</datalist>
+<script type="application/json" id="stockin-data">{{ {"mode": mode, "packs": packs, "places": places, "can_read": can_read}|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="{{ asset('camera.js') }}"></script>
+<script src="{{ asset('stockin.js') }}"></script>
+{% endblock %}

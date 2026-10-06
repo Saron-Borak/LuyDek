@@ -18,7 +18,7 @@ from .. import clock, db, render
 from ..config import Config
 from ..i18n import t
 from ..recognition import labels, tray
-from ..services import catalog, forecast, invoices, metrics, stock, summary, transactions
+from ..services import alerts, batches, catalog, forecast, invoices, metrics, sources, stock, summary, transactions
 from . import keyboards
 
 log = logging.getLogger("luydek.bot")
@@ -55,6 +55,8 @@ def item_caption(item: sqlite3.Row, lang: str) -> str:
         else:
             key = "ask_low" if item["tier"] == "low" else "ask_medium"
         text = t(lang, key, n=item["id"], time=item["started_at"][11:16], name=name, count=count)
+        if item["hint"] in ("size", "lookalike"):
+            text += t(lang, f"why_{item['hint']}")
         if item["name_guess"]:
             text += t(lang, "looks_new", name=item["name_guess"])
         return text
@@ -320,6 +322,152 @@ def product_stock_text(cfg: Config, product_id: int, lang: str) -> str | None:
     with db.session(cfg) as conn:
         row = summary.product_stock(conn, product_id, cfg.forecast.expiry_warning_days)
     return render.product_stock_message(row, lang) if row else None
+
+
+# --- out of stock, quick counts, the shelf check, putting deliveries away ---------------------------
+
+async def send_stock_alerts(bot: Bot, cfg: Config) -> int:
+    """Tell every phone what just ran out or ran low (each once, until it's back in stock)."""
+    with db.session(cfg) as conn:
+        if not users(conn):
+            return 0                    # nobody to tell yet: keep the news for the first verifier
+        rows = alerts.new_stock_alerts(conn, cfg.forecast.expiry_warning_days)
+        recipients = users(conn)
+    if not rows:
+        return 0
+    for u in recipients:
+        try:
+            await bot.send_message(u["chat_id"], render.stock_alert_message(rows, u["lang"]), parse_mode=ParseMode.HTML,
+                                   reply_markup=keyboards.summary_keyboard(u["lang"], cfg.telegram.miniapp_url))
+        except TelegramError as exc:
+            log.warning("stock alert to %s failed: %s", u["chat_id"], exc)
+    return len(rows)
+
+
+async def send_spot_checks(bot: Bot, cfg: Config, chat_id: int | None = None, n: int | None = None) -> int:
+    """A few quick counts: "LuyDek has 4 Sting. How many are on the shelf?", one tap when right."""
+    with db.session(cfg) as conn:
+        picks = alerts.spot_checks(conn, cfg.verification.spot_checks if n is None else n,
+                                   expiry_warning_days=cfg.forecast.expiry_warning_days)
+        recipients = [u for u in users(conn) if chat_id is None or u["chat_id"] == chat_id]
+        where = batches.places(conn)
+        homes = {r["id"]: r["location_id"] for r in conn.execute("SELECT id, location_id FROM products")}
+    for r in picks:
+        expected = max(r["on_hand"], 0)
+        place = where.get(homes.get(r["id"]))
+        for u in recipients:
+            lang = u["lang"]
+            text = t(lang, "count_ask", name=catalog.display_name(r, lang), n=expected,
+                     place=f" · {place['name']}" if place else "")
+            try:
+                msg = await bot.send_message(u["chat_id"], text, reply_markup=keyboards.count_keyboard(r["id"], expected, lang))
+            except TelegramError as exc:
+                log.warning("spot check to %s failed: %s", u["chat_id"], exc)
+                continue
+            with db.session(cfg) as conn:
+                remember(conn, "count", r["id"], u["chat_id"], msg.message_id)
+    return len(picks)
+
+
+async def close_count(bot: Bot, cfg: Config, product_id: int, counted: int, delta: int) -> None:
+    """Every phone's copy of a quick count shows the answer, and loses its buttons."""
+    with db.session(cfg) as conn:
+        p = catalog.product(conn, product_id)
+        copies = conn.execute(
+            "SELECT m.*, u.lang FROM bot_messages m LEFT JOIN bot_users u ON u.chat_id = m.chat_id "
+            "WHERE m.kind = 'count' AND m.ref_id = ?", (product_id,)).fetchall()
+        conn.execute("DELETE FROM bot_messages WHERE kind IN ('count', 'count_prompt') AND ref_id = ?", (product_id,))
+    for c in copies:
+        lang = c["lang"] or cfg.shop.default_lang
+        name = catalog.display_name(p, lang)
+        text = t(lang, "count_ok", name=name, n=counted) if not delta else \
+            t(lang, "count_fixed", name=name, n=counted, delta=f"{delta:+d}")
+        try:
+            await bot.edit_message_text(text, c["chat_id"], c["message_id"], reply_markup=None)
+        except TelegramError as exc:
+            if "not modified" not in str(exc).lower():
+                log.warning("could not update count message: %s", exc)
+
+
+def _shelf_text(tasks: list, unrecorded: list, flags: list, lang: str, days: int) -> str:
+    text = render.shelf_check_message(tasks, lang, days)
+    more = render.sources_message(unrecorded, flags, lang)
+    return f"{text}\n\n{more}" if more else text
+
+
+async def send_shelf_check(bot: Bot, cfg: Config, chat_id: int | None = None, scheduled: bool = False) -> int:
+    """The walk round the shop, and stock that didn't come in on any record. On schedule, nothing is
+    sent when nothing needs doing."""
+    days = cfg.forecast.expiry_warning_days
+    with db.session(cfg) as conn:
+        tasks = batches.shelf_check(conn, days)
+        unrecorded, flags = sources.unrecorded(conn), sources.lot_flags(conn)
+        recipients = [u for u in users(conn) if chat_id is None or u["chat_id"] == chat_id]
+    if scheduled and not (tasks or unrecorded or flags):
+        return 0
+    for u in recipients:
+        try:
+            msg = await bot.send_message(u["chat_id"], _shelf_text(tasks, unrecorded, flags, u["lang"], days),
+                                         parse_mode=ParseMode.HTML,
+                                         reply_markup=keyboards.shelf_keyboard(tasks, u["lang"], cfg.telegram.miniapp_url))
+            with db.session(cfg) as conn:
+                remember(conn, "shelf", 0, u["chat_id"], msg.message_id)
+        except TelegramError as exc:
+            log.warning("shelf check to %s failed: %s", u["chat_id"], exc)
+    return len(tasks)
+
+
+async def refresh_shelf_checks(bot: Bot, cfg: Config) -> None:
+    """After a batch is taken off the shelf, every copy of the shelf check is redrawn without it."""
+    days = cfg.forecast.expiry_warning_days
+    with db.session(cfg) as conn:
+        tasks = batches.shelf_check(conn, days)
+        unrecorded, flags = sources.unrecorded(conn), sources.lot_flags(conn)
+        copies = conn.execute(
+            "SELECT m.*, u.lang FROM bot_messages m LEFT JOIN bot_users u ON u.chat_id = m.chat_id "
+            "WHERE m.kind = 'shelf' ORDER BY m.id DESC LIMIT 20").fetchall()
+    for c in copies:
+        lang = c["lang"] or cfg.shop.default_lang
+        try:
+            await bot.edit_message_text(_shelf_text(tasks, unrecorded, flags, lang, days), c["chat_id"], c["message_id"],
+                                        parse_mode=ParseMode.HTML,
+                                        reply_markup=keyboards.shelf_keyboard(tasks, lang, cfg.telegram.miniapp_url))
+        except TelegramError as exc:
+            if "not modified" not in str(exc).lower():
+                log.warning("could not update shelf check: %s", exc)
+
+
+async def send_put_away(bot: Bot, cfg: Config, chat_id: int, lang: str, batch_ids: list[int]) -> None:
+    with db.session(cfg) as conn:
+        items = batches.put_away(conn, batch_ids)
+    if items:
+        await bot.send_message(chat_id, render.put_away_message(items, lang), parse_mode=ParseMode.HTML)
+
+
+MAX_EXPIRY_ASKS = 5  # questions after one delivery; the rest are on the invoice page
+
+
+async def send_expiry_asks(bot: Bot, cfg: Config, chat_id: int, lang: str, batch_ids: list[int]) -> int:
+    """After a delivery, a question for each product that came with no date and whose shelf life isn't
+    known: a photo of the date answers it exactly, a tap says how long it usually keeps."""
+    asks, seen = [], set()
+    with db.session(cfg) as conn:
+        for batch_id in batch_ids:
+            b = batches.get(conn, batch_id)
+            if b is None or b.expiry or b.left <= 0 or b.product_id in seen:
+                continue
+            p = catalog.product(conn, b.product_id)
+            if p["shelf_life_days"] is None:
+                seen.add(b.product_id)
+                asks.append((b, p))
+    for b, p in asks[:MAX_EXPIRY_ASKS]:
+        msg = await bot.send_message(chat_id, t(lang, "expiry_ask", name=catalog.display_name(p, lang), n=b.left),
+                                     reply_markup=keyboards.expiry_keyboard(b.id, lang))
+        with db.session(cfg) as conn:
+            remember(conn, "expiry", b.id, chat_id, msg.message_id)
+    if len(asks) > MAX_EXPIRY_ASKS:
+        await bot.send_message(chat_id, t(lang, "expiry_more", n=len(asks) - MAX_EXPIRY_ASKS))
+    return min(len(asks), MAX_EXPIRY_ASKS)
 
 
 # --- invoices ------------------------------------------------------------------------------

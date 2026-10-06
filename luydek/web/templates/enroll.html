@@ -19,6 +19,11 @@
   </div>
 </div>
 
+{% if twins %}
+<div class="alert alert-warning"><i class="bi bi-intersect" aria-hidden="true"></i> The camera mixes this up with
+  <b>{{ twins|join(', ') }}</b>. Take a few photos of the side where they differ (the size, flavour or strength printed on the
+  pack), close enough to read. Until it can tell them apart, it asks you.</div>
+{% endif %}
 {% if not calibrated %}
 <div class="alert alert-warning">The counter mat isn't calibrated yet, so the whole photo will be used. For better photos,
   first open <a href="/counter">Counter</a> and press <b>Calibrate empty counter</b>.</div>

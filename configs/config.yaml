@@ -33,6 +33,16 @@ recognition:
   colour_tiebreak: true
   lookalike_gap: 0.05  # candidates within this CLIP score of the top one count as look-alikes
   colour_margin: 0.15  # the colour match must beat the runner-up by this much to decide
+  # Size on the mat (calibrated counter camera only): an item outside the size range of a product's own
+  # photos, widened by size_tolerance both ways, is asked about, never recorded on its own. A 330ml can
+  # and a 1.5L bottle of the same brand look alike; their size doesn't. Changing the counter camera's
+  # zoom changes sizes too: re-take a few photos of each product after that, or switch this off.
+  size_check: true
+  size_tolerance: 1.4
+  size_min_photos: 3   # counter-camera photos a product needs before its size is used
+  # Look-alike pairs are found from the shop's own photos (Products page). When the top two guesses
+  # are such a pair, the item is asked about unless the first leads by at least this much.
+  pair_margin: 0.08
   # Nothing that might be a sale is dropped silently. Things you taught it to ignore (phone, cash, a
   # hand) are set aside only on a clear match; "other" (from "Not a sale" answers) is always asked
   # about, except a patch of mat this close to one you already said wasn't a sale. Set-aside things
@@ -100,6 +110,16 @@ verification:
   # Right after end_of_day, every registered phone gets the day's summary: what sold, what came in,
   # what is running out. Anyone can also ask for it (/today) and for stock left (/stock, or type a name).
   daily_summary: true
+  # The moment a product runs out or runs low, every registered phone is told (once, until it's back).
+  stock_alerts: true
+  # Each day a few products get a quick count on Telegram ("is there really 4 left?"): low and out
+  # first, then best sellers, none twice in a week. Counts that match are logged too.
+  spot_checks: 3
+  spot_check_time: "15:00"
+  # Once a week, a walk round the shop place by place: what has expired, what to put in front, and
+  # what won't sell before it expires. Also any time with /shelf.
+  shelf_check_weekday: 0        # 0 = Monday
+  shelf_check_time: "08:30"
   weekly_summary_time: "20:45"   # Sundays
   # Privacy: once every item in a sale is settled, the full counter photo is
   # deleted and only the per-product crops are kept.

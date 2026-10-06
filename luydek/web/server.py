@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -17,13 +18,14 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
+import anthropic
 import numpy as np
 import segno
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from PIL import Image
+from PIL import Image, ImageOps
 from starlette.concurrency import run_in_threadpool
 
 from .. import clock, db, render
@@ -32,7 +34,8 @@ from ..bot import digest
 from ..config import Config, get_config
 from ..i18n import t
 from ..recognition import cutout, labels, pipeline, segment, tray
-from ..services import catalog, forecast, invoices, learn, loose, metrics, report, stock, transactions
+from ..services import (accuracy, batches, catalog, forecast, invoices, learn, locations, loose, metrics, report,
+                        sources, stock, stockin, transactions)
 from . import charts as charts_mod
 from . import miniapp
 
@@ -597,6 +600,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             rows = catalog.catalog_rows(conn)
             suppliers = catalog.suppliers(conn)
             loose_count = len(loose.loose_products(conn))
+            n_places = len(locations.places(conn))
+            n_homeless = len(locations.homeless(conn))
         calibrated_at = None
         if ref and (cfg.media_dir / ref).exists():
             calibrated_at = datetime.fromtimestamp((cfg.media_dir / ref).stat().st_mtime).strftime("%d %b %H:%M")
@@ -620,6 +625,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             {"done": rows and uncounted == 0, "title": "Count the stock on the shelf", "href": "/catalog#count",
              "button": "Count stock", "detail": "Everything is counted." if not uncounted else
              f"{uncounted} product{'s have' if uncounted != 1 else ' has'} never been counted."},
+            {"done": n_places > 0 and n_homeless == 0, "title": "Name the places in your shop", "href": "/shelf#places",
+             "button": "Places", "detail": (f"{n_places} place{'s' if n_places != 1 else ''}"
+                                            + (f"; {n_homeless} product{'s' if n_homeless != 1 else ''} without one."
+                                               if n_homeless else ", and every product has one.")) if n_places else
+             "Fridge, Shelf A, Back room... so the shelf check walks the shop and deliveries say where they go."},
             {"done": bool(suppliers) and no_supplier == 0, "title": "Suppliers and their visit days",
              "href": "/catalog#suppliers", "button": "Suppliers",
              "detail": f"{len(suppliers)} supplier{'s' if len(suppliers) != 1 else ''}"
@@ -825,8 +835,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "SELECT ignore_label, COUNT(*) AS n FROM gallery_images WHERE ignore_label IS NOT NULL "
                 "GROUP BY ignore_label")}
             boxes = loose.box_sizes(conn)
+            lookalikes = accuracy.lookalike_pairs(conn, cfg.recognition)
         return page(request, "catalog.html", products=products, suppliers=suppliers, ignore=ignore, boxes=boxes,
-                    ignore_labels=IGNORE_LABELS, min_photos=MIN_PHOTOS, weekdays=WEEKDAYS)
+                    ignore_labels=IGNORE_LABELS, min_photos=MIN_PHOTOS, weekdays=WEEKDAYS, lookalikes=lookalikes)
 
     @app.get("/catalog/new", response_class=HTMLResponse)
     def new_product_page(request: Request):
@@ -868,10 +879,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "SELECT * FROM gallery_images WHERE " + ("pack_id = ?" if pk else "ignore_label = ?")
                 + " ORDER BY id DESC", (pack_id if pk else ignore,)).fetchall()
             reference = db.get_setting(conn, pipeline.REFERENCE_KEY)
+            twins = [x["label_b"] if x["a"]["pack_id"] == pack_id else x["label_a"]
+                     for x in accuracy.lookalike_pairs(conn, cfg.recognition) if pk is not None
+                     and pack_id in (x["a"]["pack_id"], x["b"]["pack_id"])]
         if pk is None and ignore not in IGNORE_LABELS:
             raise HTTPException(404)
         return page(request, "enroll.html", pk=pk, ignore=ignore, photos=photos, min_photos=MIN_PHOTOS,
-                    calibrated=bool(reference))
+                    calibrated=bool(reference), twins=twins)
 
     @app.post("/api/enroll")
     async def api_enroll(image: UploadFile = File(...), pack_id: int | None = Form(None),
@@ -927,6 +941,10 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             days = stock.product_days(conn, product_id, 28)
             learned = conn.execute("SELECT samples_json FROM tray_units WHERE product_id = ?", (product_id,)).fetchone()
             tray_marked = pipeline.load_roi(conn, pipeline.TRAY_KEY) is not None
+            places = locations.places(conn)
+            where = batches.places(conn)
+            lots = [{"b": b, "place": where[b.location_id]["name"] if b.location_id in where else None}
+                    for b in batches.open_batches(conn, product_id)]
         loose_info = None
         if product["sold_loose"]:
             loose_info = {
@@ -943,7 +961,14 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         }
         return page(request, "product.html", p=product, packs=packs, gallery=photos, aliases=aliases,
                     suppliers=suppliers, level=level, moves=moves, min_photos=MIN_PHOTOS, loose=loose_info,
-                    sales=sales)
+                    sales=sales, places=places, lots=lots, today=clock.today().isoformat())
+
+    @app.post("/catalog/{product_id}/place")
+    def product_place(request: Request, product_id: int, location_id: str = Form("")):
+        with db.session(cfg) as conn:
+            _product(conn, product_id)
+            locations.set_home(conn, product_id, _int(location_id))
+        return back(request, "Saved where it lives")
 
     @app.post("/catalog/{product_id}/loose")
     def make_loose(request: Request, product_id: int, per_box: str = Form(""), piece: str = Form("tablet")):
@@ -972,8 +997,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 conn, product_id, name_en=name_en, name_km=str(f.get("name_km", "")).strip() or name_en,
                 unit=str(f.get("unit") or "piece").strip(), case_size=_int(f.get("case_size")) or 1,
                 supplier_id=_int(f.get("supplier_id")), is_critical=int(bool(f.get("is_critical"))),
-                shelf_life_days=_int(f.get("shelf_life_days")), unit_cost=_float(f.get("unit_cost")) or 0.0,
-                barcode=str(f.get("barcode", "")).strip() or None,
+                shelf_life_days=0 if f.get("no_expiry") else _int(f.get("shelf_life_days")),  # 0: never asked again
+                unit_cost=_float(f.get("unit_cost")) or 0.0, barcode=str(f.get("barcode", "")).strip() or None,
             )
         return back(request, "Saved")
 
@@ -983,8 +1008,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if n is None or n < 0:
             return back(request, "Enter how many are on the shelf")
         with db.session(cfg) as conn:
-            stock.opening_count(conn, {product_id: n})
-        return back(request, f"Stock set to {n}")
+            delta = stock.count(conn, product_id, n, "product_page", by="dashboard")
+        return back(request, f"Stock set to {n}" if delta else f"{n}, as recorded")
 
     @app.post("/catalog/{product_id}/archive")
     def archive_product(request: Request, product_id: int):
@@ -1074,6 +1099,341 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             stock.opening_count(conn, counts)
         return back(request, f"Counted {len(counts)} product(s)")
 
+    # --- the shelf: the weekly walk, places, batches --------------------------------------------
+
+    @app.get("/shelf", response_class=HTMLResponse)
+    def shelf_page(request: Request):
+        """Walk the shop place by place: take off what has expired, put what expires soon in front, and
+        clear what won't sell in time. Below: the shop's places, and which products live where."""
+        days = cfg.forecast.expiry_warning_days
+        with db.session(cfg) as conn:
+            tasks = batches.shelf_check(conn, days)
+            places = locations.places(conn)
+            products = conn.execute("SELECT id, name_en, location_id FROM products WHERE active = 1 "
+                                    "ORDER BY location_id IS NOT NULL, name_en").fetchall()
+            dated = conn.execute("SELECT COUNT(DISTINCT m.product_id) FROM stock_movements m JOIN products p "
+                                 "ON p.id = m.product_id WHERE m.qty > 0 AND m.expiry_date IS NOT NULL "
+                                 "AND p.active = 1").fetchone()[0]
+            unrecorded, lot_flags = sources.unrecorded(conn), sources.lot_flags(conn)
+        groups = []
+        for task in tasks:
+            if not groups or groups[-1]["place"] != task.place:
+                groups.append({"place": task.place, "tasks": []})
+            groups[-1]["tasks"].append(task)
+        counts = {a: sum(1 for x in tasks if x.action == a) for a in ("remove", "front", "clear")}
+        return page(request, "shelf.html", groups=groups, counts=counts, places=places, products=products, days=days,
+                    dated=dated, suggested=locations.SUGGESTED, unrecorded=unrecorded, lot_flags=lot_flags)
+
+    @app.post("/source-flags/{flag_id}/clear")
+    def clear_source_flag(request: Request, flag_id: int):
+        with db.session(cfg) as conn:
+            sources.clear(conn, flag_id, by="dashboard")
+        return back(request, "Marked as checked")
+
+    @app.post("/shelf/places")
+    def add_place(request: Request, name: str = Form("")):
+        try:
+            with db.session(cfg) as conn:
+                locations.add(conn, name)
+        except ValueError as exc:
+            return back(request, str(exc))
+        return back(request, f"Added {' '.join(name.split())}")
+
+    @app.post("/shelf/places/suggested")
+    def add_suggested_places(request: Request):
+        with db.session(cfg) as conn:
+            n = locations.add_suggested(conn)
+        return back(request, f"Added {n} place{'s' if n != 1 else ''}: rename or remove any that don't fit")
+
+    @app.post("/shelf/places/{location_id}")
+    def rename_place(request: Request, location_id: int, name: str = Form("")):
+        try:
+            with db.session(cfg) as conn:
+                locations.rename(conn, location_id, name)
+        except ValueError as exc:
+            return back(request, str(exc))
+        return back(request, "Renamed")
+
+    @app.post("/shelf/places/{location_id}/remove")
+    def remove_place(request: Request, location_id: int):
+        with db.session(cfg) as conn:
+            locations.remove(conn, location_id)
+        return back(request, "Removed the place")
+
+    @app.post("/shelf/homes")
+    async def set_homes(request: Request):
+        """Where each product lives, set for many at once."""
+        form = await request.form()
+        changed = 0
+        with db.session(cfg) as conn:
+            now = {r["id"]: r["location_id"] for r in conn.execute("SELECT id, location_id FROM products")}
+            for key, value in form.items():
+                if key.startswith("home_") and key[5:].isdigit():
+                    pid, loc = int(key[5:]), _int(value)
+                    if pid in now and now[pid] != loc:
+                        locations.set_home(conn, pid, loc)
+                        changed += 1
+        return back(request, f"Saved {changed} product{'s' if changed != 1 else ''}")
+
+    @app.post("/batches/{batch_id}/remove")
+    def remove_batch(request: Request, batch_id: int, qty: str = Form(""), reason: str = Form("expired")):
+        reason = reason if reason in ("expired", "damaged") else "expired"
+        try:
+            with db.session(cfg) as conn:
+                n = batches.remove(conn, batch_id, _int(qty), reason=reason, by="dashboard")
+        except ValueError as exc:
+            return back(request, str(exc))
+        return back(request, f"Took {n} off the stock ({reason})")
+
+    @app.post("/batches/{batch_id}/edit")
+    async def edit_batch(request: Request, batch_id: int):
+        """Fix a batch's expiry date, the place it was put, or its lot number."""
+        form = await request.form()
+        changes = {}
+        if "expiry" in form:
+            raw = str(form["expiry"]).strip()
+            try:
+                changes["expiry"] = date.fromisoformat(raw).isoformat() if raw else None
+            except ValueError:
+                return back(request, "That date doesn't look right")
+        if "location_id" in form:
+            changes["location_id"] = _int(form["location_id"])
+        if "lot_no" in form:
+            changes["lot_no"] = str(form["lot_no"]).strip() or None
+        try:
+            with db.session(cfg) as conn:
+                wrong_lot = batches.check_lot(conn, batch_id, changes.get("lot_no"))
+                batches.update(conn, batch_id, **changes)
+        except ValueError as exc:
+            return back(request, str(exc))
+        if wrong_lot:
+            return back(request, f"Saved. The invoice says lot {wrong_lot['expected']}: "
+                                 f"check it came from {wrong_lot['supplier'] or 'the supplier'}")
+        return back(request, "Saved")
+
+    @app.post("/batches/{batch_id}/expiry-photo")
+    async def batch_expiry_photo(request: Request, batch_id: int, image: UploadFile = File(...)):
+        """A photo of the date stamp sets a batch's expiry (and lot)."""
+        try:
+            reading = await _read_date(await image.read())
+        except HTTPException as exc:
+            return back(request, exc.detail)
+        if not reading["expiry"] or not reading["sure"]:
+            return back(request, "Couldn't read the date on that photo: type it instead")
+        with db.session(cfg) as conn:
+            wrong_lot = batches.check_lot(conn, batch_id, reading["lot"])
+            batches.update(conn, batch_id, expiry=reading["expiry"],
+                           **({"lot_no": reading["lot"]} if reading["lot"] else {}))
+        said = f"Expiry set to {render.short_date(reading['expiry'])}"
+        if wrong_lot:
+            said += (f". But the pack says lot {reading['lot']} and the invoice says {wrong_lot['expected']}: "
+                     f"check it came from {wrong_lot['supplier'] or 'the supplier'} (see Shelf check)")
+        return back(request, said)
+
+    # --- the accuracy test: a known product on the mat, in the shop's own light --------------------
+
+    @app.get("/accuracy", response_class=HTMLResponse)
+    def accuracy_page(request: Request, pack: int | None = None):
+        with db.session(cfg) as conn:
+            pairs = accuracy.lookalike_pairs(conn, cfg.recognition)
+            twins = {p for x in pairs for p in (x["a"]["pack_id"], x["b"]["pack_id"])}
+            packs = [{"pack_id": r["pack_id"], "label": catalog.pack_label(r, "en"), "twin": r["pack_id"] in twins,
+                      "photos": r["photos"]} for r in catalog.packs(conn)]
+            result = accuracy.summary(conn)
+        packs.sort(key=lambda r: (not r["twin"], r["label"]))
+        return page(request, "accuracy.html", packs=packs, chosen=pack, lighting=accuracy.LIGHTING, summary=result,
+                    pairs=pairs)
+
+    @app.post("/api/accuracy/test")
+    async def api_accuracy_test(image: UploadFile = File(...), pack_id: int = Form(...), lighting: str = Form(...),
+                                use_reference: bool = Form(True)):
+        data = await image.read()
+
+        def run() -> dict:
+            frame = segment.decode(data)
+            rec = pipeline.get_recognizer(cfg)
+            with db.session(cfg) as conn:
+                try:
+                    found = rec.recognize(conn, frame, f"a{uuid.uuid4().hex[:8]}", use_reference=use_reference)
+                except segment.SceneChanged:
+                    found = rec.recognize(conn, frame, f"a{uuid.uuid4().hex[:8]}", use_reference=False)
+                results = accuracy.record(conn, lighting, pack_id, found)
+                result = accuracy.summary(conn)
+            html = templates.get_template("_accuracy_summary.html").render(summary=result)
+            return {"results": results, "summary_html": html}
+        try:
+            return await run_in_threadpool(run)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/accuracy/reset")
+    def accuracy_reset(request: Request):
+        with db.session(cfg) as conn:
+            n = accuracy.reset(conn)
+        return back(request, f"Cleared {n} test{'s' if n != 1 else ''}")
+
+    # --- stock in: count it on the mat, read the date, one save --------------------------------
+
+    def _crop_ok(path) -> bool:
+        return isinstance(path, str) and path.startswith("crops/") and ".." not in path and "\\" not in path
+
+    scan_sizes: dict[str, float] = {}  # crop -> its size on the calibrated mat, from stock-in scans
+
+    def _teacher():
+        rec = pipeline.get_recognizer(cfg)
+        return lambda conn, crop, pack_id: rec.teach(conn, crop, pack_id, MIN_PHOTOS, scan_sizes.pop(crop, None))
+
+    async def _read_date(data: bytes) -> dict:
+        if not cfg.anthropic_key_present:
+            raise HTTPException(503, "Reading dates needs the Anthropic API key (see Setup): type the date instead")
+
+        def run() -> dict:
+            photo = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+            return labels.read_expiry(photo, cfg).model_dump()
+        try:
+            return await run_in_threadpool(run)
+        except anthropic.APIError as exc:
+            log.warning("date reader failed: %s", exc)
+            raise HTTPException(502, "Couldn't read the date right now: type it instead")
+        except OSError:
+            raise HTTPException(400, "That isn't a photo")
+
+    @app.get("/stock-in", response_class=HTMLResponse)
+    def stock_in_page(request: Request, mode: str = "delivery"):
+        with db.session(cfg) as conn:
+            places = [{"id": r["id"], "name": r["name"]} for r in locations.places(conn)]
+            packs = [{"pack_id": r["pack_id"], "label": catalog.pack_label(r, "en"), "photos": r["photos"]}
+                     for r in catalog.packs(conn)]
+            calibrated = bool(db.get_setting(conn, pipeline.REFERENCE_KEY))
+        return page(request, "stock_in.html", mode="count" if mode == "count" else "delivery", places=places,
+                    packs=packs, calibrated=calibrated, can_read=cfg.anthropic_key_present)
+
+    @app.post("/api/stockin/scan")
+    async def api_stockin_scan(image: UploadFile = File(...), use_reference: bool = Form(True)):
+        """What is on the mat, without selling anything. Things the camera doesn't know are grouped
+        by look, so a dozen of something new is one question."""
+        data = await image.read()
+
+        def run() -> dict:
+            frame = segment.decode(data)
+            rec = pipeline.get_recognizer(cfg)
+            scan = f"s{uuid.uuid4().hex[:8]}"
+            own = False
+            with db.session(cfg) as conn:
+                try:
+                    found = rec.recognize(conn, frame, scan, use_reference=use_reference)
+                except segment.SceneChanged:  # another camera, or held by hand: find items on their own background
+                    own = True
+                    found = rec.recognize(conn, frame, scan, use_reference=False)
+                if use_reference and not own and pipeline.load_reference(conn, cfg) is not None:
+                    if len(scan_sizes) > 5000:
+                        scan_sizes.clear()
+                    scan_sizes.update({d.record.crop_path: d.area_frac for d in found})
+                homes = {r["id"]: r["location_id"] for r in conn.execute("SELECT id, location_id FROM products")}
+                unknown = [d for d in found if d.ignored or d.record.tier == "low" or d.record.pack_id is None]
+                groups = dict(zip(map(id, unknown), stockin.group_unknowns([d.vec for d in unknown]), strict=True))
+                items = []
+                for d in found:
+                    r = d.record
+                    known = id(d) not in groups
+                    pk = catalog.pack(conn, r.pack_id) if known else None
+                    choices = [catalog.pack(conn, p) for p, _ in r.candidates[:3]]
+                    items.append({
+                        "crop": r.crop_path, "url": f"/media/{r.crop_path}", "bbox": list(r.bbox),
+                        "pack_id": r.pack_id if known else None, "label": d.label if known else None,
+                        "sure": r.tier == "high", "group": f"p{r.pack_id}" if known else f"{scan}u{groups[id(d)]}",
+                        "looks_like": d.ignored,
+                        "candidates": [{"pack_id": c["pack_id"], "label": catalog.pack_label(c, "en")}
+                                       for c in choices if c is not None],
+                        "location_id": homes.get(pk["product_id"]) if pk else None,
+                    })
+            h, w = frame.shape[:2]
+            return {"items": items, "width": w, "height": h, "own_background": own}
+        try:
+            return await run_in_threadpool(run)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/stockin/expiry")
+    async def api_stockin_expiry(image: UploadFile = File(...)):
+        return await _read_date(await image.read())
+
+    @app.post("/api/stockin/read-name")
+    async def api_stockin_read_name(crop: str = Form(...)):
+        """The name printed on something the camera doesn't know, and the product it already is, if any."""
+        if not _crop_ok(crop):
+            raise HTTPException(400, "bad photo")
+        if not cfg.anthropic_key_present:
+            raise HTTPException(503, "Reading names needs the Anthropic API key (see Setup): type the name instead")
+
+        def run() -> dict:
+            reading = labels.read_name(Image.open(cfg.media_dir / crop), cfg)
+            out = {**reading.model_dump(), "known": None}
+            if reading.sure and reading.name_en:
+                with db.session(cfg) as conn:
+                    known = catalog.resolve_alias(conn, reading.name_en)
+                    if known is None:
+                        scored = catalog.fuzzy_scored(conn, reading.name_en, 1)
+                        known = scored[0][0] if scored and scored[0][1] >= cfg.labels.name_match else None
+                    if known is not None:
+                        pk = catalog.pack(conn, catalog.default_pack_id(conn, known))
+                        out["known"] = {"pack_id": pk["pack_id"], "label": catalog.pack_label(pk, "en")}
+            return out
+        try:
+            return await run_in_threadpool(run)
+        except anthropic.APIError as exc:
+            log.warning("name reader failed: %s", exc)
+            raise HTTPException(502, "Couldn't read the name right now: type it instead")
+        except OSError:
+            raise HTTPException(404, "That photo is gone: scan again")
+
+    @app.post("/api/stockin/name")
+    async def api_stockin_name(request: Request):
+        """The owner says what a group of unknown items is; its photos teach the camera at once."""
+        body = await request.json()
+        crops = [c for c in body.get("crops") or [] if _crop_ok(c)]
+
+        def run() -> dict:
+            teach = _teacher() if crops else None
+            with db.session(cfg) as conn:
+                return stockin.name(conn, crops, pack_id=_int(body.get("pack_id")), name_en=str(body.get("name") or ""),
+                                    name_km=str(body.get("name_km") or ""), teach=teach)
+        try:
+            return await run_in_threadpool(run)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/stockin/save")
+    async def api_stockin_save(request: Request):
+        body = await request.json()
+        mode = body.get("mode")
+        if mode not in ("count", "delivery"):
+            raise HTTPException(400, "count or delivery")
+        try:
+            rows = stockin.parse_rows(body.get("rows") or [])
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(400, f"Something in the list doesn't look right ({exc})")
+        if not rows:
+            raise HTTPException(400, "Nothing to save yet: scan some stock first")
+
+        def run() -> dict:
+            teach = _teacher() if any(r.teach and r.crops for r in rows) else None
+            with db.session(cfg) as conn:
+                out = stockin.save(conn, mode, rows, by="dashboard", teach=teach)
+            for crop in body.get("crops") or []:  # the scan's own copies: anything taught was copied to the gallery
+                if _crop_ok(crop):
+                    (cfg.media_dir / crop).unlink(missing_ok=True)
+            return out
+        try:
+            result = await run_in_threadpool(run)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        for item in result["putaway"]:
+            item["expiry_short"] = render.short_date(item["expiry"]) if item["expiry"] else None
+            item["old_expiry_short"] = render.short_date(item["old_expiry"]) if item["old_expiry"] else None
+        return result
+
+
     # --- invoices ------------------------------------------------------------------------------
 
     @app.get("/invoices", response_class=HTMLResponse)
@@ -1130,6 +1490,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             products = catalog.products(conn)
             suppliers = catalog.suppliers(conn)
             preview = render.invoice_message(conn, invoice_id, "km")
+            # Where to put it, while it's news: a delivery from last month is on the shelf by now.
+            fresh = inv["status"] == "confirmed" and (inv["confirmed_at"] or "") >= clock.stamp(clock.now() - timedelta(days=3))
+            putaway = batches.put_away(conn, batches.for_invoice(conn, invoice_id)) if fresh else []
         names = {pr["id"]: pr["name_en"] for pr in products}
         open_lines = [l for l in lines if l["product_id"] is None and not l["skipped"]]
         addable = [l for l in open_lines if not invoices.needs_case_size(l)]
@@ -1137,7 +1500,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         return page(request, "invoice.html", inv=inv, lines=lines, products=products, suppliers=suppliers,
                     suggestions=suggestions, preview=preview, extracted=invoices.extracted_json(inv),
                     names=names, open_lines=open_lines, total=total, addable=addable,
-                    needs_size={l["id"] for l in open_lines if invoices.needs_case_size(l)}, weekdays=WEEKDAYS)
+                    needs_size={l["id"] for l in open_lines if invoices.needs_case_size(l)}, weekdays=WEEKDAYS,
+                    putaway=putaway, can_read=cfg.anthropic_key_present)
 
     @app.post("/invoices/{invoice_id}/lines/{line_id}")
     async def invoice_line(request: Request, invoice_id: int, line_id: int, product_id: str = Form("")):

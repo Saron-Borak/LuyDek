@@ -39,15 +39,23 @@ def record(
     expiry_date: str | None = None,
     simulated: bool = False,
     at: datetime | None = None,
+    batch_id: int | None = None,
+    location_id: int | None = None,
+    lot_no: str | None = None,
 ) -> int:
+    """One signed change. Stock coming in starts a batch (see services/batches.py): it is put where
+    the product lives unless `location_id` says otherwise. `batch_id` takes from one batch only."""
+    if qty > 0 and batch_id is None and location_id is None:
+        row = conn.execute("SELECT location_id FROM products WHERE id = ?", (product_id,)).fetchone()
+        location_id = row["location_id"] if row else None
     cur = conn.execute(
         """
         INSERT INTO stock_movements (product_id, qty, type, ref_type, ref_id, reason,
-                                     unit_cost, expiry_date, simulated, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     unit_cost, expiry_date, simulated, created_at, batch_id, location_id, lot_no)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (product_id, int(qty), type_, ref_type, ref_id, reason, unit_cost, expiry_date,
-         int(simulated), clock.stamp(at)),
+         int(simulated), clock.stamp(at), batch_id, location_id, lot_no),
     )
     return cur.lastrowid
 
@@ -57,14 +65,52 @@ def adjust(conn: sqlite3.Connection, product_id: int, reason: str, units: int, b
     return record(conn, product_id, sign * abs(units), type_, ref_type="adjust", reason=f"{reason} by {by}" if by else reason)
 
 
-def opening_count(conn: sqlite3.Connection, counts: dict[int, int]) -> None:
+def opening_count(conn: sqlite3.Connection, counts: dict[int, int], source: str = "count_page") -> None:
     """Day-0 count by the install team: sets each product to exactly the counted level."""
-    current = on_hand(conn)
     for product_id, counted in counts.items():
-        delta = counted - current.get(product_id, 0)
-        if delta:
-            record(conn, product_id, delta, "opening" if product_id not in current else "spot_check",
-                   reason="opening count")
+        count(conn, product_id, counted, source)
+
+
+def count(conn: sqlite3.Connection, product_id: int, counted: int, source: str, by: str | None = None,
+          expiry_date: str | None = None, location_id: int | None = None, lot_no: str | None = None) -> int:
+    """Someone counted the shelf: set the level to exactly that, and log the count (a count that
+    matched is worth knowing too). Returns the correction made (0 when the count matched).
+
+    Finding more than expected brings a batch in (with `expiry_date` if the counter read one);
+    finding fewer takes from the batches that expire first.
+    """
+    row = conn.execute("SELECT COALESCE(SUM(qty), 0) AS qty, COUNT(*) AS n FROM stock_movements WHERE product_id = ?",
+                       (product_id,)).fetchone()
+    # Sales still waiting to be checked have left the shelf but not the ledger yet: they are taken
+    # off when checked, so the ledger is set to the count plus them, or they would count twice.
+    waiting = pending_units(conn, product_id)
+    expected = row["qty"] - waiting
+    delta = int(counted) - expected
+    conn.execute("INSERT INTO stock_counts (product_id, counted, expected, source, counted_by, created_at) "
+                 "VALUES (?, ?, ?, ?, ?, ?)", (product_id, int(counted), expected, source, by, clock.stamp()))
+    if delta:
+        record(conn, product_id, delta, "opening" if not row["n"] else "spot_check", reason=f"counted ({source})",
+               expiry_date=expiry_date if delta > 0 else None, location_id=location_id if delta > 0 else None,
+               lot_no=lot_no if delta > 0 else None)
+    return delta
+
+
+def pending_units(conn: sqlite3.Connection, product_id: int) -> int:
+    """Units of a product in sales the owner hasn't checked yet."""
+    return conn.execute(
+        "SELECT COALESCE(SUM(ti.count * pk.units), 0) FROM transaction_items ti JOIN product_packs pk ON pk.id = ti.pack_id "
+        "WHERE ti.status = 'pending' AND pk.product_id = ?", (product_id,)).fetchone()[0]
+
+
+def last_counted(conn: sqlite3.Connection) -> dict[int, str]:
+    """When each product's shelf was last counted."""
+    return {r["product_id"]: r["at"] for r in conn.execute(
+        """
+        SELECT product_id, MAX(at) AS at FROM (
+            SELECT product_id, created_at AS at FROM stock_counts
+            UNION ALL SELECT product_id, created_at FROM stock_movements WHERE type IN ('opening', 'spot_check')
+        ) GROUP BY product_id
+        """)}
 
 
 def on_hand(conn: sqlite3.Connection) -> dict[int, int]:
@@ -76,30 +122,12 @@ def has_simulated(conn: sqlite3.Connection) -> bool:
     return conn.execute("SELECT 1 FROM stock_movements WHERE simulated = 1 LIMIT 1").fetchone() is not None
 
 
-def earliest_live_expiry(conn: sqlite3.Connection, levels: dict[int, int]) -> dict[int, str]:
-    """First-in-first-out estimate of the soonest expiry still on the shelf.
+def earliest_live_expiry(conn: sqlite3.Connection, levels: dict[int, int] | None = None) -> dict[int, str]:
+    """The soonest printed expiry still on the shelf, per product (see services/batches.py: sales
+    take from the batch that expires first). `levels` is accepted for older callers and unused."""
+    from . import batches
 
-    Walk each product's receipts newest first until they cover what is on hand;
-    the oldest receipt needed is the one that expires first.
-    """
-    rows = conn.execute(
-        """
-        SELECT product_id, qty, expiry_date FROM stock_movements
-        WHERE type IN ('delivery', 'freebie', 'opening') AND qty > 0
-        ORDER BY product_id, created_at DESC, id DESC
-        """
-    ).fetchall()
-    result: dict[int, str] = {}
-    remaining: dict[int, int] = {}
-    for r in rows:
-        pid = r["product_id"]
-        left = remaining.setdefault(pid, levels.get(pid, 0))
-        if left <= 0:
-            continue
-        if r["expiry_date"] and (pid not in result or r["expiry_date"] < result[pid]):
-            result[pid] = r["expiry_date"]
-        remaining[pid] = left - r["qty"]
-    return result
+    return batches.earliest_expiry(conn)
 
 
 def stock_table(conn: sqlite3.Connection, expiry_warning_days: int = 30) -> list[dict]:

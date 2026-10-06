@@ -60,6 +60,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Swipe right when the camera is right, left to correct it.",
     },
     "add_named": {"km": "➕ បន្ថែម {name}", "en": "➕ Add {name}"},
+    "why_size": {"km": "\n📏 ទំហំមិនដូចធម្មតាទេ៖ ទំហំផ្សេងរបស់វាឬ?",
+                 "en": "\n📏 Not its usual size on the mat: another size of it?"},
+    "why_lookalike": {"km": "\n👯 កាមេរ៉ាច្រឡំវាជាមួយទំនិញស្រដៀងគ្នា៖ សូមពិនិត្យស្លាក។",
+                      "en": "\n👯 The camera mixes this up with a look-alike: check the label."},
     "looks_new": {
         "km": "\n🆕 នៅលើកញ្ចប់សរសេរថា «{name}» — មិនទាន់មានក្នុងបញ្ជីទំនិញរបស់អ្នកទេ",
         "en": "\n🆕 The package reads “{name}” — not in your products yet",
@@ -264,6 +268,96 @@ STRINGS: dict[str, dict[str, str]] = {
     "p_agent_today": {"km": "ថ្ងៃនេះ", "en": "today"},
     "p_value": {"km": "💰 តម្លៃ ${value} (តម្លៃទិញ)", "en": "💰 Worth ${value} at cost"},
     "p_last": {"km": "លក់ចុងក្រោយ {when}", "en": "Last sold {when}"},
+
+    # --- stock alerts, quick counts, the shelf check, putting deliveries away ---
+    "alert_out": {"km": "❌ អស់ស្តុក៖ {names}", "en": "❌ Out of stock: {names}"},
+    "alert_low": {"km": "🟠 ជិតអស់៖ {names}", "en": "🟠 Running low: {names}"},
+    "count_ask": {
+        "km": "📦 រាប់រហ័ស៖ {name}{place}\nLuyDek គិតថាមាន {n}។ តើនៅលើធ្នើមានប៉ុន្មាន?",
+        "en": "📦 Quick count: {name}{place}\nLuyDek has {n}. How many are on the shelf?",
+    },
+    "count_other": {"km": "✏️ ចំនួនផ្សេង", "en": "✏️ Another number"},
+    "count_reply": {
+        "km": "តើមាន {name} ប៉ុន្មាន? សូមឆ្លើយតបសារនេះជាលេខ។",
+        "en": "How many {name} are there? Reply to this message with a number.",
+    },
+    "count_ok": {"km": "✅ {name}៖ {n} ត្រឹមត្រូវ។", "en": "✅ {name}: {n}, just as recorded."},
+    "count_fixed": {"km": "✏️ {name}៖ រាប់បាន {n}។ ស្តុកត្រូវបានកែ {delta}។",
+                    "en": "✏️ {name}: {n} counted. Stock corrected by {delta}."},
+    "shelf_title": {"km": "🗓 ពិនិត្យធ្នើ", "en": "🗓 Shelf check"},
+    "shelf_counts": {
+        "km": "{remove} ត្រូវដកចេញ · {front} ដាក់ខាងមុខ · {clear} លក់មិនទាន់",
+        "en": "{remove} to take off · {front} to put in front · {clear} won't sell in time",
+    },
+    "shelf_none": {
+        "km": "🗓 ពិនិត្យធ្នើ៖ គ្មានអ្វីផុតកំណត់ក្នុង {days} ថ្ងៃខាងមុខទេ។",
+        "en": "🗓 Shelf check: nothing expires in the next {days} days.",
+    },
+    "shelf_noplace": {"km": "មិនទាន់កំណត់កន្លែង", "en": "No place set"},
+    "shelf_remove": {"km": "🗑 {name} ×{n}៖ ផុតកំណត់ {date} ដកចេញពីធ្នើ",
+                     "en": "🗑 {name} ×{n}: expired {date}, take it off the shelf"},
+    "shelf_front": {"km": "⏩ {name} ×{n}៖ ផុតកំណត់ {date} ដាក់ខាងមុខ",
+                    "en": "⏩ {name} ×{n}: expires {date}, put it in front"},
+    "shelf_clear": {"km": "💸 {name} ×{n}៖ ផុតកំណត់ {date} លក់មិនទាន់ — បញ្ចុះតម្លៃ លក់ជាឈុត ឬប្រគល់ឲ្យភ្នាក់ងារ",
+                    "en": "💸 {name} ×{n}: expires {date} and won't sell in time. Discount it, bundle it or send it back"},
+    "shelf_removed_btn": {"km": "🗑 បានដក {name} ×{n}", "en": "🗑 Removed {name} ×{n}"},
+    "shelf_open_app": {"km": "🗓 បើកការពិនិត្យធ្នើ", "en": "🗓 Open the shelf check"},
+    "shelf_removed": {"km": "🗑 បានដក {name} ×{n} ចេញពីស្តុក", "en": "🗑 {name} ×{n} taken off the stock"},
+    "putaway_title": {"km": "📦 ដាក់នៅណា៖", "en": "📦 Where to put it:"},
+    "putaway_on": {"km": "• {name} ×{n}{exp} → {place}", "en": "• {name} ×{n}{exp} → {place}"},
+    "putaway_behind": {"km": "• {name} ×{n}{exp} → {place} នៅខាងក្រោយ {old} ដែលមានស្រាប់{old_exp}",
+                       "en": "• {name} ×{n}{exp} → {place}, behind the {old} already there{old_exp}"},
+    "putaway_front": {"km": "• {name} ×{n}{exp} → {place} នៅខាងមុខ៖ ផុតកំណត់មុន {old} ដែលមានស្រាប់{old_exp}",
+                      "en": "• {name} ×{n}{exp} → {place}, in front: it expires before the {old} already there{old_exp}"},
+    "putaway_its_shelf": {"km": "ធ្នើរបស់វា", "en": "its shelf"},
+    "exp_short": {"km": " (ផុត {date})", "en": " (exp {date})"},
+    "p_place": {"km": "📍 {place}", "en": "📍 {place}"},
+    "p_batches": {"km": "🗓 {batches}", "en": "🗓 {batches}"},
+    "batch_line": {"km": "{n} ផុត {date}", "en": "{n} exp {date}"},
+    "menu_shelf": {"km": "🗓 ពិនិត្យធ្នើ", "en": "🗓 Shelf check"},
+    "expiry_ask": {
+        "km": "📅 {name} ×{n}៖ ផុតកំណត់នៅពេលណា?\nសូមឆ្លើយតបសារនេះដោយរូបថតកាលបរិច្ឆេទលើកញ្ចប់ ឬចុចថាវាទុកបានប៉ុន្មាន។",
+        "en": "📅 {name} ×{n}: when does it expire?\nReply to this message with a photo of the date on the pack, "
+              "or tap how long it usually keeps.",
+    },
+    "expiry_keeps_3": {"km": "ប្រហែល ៣ ខែ", "en": "about 3 months"},
+    "expiry_keeps_6": {"km": "ប្រហែល ៦ ខែ", "en": "about 6 months"},
+    "expiry_keeps_12": {"km": "ប្រហែល ១ ឆ្នាំ", "en": "about a year"},
+    "expiry_keeps_0": {"km": "មិនផុតកំណត់", "en": "doesn't expire"},
+    "expiry_life_set": {
+        "km": "✅ {name}៖ ទុកបាន{life}។ LuyDek គិតតាមនេះសម្រាប់ទំនិញដែលគ្មានកាលបរិច្ឆេទ។ "
+              "ផ្ញើរូបថតកាលបរិច្ឆេទពេលណាក៏បាន (ឆ្លើយតបសារនេះ) ដើម្បីកំណត់ឲ្យច្បាស់។",
+        "en": "✅ {name}: keeps {life}. LuyDek assumes that for deliveries with no date. Reply to this message "
+              "with a photo of the date any time to set it exactly.",
+    },
+    "expiry_never_set": {"km": "✅ {name}៖ មិនផុតកំណត់។ LuyDek នឹងមិនសួរទៀតទេ។",
+                         "en": "✅ {name}: doesn't expire. LuyDek won't ask again."},
+    "expiry_read": {"km": "✅ {name} ×{n}៖ ផុតកំណត់ {date}{lot}", "en": "✅ {name} ×{n}: expires {date}{lot}"},
+    "expiry_lot": {"km": " · ឡូត៍ {lot}", "en": " · lot {lot}"},
+    "expiry_unread": {
+        "km": "មិនអាចអានកាលបរិច្ឆេទលើរូបថតនោះបានទេ។ សូមថតកាលបរិច្ឆេទឲ្យជិត ក្នុងពន្លឺល្អ ហើយផ្ញើម្តងទៀតដោយឆ្លើយតបសំណួរ។",
+        "en": "Couldn't read a date on that photo. Hold the date stamp close, in good light, and send it again "
+              "in reply to the question.",
+    },
+    "expiry_no_key": {"km": "ការអានកាលបរិច្ឆេទត្រូវការកូនសោ Anthropic API។ សូមចុចថាវាទុកបានប៉ុន្មានជំនួសវិញ។",
+                      "en": "Reading dates needs the Anthropic API key. Tap how long it keeps instead."},
+    "expiry_lot_mismatch": {"km": "\n⚠️ វិក្កយបត្រសរសេរឡូត៍ {expected}៖ សូមពិនិត្យថាកញ្ចប់នេះមកពី{supplier}។",
+                            "en": "\n⚠️ The invoice says lot {expected}: check this pack came from {supplier}."},
+    "the_supplier": {"km": "អ្នកផ្គត់ផ្គង់", "en": "the supplier"},
+    "src_title": {"km": "🔎 តើវាមកពីណា?", "en": "🔎 Where did it come from?"},
+    "src_unrecorded": {"km": "• {name}៖ លក់បាន {n} ក្នុង ៤ សប្តាហ៍ ដែលគ្មានការដឹកជញ្ជូនណាមួយនាំចូល",
+                       "en": "• {name}: sold {n} in 4 weeks that no delivery brought in"},
+    "src_lot": {"km": "• {name}៖ ឡូត៍ {found} លើកញ្ចប់ ប៉ុន្តែវិក្កយបត្រសរសេរ {expected}{supplier}",
+                "en": "• {name}: lot {found} on the pack, but the invoice says {expected}{supplier}"},
+    "src_from": {"km": " ({supplier})", "en": " ({supplier})"},
+    "src_hint": {
+        "km": "ការដឹកជញ្ជូនគ្មានវិក្កយបត្រ ការទិញពីផ្សារ ឬទំនិញពីកន្លែងផ្សេង (ទំនិញក្លែងក្លាយមើលទៅដូចម៉ាកពិតបេះបិទ)។ "
+              "សូមកត់ត្រាការដឹកជញ្ជូនទាំងអស់ ហើយសួរអ្នកផ្គត់ផ្គង់អំពីឡូត៍ផ្សេងៗ។",
+        "en": "A delivery without an invoice, a market run, or goods from somewhere else (copies look exactly like "
+              "the real brand). Record every delivery, and ask the supplier about other lots.",
+    },
+    "expiry_more": {"km": "…និង {n} ទៀតដែលគ្មានកាលបរិច្ឆេទ៖ កំណត់វានៅលើទំព័រវិក្កយបត្រ។",
+                    "en": "…and {n} more with no date: set them on the invoice page."},
 
     # --- weekly ---
     "week_summary": {

@@ -39,7 +39,9 @@
       {% else %}
       <div class="question">{% if it.pack_id %}{{ pic(photos.pack.get(it.pack_id) or photos.product.get(it.product_id), 36) }} Is this <b>{{ pack_label(it, 'en') }}</b>? <span class="km muted small">{{ it.name_km }}</span>{% else %}What is this item?{% endif %}</div>
       {% if it.hint == 'junk' %}<div class="small why-asked"><i class="bi bi-question-diamond" aria-hidden="true"></i> It looked like clutter to the camera. If it's a product, say which: the camera learns from your answer either way.</div>
-      {% elif it.hint == 'background' %}<div class="small why-asked"><i class="bi bi-layers" aria-hidden="true"></i> It looks a lot like the mat itself (a shadow, a paper that moved?). If so, tap <b>Not a sale</b>.</div>{% endif %}
+      {% elif it.hint == 'background' %}<div class="small why-asked"><i class="bi bi-layers" aria-hidden="true"></i> It looks a lot like the mat itself (a shadow, a paper that moved?). If so, tap <b>Not a sale</b>.</div>
+      {% elif it.hint == 'size' %}<div class="small why-asked"><i class="bi bi-arrows-angle-expand" aria-hidden="true"></i> It looks like this, but it isn't the size this product usually is on the mat. Another size of it?</div>
+      {% elif it.hint == 'lookalike' %}<div class="small why-asked"><i class="bi bi-intersect" aria-hidden="true"></i> The camera mixes this up with a look-alike. Check the label: your answer teaches it the difference.</div>{% endif %}
       {% if it.name_guess %}<div class="small new-guess"><i class="bi bi-stars" aria-hidden="true"></i> The package reads <b>{{ it.name_guess }}</b>{% if it.name_guess_km %} <span class="km">{{ it.name_guess_km }}</span>{% endif %} — not in your products yet</div>{% endif %}
       {% endif %}
       <div class="choices">

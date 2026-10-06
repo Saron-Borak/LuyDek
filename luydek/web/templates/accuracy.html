@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Accuracy test{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1><i class="bi bi-bullseye" aria-hidden="true"></i> Accuracy test</h1>
+    <div class="lead-line">How often the camera is right in this shop's own light, before trusting it with sales. Put one
+      product on the mat (or a few of the same), say which it is, and press Test. Do it in daylight, again under the
+      evening lamp, and with the look-alikes.</div>
+  </div>
+  {% if summary.total %}
+  <form method="post" action="/accuracy/reset" onsubmit="return confirm('Clear all {{ summary.total }} tests?')">
+    <button class="btn btn-outline-dark"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Start over</button></form>
+  {% endif %}
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card mb-3"><div class="card-body d-flex flex-column gap-2">
+      <div class="chips" role="group" aria-label="The light now" id="lights">
+        {% for key, name in lighting.items() %}<button type="button" class="chip {{ 'active' if loop.first }}" data-light="{{ key }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ name }}</button>{% endfor %}
+      </div>
+      <label class="form-label mb-0" for="expected">What is on the mat?</label>
+      <select id="expected" class="form-select form-select-lg">
+        {% for p in packs %}<option value="{{ p.pack_id }}" {{ 'selected' if p.pack_id == chosen }}>{{ p.label }}{{ ' (has a look-alike)' if p.twin }}{{ ' (no photos yet)' if not p.photos }}</option>{% endfor %}
+      </select>
+    </div></div>
+    <div class="camera" id="cam">
+      <div class="stage viewfinder" id="stage">
+        <video id="video" autoplay playsinline muted></video>
+        <span class="cam-res" id="cam-res" hidden></span>
+      </div>
+      <div class="cam-bar">
+        <span></span>
+        <button id="snap" class="btn shutter" aria-label="Test what is on the mat"><i class="bi bi-bullseye" aria-hidden="true"></i></button>
+        <button type="button" class="cam-icon big" id="btn-flip" hidden aria-label="Switch camera"><i class="bi bi-arrow-repeat" aria-hidden="true"></i></button>
+      </div>
+      <div id="status" class="cam-status" aria-live="polite"></div>
+    </div>
+    <ul class="list-group mt-2" id="results"></ul>
+    <details class="mt-3" id="no-camera">
+      <summary class="py-2">No camera here? Use photos instead</summary>
+      <input type="file" id="files" accept="image/*" multiple class="form-control mt-2" style="max-width:22rem">
+    </details>
+  </div>
+  <div class="col-lg-6">
+    <div class="card"><div class="card-header"><i class="bi bi-clipboard-data" aria-hidden="true"></i> Results so far</div>
+      <div class="card-body" id="summary">{% include "_accuracy_summary.html" %}</div></div>
+    {% if pairs %}
+    <div class="card mt-3"><div class="card-header"><i class="bi bi-intersect" aria-hidden="true"></i> Look-alikes to test
+      <div class="sub">The camera mixes these up in its own photos. Test both of each pair, in each light.</div></div>
+      <ul class="list-group list-group-flush">
+        {% for x in pairs[:8] %}<li class="list-group-item">{{ x.label_a }} <span class="muted">and</span> {{ x.label_b }}</li>{% endfor %}
+      </ul></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ asset('camera.js') }}"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const cam = new LuyCam($("video"), $("stage"));
+  const status = $("status"), snap = $("snap");
+  const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                  set(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } } };
+  let light = store.get("luydek-light") || "daylight";
+  function showLight() {
+    document.querySelectorAll("#lights .chip").forEach((c) => {
+      c.classList.toggle("active", c.dataset.light === light);
+      c.setAttribute("aria-pressed", c.dataset.light === light);
+    });
+  }
+  document.querySelectorAll("#lights .chip").forEach((c) => c.addEventListener("click", () => {
+    light = c.dataset.light; store.set("luydek-light", light); showLight();
+  }));
+  showLight();
+
+  async function test(blob, useRef) {
+    const f = new FormData();
+    f.append("image", blob, "test.jpg");
+    f.append("pack_id", $("expected").value);
+    f.append("lighting", light);
+    f.append("use_reference", useRef ? "true" : "false");
+    const r = await fetch("/api/accuracy/test", { method: "POST", body: f });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof body.detail === "string" ? body.detail : r.statusText);
+    $("summary").innerHTML = body.summary_html;
+    if (!body.results.length) { status.textContent = "Nothing found on the mat. Put the product inside the mat and try again."; return; }
+    for (const x of body.results) {
+      const li = document.createElement("li");
+      li.className = "list-group-item d-flex gap-2 align-items-center";
+      const verdict = x.right ? (x.sure ? "Right, and sure: it would record this sale on its own"
+                                        : "Right, but it would ask you first")
+                              : (x.sure ? "Wrong, and sure: it would have recorded the wrong product"
+                                        : "Not sure: it would ask you");
+      li.innerHTML = `${x.url ? `<img src="${esc(x.url)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:8px">` : ""}
+        <i class="bi bi-${x.right ? "check-circle-fill text-success" : x.sure ? "x-octagon-fill text-danger" : "question-circle-fill text-warning"}" aria-hidden="true"></i>
+        <div><div class="fw-semibold">${esc(x.got)}</div><div class="small muted">${verdict}</div></div>`;
+      $("results").prepend(li);
+    }
+    status.textContent = `✓ Tested ${body.results.length} item${body.results.length === 1 ? "" : "s"}.`;
+  }
+  snap.addEventListener("click", async () => {
+    if (!$("video").videoWidth) return;
+    snap.disabled = true; status.textContent = "Looking…";
+    try { await test(await cam.grab(1920, 0.92), true); } catch (e) { status.textContent = "Test failed: " + e.message; }
+    finally { snap.disabled = false; }
+  });
+  $("files").addEventListener("change", async (e) => {
+    for (const file of e.target.files) {
+      try { await test(file, false); } catch (err) { status.textContent = `${file.name}: ${err.message}`; }
+    }
+    e.target.value = "";
+  });
+  const noCamera = (why) => { snap.disabled = true; status.textContent = why + " Use “Use photos instead” below."; $("no-camera").open = true; };
+  if (LuyCam.available()) {
+    cam.start().then(() => {
+      const [w, h] = cam.resolution();
+      $("cam-res").textContent = `${w}×${h}`; $("cam-res").hidden = !w;
+      $("btn-flip").hidden = cam.devices.length < 2;
+      cam.controls({ surface: $("stage") }).refresh();
+    }).catch((e) => noCamera(LuyCam.whyNot() || "No camera available here (" + e.message + ")."));
+  } else noCamera(LuyCam.whyNot() || "This browser has no camera access.");
+  $("btn-flip").addEventListener("click", async () => { try { await cam.next(); } catch (e) { status.textContent = e.message; } });
+})();
+</script>
+{% endblock %}

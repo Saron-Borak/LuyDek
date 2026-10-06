@@ -38,6 +38,7 @@ class ExtractedLine(BaseModel):
     units_per_case: int | None = Field(description="Units per case or pack, only if printed on the invoice")
     unit_cost: float | None = Field(description="Price per invoice unit (not the line total); null if not shown")
     expiry_date: str | None = Field(description="Expiry date as YYYY-MM-DD if written for this line")
+    lot_no: str | None = Field(None, description="Lot or batch number if written for this line (LOT, Batch, B/N)")
     is_free: bool = Field(description="True for free, bonus or promotional lines")
     product_name: str | None = Field(None, description=(
         "For lines with product_id null: a clean shelf name in Latin letters, brand + product + variant + size, "
@@ -74,6 +75,7 @@ Rules:
   shrink-wrapped multipacks; "piece" for single bottles, cans, tins, sachets or single boxes.
 - unit_cost: the price per invoice unit. If only a line total is shown, divide it by the quantity.
 - is_free: true for free goods, bonus or promotion lines (FOC, free, bonus, ថែម, ជូន).
+- expiry_date and lot_no: only when written on the invoice for that line (EXP, LOT, Batch, B/N).
 - If a number is hard to read, give your best reading rather than skipping the line.
 - For lines with no catalog match, also give product_name (and product_name_km, unit_name) so the
   shop can add the product in one tap. units_per_case matters most here: give it whenever the
@@ -186,15 +188,15 @@ def ingest(conn: sqlite3.Connection, invoice_id: int, x: ExtractedInvoice, khr_p
             """
             INSERT INTO invoice_lines (invoice_id, product_id, text_as_written, qty, unit, units_total,
                                        unit_cost, expiry_date, is_free, matched_by,
-                                       name_suggested, name_suggested_km, units_per_case, unit_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       name_suggested, name_suggested_km, units_per_case, unit_name, lot_no)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (invoice_id, product_id, line.text_as_written, line.quantity, line.unit, units,
              round(line.unit_cost * to_usd, 4) if line.unit_cost is not None else None,
              line.expiry_date, int(line.is_free), matched_by,
              (line.product_name or "").strip() or None, (line.product_name_km or "").strip() or None,
              line.units_per_case if line.units_per_case and line.units_per_case > 0 else None,
-             (line.unit_name or "").strip().lower() or None),
+             (line.unit_name or "").strip().lower() or None, " ".join((line.lot_no or "").split())[:40] or None),
         )
         if product_id:
             sup = conn.execute("SELECT supplier_id FROM products WHERE id = ?", (product_id,)).fetchone()
@@ -402,7 +404,8 @@ def _post_line(conn: sqlite3.Connection, l: sqlite3.Row) -> None:
         per_unit_cost = round(l["unit_cost"] * l["qty"] / l["units_total"], 4)
         conn.execute("UPDATE products SET unit_cost = ? WHERE id = ?", (per_unit_cost, l["product_id"]))
     stock.record(conn, l["product_id"], l["units_total"], "freebie" if l["is_free"] else "delivery",
-                 ref_type="invoice_line", ref_id=l["id"], unit_cost=per_unit_cost, expiry_date=l["expiry_date"])
+                 ref_type="invoice_line", ref_id=l["id"], unit_cost=per_unit_cost, expiry_date=l["expiry_date"],
+                 lot_no=l["lot_no"])
 
 
 def reject(conn: sqlite3.Connection, invoice_id: int) -> None:
