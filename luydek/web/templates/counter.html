@@ -12,7 +12,12 @@
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <span><i class="bi bi-broadcast" aria-hidden="true"></i> Live view</span>
-        <span id="state" class="state-pill state-NOREF">starting…</span>
+        <span class="d-flex gap-2 align-items-center">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-sound" aria-pressed="true"
+                  title="A beep for each item it sees, a chime when the sale is recorded">
+            <i class="bi bi-volume-up" aria-hidden="true"></i> <span>Sound on</span></button>
+          <span id="state" class="state-pill state-NOREF">starting…</span>
+        </span>
       </div>
       <div class="card-body">
         <div id="scene-alert" class="alert alert-danger d-none" role="alert">
@@ -23,12 +28,21 @@
             <button id="btn-scene-ignore" class="btn btn-outline-secondary">It's fine, carry on</button>
           </div>
         </div>
+        <div id="hd-alert" class="alert alert-warning py-2 d-none" role="alert">
+          <div class="fw-semibold"><i class="bi bi-aspect-ratio" aria-hidden="true"></i> <span id="hd-title"></span></div>
+          <div class="small" id="hd-text"></div>
+        </div>
         <div class="stage mb-2">
           <video id="video" autoplay playsinline muted></video>
           <canvas id="overlay"></canvas>
+          <!-- each item as the camera sees it, then the sale it became: so no sale goes unnoticed -->
+          <div class="seen-feed" id="seen" aria-hidden="true"></div>
+          <div class="sold-card d-none" id="sold" role="status" aria-live="polite" tabindex="-1"
+               title="Tap to close: it also goes when the next item is put down"></div>
         </div>
         <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
-          <span class="muted small" id="hint">Just sell: items that land on the mat and stay still are recorded; the sale closes when the mat is empty again.</span>
+          <span class="muted small" id="hint">Just sell: items that land on the mat and stay still are recorded; the sale closes when the mat is empty again.
+            A high beep: it knows the item. A low double beep: it will ask you about it.</span>
           <button class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#setup" aria-expanded="{{ 'true' if setup_open else 'false' }}"><i class="bi bi-gear" aria-hidden="true"></i> Camera setup</button>
         </div>
         <!-- why it is (or isn't) capturing: for when it seems slow or never closes a sale -->
@@ -87,7 +101,8 @@
       <ul class="list-group list-group-flush small" id="detections"><li class="list-group-item text-secondary">Nothing on the mat yet</li></ul>
     </div>
     <div class="card mb-3">
-      <div class="card-header">Sales just recorded</div>
+      <div class="card-header d-flex justify-content-between align-items-center">Sales just recorded
+        <a class="small fw-normal" href="/log">Wrong? Fix it in the camera log</a></div>
       <div class="card-body small salelog" id="salelog"><span class="text-secondary">none yet</span></div>
     </div>
     {% if team %}

@@ -21,7 +21,7 @@ from .. import clock, db
 from ..config import Config
 from ..services import catalog, transactions
 from ..services.transactions import DetectionRecord
-from . import barcode, segment, tray
+from . import barcode, detector, segment, tray
 from .encoder import Encoder, get_encoder, loaded
 from .matcher import GalleryCache, colour_signature, colour_tiebreak, tier
 
@@ -45,9 +45,10 @@ class Skipped(Exception):
 
 
 class Recognizer:
-    def __init__(self, cfg: Config, encoder: Encoder) -> None:
+    def __init__(self, cfg: Config, encoder: Encoder, finder: detector.Detector | None = None) -> None:
         self.cfg = cfg
         self.encoder = encoder
+        self.finder = finder  # YOLOE-26: each item on the mat; None: the mat difference alone
         # Colour signatures are read from the gallery photos only when the tie-break is on.
         self.cache = GalleryCache(cfg.media_dir if cfg.recognition.colour_tiebreak else None)
 
@@ -64,6 +65,8 @@ class Recognizer:
         roi = load_roi(conn) if use_reference else None
         tray_roi = load_roi(conn, TRAY_KEY) if use_reference else None
         blobs = segment.segment(frame, reference, rc.segment, roi, check_scene=reference is not None, exclude=tray_roi)
+        if self.finder is not None:
+            blobs = self._detect(frame, reference, roi, tray_roi, blobs)
         if not blobs:
             return []
         codes = barcode.read(frame)
@@ -121,6 +124,34 @@ class Recognizer:
             out.append(Detection(DetectionRecord(pack_id, score, t, method, blob.bbox, rel, cands,
                                                  None if code_pack is not None else hint), label,
                                  background=round(bg, 4)))
+        return out
+
+    def _detect(self, frame: np.ndarray, reference: np.ndarray | None, roi, tray_roi,
+                mat_blobs: list[segment.Blob]) -> list[segment.Blob]:
+        """Each item the detector sees, plus anything the mat difference sees that it didn't: an object
+        the detector doesn't know is still an item, never a lost sale."""
+        rc = self.cfg.recognition
+        h, w = frame.shape[:2]
+        roi_px = segment.roi_box(roi, w, h)
+        tray_px = segment.roi_box(tray_roi, w, h) if tray_roi is not None else None
+        found = detector.tidy(self.finder.detect(frame), roi_px, tray_px, rc.detector, rc.segment, w)
+        if reference is not None:
+            found = detector.something_there(frame, reference, found, rc.segment, rc.detector.min_changed)
+        if not found:
+            return mat_blobs
+        if reference is not None and reference.shape[:2] != (h, w):
+            reference = cv2.resize(reference, (w, h), interpolation=cv2.INTER_AREA)
+        mat = reference if reference is not None else segment.synthetic_reference(frame)
+        items = detector.blobs(frame, found, roi_px, mat, rc.segment)
+        # Search again outside each item found and its margin (its whole box: the outlines the detector
+        # draws are rough, and the bits of an item sticking out of its outline would come back as items).
+        covered = np.zeros((h, w), np.uint8)
+        for f in found:
+            x0, y0, x1, y1 = detector.padded(f.box, w, h, rc.segment)
+            covered[y0:y1, x0:x1] = 255
+        rest = segment.segment(frame, reference, rc.segment, roi, exclude=tray_roi, covered=covered)
+        out = items + rest
+        out.sort(key=lambda bl: (bl.bbox[1] // 50, bl.bbox[0]))
         return out
 
     def _choose_parts(self, blobs: list, vectors: np.ndarray, gallery) -> tuple[list, np.ndarray]:
@@ -405,12 +436,20 @@ def get_recognizer(cfg: Config) -> Recognizer:
     global _recognizer
     with _rec_lock:
         if _recognizer is None:
-            _recognizer = Recognizer(cfg, get_encoder(cfg.recognition.model_name, cfg.recognition.device))
+            _recognizer = Recognizer(cfg, get_encoder(cfg.recognition.model_name, cfg.recognition.device),
+                                     detector.get_detector(cfg))
         return _recognizer
 
 
 def ready() -> bool:
     return _recognizer is not None
+
+
+def finder_name() -> str:
+    """What finds the items on the mat, for the Counter page."""
+    if _recognizer is not None and _recognizer.finder is not None:
+        return getattr(_recognizer.finder, "name", "detector")
+    return "mat difference"
 
 
 def learner(cfg: Config):

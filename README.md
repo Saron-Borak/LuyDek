@@ -23,11 +23,15 @@ Hackathon MVP for the *Dead Stock, Empty Shelf* challenge. It runs all four demo
 ```bash
 uv venv --python 3.12 .venv
 uv pip install --python .venv/Scripts/python.exe -r requirements.txt
+mkdir -p models && curl -L -o models/yoloe-26s-seg-pf.pt https://github.com/ultralytics/assets/releases/download/v8.4.0/yoloe-26s-seg-pf.pt
 cp .env.example .env            # then fill in the two keys below
 .venv/Scripts/python.exe scripts/seed_demo.py --reset
 .venv/Scripts/python.exe scripts/simulate_history.py --weeks 8
 .venv/Scripts/python.exe -m luydek
 ```
+
+The detector weights (40 MB, AGPL-3.0, see *How it works*) are optional: without the file, items
+are found by the mat difference alone, as before.
 
 Open <http://localhost:8000>. For a phone as the counter camera, run with `--host 0.0.0.0`.
 Browsers only give camera access on `localhost` or HTTPS, so for the counter page itself
@@ -131,8 +135,15 @@ with the loose-sold medicines as buttons.
 
 ## Demo script
 
-1. **Live sale.** On `/counter`, a teammate puts 2–3 items on the mat. Boxes appear: green means
-   auto-accepted, amber means it will ask. Take the items off and the sale closes.
+1. **Live sale.** On `/counter`, a teammate puts 2–3 items on the mat. Each item gets a beep and a
+   "+1" with its photo: a high beep when the camera knows it, a low double beep when it will ask.
+   Take the items off: a chime, and a **Sold** card lists what was sold, recorded or to be checked.
+   The counter camera sends full HD (1920×1080) when it has it; below HD (720 pixels on the short
+   side) the Counter page says so and why, usually a digital zoom cropping the picture: zoom out and
+   bring the camera closer instead. Items close together need the pixels.
+   It stays until the next item is put down (or it is tapped), and every sale stays in *Sales just
+   recorded*. Browsers only play sound after the page has been tapped once: **Tap to turn sound on**
+   in the Live view header (it remembers **Sound off** too).
 2. **Telegram check.** In the navigation bar, **Demo → Send the check digest now**. The judge's phone (registered
    with `/start 2468`) gets the uncertain crop, "Is this Ichitan green tea 420ml?", and taps
    **Oishi 380ml**. The Today page, the stock and every other verifier's copy of the message update,
@@ -294,13 +305,43 @@ app. `/check` opens it too.
 ## How it works
 
 ```
-counter photo ─► segment inside the marked mat (vs. empty-mat photo; camera moved? → recalibrate)
-             ─► split touching items ─► barcode pass (zxing) ─► CLIP ViT-B/32 embedding
+counter photo ─► inside the marked mat: YOLOE-26 finds each item, the empty-mat photo confirms it
+                 (camera moved? → recalibrate); what no box covers is found by the mat difference
+             ─► barcode pass (zxing) ─► CLIP ViT-B/32 embedding
              ─► nearest packs in this store's gallery ─► colour tie-break for look-alikes ─► multipack × units ─► tier
    high  (barcode, or score ≥ t_high AND margin to runner-up ≥ m_high) → sale recorded now
    medium (score ≥ t_low) → label reader if look-alikes → "Is this X?"   low → photo grid   ignore → dropped
 ```
 
+- **Finding items: YOLOE-26 and the mat.** The detector (Ultralytics YOLO26, open vocabulary,
+  prompt-free, `models/yoloe-26s-seg-pf.pt`) sees each object, so cans standing side by side are
+  separate items, and items stand out off the counter camera too. Its own names for things are no
+  use (a Sting can is a "zombie" to it): CLIP and the shop's photos still say which product it is,
+  so adding a product is still a few photos with no training. What it finds is tidied by each
+  object's outline (the model draws one around everything), not its box, because boxes of items
+  close together overlap even when the items don't: only on the mat and off the tablet tray; no
+  specks and nothing the size of the whole view; an object within a bigger one's outline (dents
+  filled in, since the model may cut a picture printed on a bag out of the bag's outline) is a part
+  of it, unless the bigger one is a less sure outline around a group of items; and on the counter
+  camera only where the empty-mat photo shows something is there under the outline. Each outline is
+  its biggest piece: a stray fleck on a neighbour would otherwise swallow the neighbour. On composed
+  scenes with small items tucked against bottles and cans lying at an angle, outlines got 13 of 13
+  right where boxes got 8; on the pilot counter's photos, 2 false items instead of 4. The detector
+  looks at photos at 960 pixels: 1280 did worse (29 of 44 against 42), 640 is faster and one worse. Whatever the
+  mat difference finds that no box covers is still an item, so nothing is lost when the detector
+  doesn't see an object. On composed test scenes (real product photos on the real mat, not camera
+  photos) it found 35 of 37 items against 27 for the mat difference alone; the two it missed were
+  items lying on top of another. It adds about 0.4 s per photo on this laptop's CPU. The Counter page
+  says which is in use. Ultralytics YOLO is AGPL-3.0: offering LuyDek to shops as a service means
+  publishing its source, or an Ultralytics Enterprise licence.
+- **Shadows are not items.** A patch of mat that is only darker or lighter than the empty-mat
+  photo, by about the same amount all over (smooth inside, soft at its edge) and in the mat's own
+  colour, is a shadow or a change in the light, and is set aside before anything else
+  (`segment.shadow_filter`). An item has edges or print inside it, or a sharp outline, so even a
+  plain dark-grey box stays an item. On 13 photos from the pilot counter, the mat difference took
+  shadows and light patches for 11 items; with the filter, 2 (a cable moving at the edge of the mat),
+  with no item lost. With the detector the false items went from 17 to 4. The shadow an item casts
+  beside it no longer comes back as a second item either.
 - **Tiers use the margin as well as the score.** Raw CLIP similarities sit in a narrow 0.75–0.95
   band, so the handoff's 0.90/0.60 can't be used as-is. Look-alikes both score high, and it is the
   small gap between them that sends an item to the owner.
@@ -376,27 +417,56 @@ improvement, as it shouldn't.
 luydek/
   services/     catalog · stock (ledger) · transactions · invoices (Claude) · learn (new products from
                 sales) · forecast · metrics · report
-  recognition/  segment · barcode · encoder (CLIP) · matcher (gallery + tiers) · labels (Claude: labels
+  recognition/  segment · detector (YOLOE-26) · barcode · encoder (CLIP) · matcher (gallery + tiers) · labels (Claude: labels
                 and new-product names) · tray · cutout (clean product photos) · pipeline
   bot/          app (jobs) · handlers · digest (outgoing messages) · keyboards
   web/          server (FastAPI; the bot runs in its event loop) · charts (inline SVG) · templates · static
   i18n.py       Khmer/English strings    render.py  owner-facing message text
 scripts/        seed_demo · simulate_history · calibrate · synthetic_demo · sale_from_photo · counter_test
+                · build_detector_kit + detector_kit/ (training scenes and the Colab notebook)
                 · make_brand (logo and icons)
 configs/        config.yaml (thresholds, digest times, forecast rules) · synthetic.yaml
 ```
 
-`.venv/Scripts/python.exe -m pytest` runs 211 tests covering the ledger, forecast math, recognition,
-touching-item splitting, the tablet tray, the label reader and invoices (mocked Claude), the pilot
+`.venv/Scripts/python.exe -m pytest` runs 233 tests covering the ledger, forecast math, recognition, shadows, training scenes,
+touching-item splitting, the detector's boxes (a fake detector), the tablet tray, the label reader and invoices (mocked Claude), the pilot
 report, transactions, bot flows (fake Telegram) including the day's summary and stock left, and the web app, including its look (offline assets,
-cut-out photos, charts). The tests use a colour-histogram encoder, so they don't need CLIP.
+cut-out photos, charts). The tests use a colour-histogram encoder and no detector, so they need
+neither CLIP nor the YOLO weights.
+
+## Training the item detector (fine-tuning YOLO26 on this shop)
+
+YOLOE-26 is a general model that knows 4,585 kinds of things. A model fine-tuned to one class, "any
+product on this shop's mat", can be faster (YOLO26n: 39 ms a photo on CPU in Ultralytics' own
+benchmark) and better at items close together. It still doesn't name products, so adding a product
+never needs retraining.
+
+1. **Build the kit** from the shop's own photos (read-only):
+   ```bash
+   .venv/Scripts/python.exe scripts/build_detector_kit.py
+   ```
+   Look over `training/backgrounds_sheet.jpg` and `training/cutouts_sheet.jpg`, then build it again
+   leaving out, by their numbers, empty-mat photos with a person, a hand or an object in them
+   (`--skip 3 73 ...`) and cut-outs that took a slab of background with them (`--skip-cutouts 15 ...`).
+   An object left in a background teaches the detector that items are background.
+2. **Train on Colab:** open `training/item-detector-kit/train.ipynb` in Google Colab, choose a T4 GPU,
+   *Run all*, and upload `training/item-detector-kit.zip` when asked. It makes 3,000 training scenes
+   (the shop's products, cut out of their photos, on photos of its empty mat: touching, overlapping,
+   in changing light), trains `yolo26n-seg` and downloads `item-detector.pt`. Only product and
+   empty-mat photos go to Google, no sales photos.
+3. **Compare before switching:** put `item-detector.pt` in `models/` and compare it with the current
+   detector on real counter photos. Only if it is better: `detector.weights: models/item-detector.pt`
+   and `detector.imgsz: 640` in `configs/config.yaml`.
+
+Scenes made from cut-outs never look quite like the real camera: about 150 real HD sales photos,
+labelled, close that gap (not built yet: a page to correct the detector's outlines on them).
 
 ## Not built yet (and what to say if asked)
 
-- **Detector.** Segmentation against the empty mat stands in for a trained detector. Touching
-  items are split when their outline has a neck, but boxes pushed flush edge to edge still merge,
-  and pale boxes on a pale mat are only partly seen. A YOLO detector slots in behind
-  `segment.segment()`.
+- **Detector.** YOLOE-26 is used as it comes, not trained on this shop's products. An item lying on
+  top of another, or two identical sachets overlapping, can still be one item (the owner fixes the
+  count with −/+). Enrollment photos are still cut out by the mat difference. The detector has only
+  been tried on composed scenes so far, not on photos from the counter camera.
 - **Loose tablets.** The tray learns one tablet size per medicine, so a medicine sold both loose and
   as cut blister pieces (foil around each tablet makes a piece bigger) goes to the owner more often.
   Two different medicines on the tray at once can't be split between them: the owner checks. Not built

@@ -303,3 +303,20 @@ def test_photos_from_another_phone_are_cut_out_from_their_own_background(client,
     r = client.post("/api/enroll", files={"image": ("s.jpg", jpeg(table), "image/jpeg")},
                     data={"pack_id": pack_of(conn, "coke-330"), "use_reference": "true", "burst": "true"})
     assert r.json() == {"skipped": "same", "own_background": True}   # hold-to-record still skips repeats
+
+
+def test_the_counter_shows_and_sounds_each_item_and_the_sale(client, conn, cfg):
+    """What the counter page needs for its beeps and its Sold card: each item's photo and product
+    as it is seen, and each sold line's photo when the sale closes."""
+    page = client.get("/counter").text
+    assert 'id="btn-sound"' in page and 'id="sold"' in page and 'id="seen"' in page
+    client.post("/api/calibrate", files={"image": ("e.jpg", jpeg(mat_frame()), "image/jpeg")})
+    enroll(client, conn, "coke-330")
+    frame = mat_frame()
+    paint(frame, "coke-330", 60, 80)
+    seen = client.post("/api/capture", files={"image": ("f.jpg", jpeg(frame), "image/jpeg")}).json()
+    [d] = seen["detections"]
+    assert d["pack_id"] == pack_of(conn, "coke-330") and (cfg.media_dir / d["crop"].removeprefix("/media/")).exists()
+    sold = client.post(f"/api/transactions/{seen['txn_id']}/close").json()
+    [line] = sold["lines"]
+    assert line["label"] == "Coca-Cola can 330ml" and (cfg.media_dir / line["photo"].removeprefix("/media/")).exists()

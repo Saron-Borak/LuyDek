@@ -7,6 +7,10 @@ pillow>=11.0
 numpy>=2.0
 opencv-python-headless>=4.10
 zxing-cpp>=2.2
+# Finding each item on the mat: Ultralytics YOLOE-26. AGPL-3.0: offering LuyDek to shops as a service
+# means publishing its source, or an Ultralytics Enterprise licence. This build uses the headless
+# OpenCV above (plain `ultralytics` would add a second, clashing OpenCV). Weights: see README.
+ultralytics-opencv-headless>=8.4.171
 
 # Web app + bot.
 fastapi>=0.115

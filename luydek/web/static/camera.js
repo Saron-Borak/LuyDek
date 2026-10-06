@@ -8,8 +8,10 @@
 // - Tap to focus, the flash (torch) and switching cameras, where the phone allows them.
 // - The zoom is remembered per camera, so the counter's view still matches its empty-mat photo
 //   after the page is reloaded.
-// Photos are sent at most SEND_MAX pixels on the long side: the recognizer looks at the counter at
-// 960 and at each product at 224, so more would only make every photo slower to send.
+// Photos are sent at most SEND_MAX pixels on the long side: full HD (1920×1080). Items close together
+// need it: at 512×384 a sweet is a few dozen pixels and where one item ends and the next begins is a
+// guess. Digital zoom crops the picture (2× keeps a quarter of its pixels), so `hd()` says whether
+// what is sent is still at least HD, and the Counter page warns when it isn't.
 (() => {
   const KEY = "luydek-camera";
   const SEND_MAX = 1920;
@@ -84,6 +86,7 @@
       await this.video.play().catch(() => { /* autoplay (muted, inline) starts it anyway */ });
       if (!this.video.videoWidth) await new Promise((r) => this.video.addEventListener("loadedmetadata", r, { once: true }));
       this.caps = this.track.getCapabilities ? this.track.getCapabilities() : {};
+      await this.largest();
       this.hw = !!(this.caps.zoom && this.caps.zoom.max > this.caps.zoom.min);
       this.deviceId = this.track.getSettings().deviceId || deviceId;
       if ((this.caps.focusMode || []).includes("continuous"))
@@ -99,6 +102,20 @@
     }
 
     remember() { if (this.deviceId) store.set(KEY, this.deviceId); }
+
+    // Some cameras open at a small default size even when asked for their biggest: switch to the
+    // largest picture the camera says it has, in its own shape.
+    async largest() {
+      const cw = this.caps.width && this.caps.width.max, ch = this.caps.height && this.caps.height.max;
+      if (!cw || !ch || !this.track.applyConstraints) return;
+      const [w, h] = [this.video.videoWidth, this.video.videoHeight];
+      if (w * h >= cw * ch) return;
+      const portrait = h > w;
+      try {
+        await this.track.applyConstraints({ width: { ideal: portrait ? ch : cw }, height: { ideal: portrait ? cw : ch } });
+        await new Promise((r) => setTimeout(r, 300));  // the new size reaches the video a moment later
+      } catch { /* refused: keep what it gave */ }
+    }
 
     // The viewfinder takes the picture's shape.
     fit() {
@@ -158,6 +175,15 @@
       const [, , sw, sh] = this.region();
       const k = Math.min(1, max / Math.max(sw, sh));
       return [Math.round(sw * k), Math.round(sh * k)];
+    }
+    // At least HD (720 pixels on the short side) in what is sent.
+    hd() {
+      const [w, h] = this.size();
+      return Math.min(w, h) >= 720;
+    }
+    // The camera's largest picture, as it says itself (0, 0 when it doesn't say).
+    maxSize() {
+      return [(this.caps.width && this.caps.width.max) || 0, (this.caps.height && this.caps.height.max) || 0];
     }
     grab(max = SEND_MAX, quality = 0.9) {
       const [w, h] = this.size(max);

@@ -5,3 +5,7 @@ __pycache__/
 # Runtime data: the database, counter photos, crops, invoices. Only the seed catalog is source.
 data/*
 !data/seed_catalog.yaml
+# Detector weights (downloaded, not source)
+models/
+# Detector training kits and data (made from the shop's photos)
+training/

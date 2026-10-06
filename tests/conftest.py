@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from luydek import clock, db
-from luydek.config import Config, PathsCfg, RecognitionCfg, SegmentCfg
+from luydek.config import Config, DetectorCfg, PathsCfg, RecognitionCfg, SegmentCfg
 from luydek.recognition import encoder as encoder_mod
 from luydek.recognition import pipeline
 from luydek.services import catalog
@@ -49,8 +49,10 @@ def cfg(tmp_path) -> Config:
     return Config(
         paths=PathsCfg(db=str(tmp_path / "test.db"), media=str(tmp_path / "media"),
                        seed_catalog=str(ROOT / "data" / "seed_catalog.yaml")),
+        # The detector (YOLOE-26) is off: tests use painted boxes and a fake detector where they need one.
         recognition=RecognitionCfg(t_high=0.97, m_high=0.02, t_low=0.6,
-                                   segment=SegmentCfg(work_width=640, min_area_frac=0.004)),
+                                   segment=SegmentCfg(work_width=640, min_area_frac=0.004),
+                                   detector=DetectorCfg(enabled=False)),
     )
 
 

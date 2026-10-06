@@ -661,6 +661,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             roi = pipeline.load_roi(conn)
             tray_roi = pipeline.load_roi(conn, pipeline.TRAY_KEY)
         return {"reference": f"/media/{ref}" if ref else None, "gallery": gallery, "recognizer_ready": pipeline.ready(),
+                "finder": pipeline.finder_name(),
                 "open_txn": open_txn["id"] if open_txn else None, "roi": roi, "tray": tray_roi}
 
     @app.post("/api/roi")
@@ -738,7 +739,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         return {
             "txn_id": txn_id, "frame_no": frame_no, "width": w, "height": h, "ms": ms,
             "detections": [{"bbox": list(d.record.bbox), "label": d.label, "tier": d.record.tier,
-                            "score": d.record.confidence, "method": d.record.method, "ignored": d.ignored}
+                            "score": d.record.confidence, "method": d.record.method, "ignored": d.ignored,
+                            "pack_id": d.record.pack_id,
+                            "crop": f"/media/{d.record.crop_path}" if d.record.crop_path else None}
                            for d in detections],
             "tray": tray_out,
         }
@@ -770,7 +773,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "WHERE ti.txn_id = ?", (txn_id,)).fetchall()
         summary["lines"] = [{"id": r["id"], "label": catalog.pack_label(r, "en") if r["pack_id"] else "?",
                              "tier": r["tier"], "status": r["status"], "score": r["confidence"],
-                             "count": r["count"], "method": r["method"]} for r in rows]
+                             "count": r["count"], "method": r["method"],
+                             "photo": f"/media/{r['crop_path']}" if r["crop_path"] else None} for r in rows]
         return summary
 
     @app.post("/api/capture")

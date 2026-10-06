@@ -58,6 +58,30 @@ recognition:
     # photo means the camera moved or the light changed: the counter page asks for a recalibration
     # instead of recording a sale. Real sales so far covered at most ~70% of the view.
     scene_change_frac: 0.85
+    # Shadows and changes in the light are not items: a patch of mat only darker or lighter than the
+    # empty-mat photo, by about the same amount all over (smooth inside, soft at its edge) and in the
+    # mat's own colour. Items have edges or print inside, or a sharp outline, even dark grey ones. On
+    # photos from the pilot counter, shadows and light patches varied 0.23-0.54 inside, items 0.89 and up.
+    shadow_filter: true
+    shadow_smooth: 0.6     # most the brightness change may vary, inside a shadow and at its edge
+    shadow_darker: 0.3     # a shadow keeps at least this share of the light...
+    shadow_lighter: 2.2    # ...and a shadow that has gone brightens the mat at most this much
+    shadow_chroma: 0.08    # most the colour may change
+
+  # YOLOE-26 (Ultralytics YOLO26, prompt-free) finds each item on the mat, so touching items are told
+  # apart; CLIP still says which product each one is. On the counter camera a box counts only where
+  # the empty-mat photo shows something, and anything the mat difference finds that no box covers is
+  # still an item. Off (or without the weights file), the mat difference finds items on its own.
+  detector:
+    enabled: true
+    weights: models/yoloe-26s-seg-pf.pt   # 40 MB; yoloe-26n-seg-pf.pt (16 MB) is faster, sees less
+    imgsz: 960          # the size the photo is looked at
+    conf: 0.25          # boxes the detector is less sure of are left to the mat difference
+    part_of: 0.8        # an outline this much within a bigger one (its dents filled) is part of it (a label)...
+    group_min: 0.15     # ...unless the bigger one is a box around two or more items it is surer of
+    apart_iou: 0.2
+    same_iou: 0.6       # boxes overlapping this much are one object under two names
+    min_changed: 0.15   # share of a box that must differ from the empty-mat photo
 
   # Pharmacies: loose tablets go on a small black card (marked on the Counter page) and are
   # counted there; the box they came from, put beside it, says which medicine it is.

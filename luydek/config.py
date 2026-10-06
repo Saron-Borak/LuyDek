@@ -44,6 +44,14 @@ class SegmentCfg(BaseModel):
     split_peak: float = 0.75     # an item's core: distance-to-edge above this x the highest
     split_min_frac: float = 0.12  # a split piece smaller than this share of the blob is noise
     scene_change_frac: float = 0.85  # this much of the mat unlike the empty photo: camera moved or light changed
+    # Shadows and light changes: a patch of mat that is only darker or lighter than the empty-mat photo,
+    # by about the same amount all over (smooth inside, soft at its edge), and keeps its colour, is not an
+    # item. An item has edges and print inside it, or a sharp outline, even when it is dark grey on grey.
+    shadow_filter: bool = True
+    shadow_smooth: float = 0.6     # inside and at its edge, the brightness change varies at most this much
+    shadow_darker: float = 0.3     # a shadow keeps at least this share of the light...
+    shadow_lighter: float = 2.2    # ...and a shadow that has gone brightens the mat at most this much
+    shadow_chroma: float = 0.08    # the colour (chromaticity) changes at most this much
 
 
 class TrayCfg(BaseModel):
@@ -55,6 +63,21 @@ class TrayCfg(BaseModel):
     unit_tolerance: float = 0.35    # a piece must be within this many tablets of a whole number
     min_unit_samples: int = 2       # checked counts needed before the tray trusts its tablet size
     keep_unit_samples: int = 12
+
+
+class DetectorCfg(BaseModel):
+    """YOLOE-26 finds each item on the mat (recognition/detector.py). Switched off, or without its
+    weights, the mat difference finds items on its own, as before."""
+    enabled: bool = True
+    weights: str = "models/yoloe-26s-seg-pf.pt"
+    imgsz: int = 960           # the size the photo is looked at: smaller is faster, bigger sees small items
+    conf: float = 0.25
+    max_det: int = 100
+    part_of: float = 0.8       # an outline this much within a bigger one (its dents filled) is part of it...
+    group_min: float = 0.15    # ...unless the bigger one holds two boxes at least this big (share of it)
+    apart_iou: float = 0.2     # that overlap each other less than this: then it is a box around a group
+    same_iou: float = 0.6      # two boxes overlapping this much are the same object under two names
+    min_changed: float = 0.15  # counter camera: share of a box that must differ from the empty mat
 
 
 class RecognitionCfg(BaseModel):
@@ -86,6 +109,7 @@ class RecognitionCfg(BaseModel):
     lookalike_gap: float = 0.05  # candidates within this CLIP score of the top one are look-alikes
     colour_margin: float = 0.15  # colour must beat the runner-up look-alike by this much to decide
     segment: SegmentCfg = Field(default_factory=SegmentCfg)
+    detector: DetectorCfg = Field(default_factory=DetectorCfg)
     tray: TrayCfg = Field(default_factory=TrayCfg)
 
 

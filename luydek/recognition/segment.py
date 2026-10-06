@@ -6,6 +6,10 @@ counter mat from the hardware kit (plain, matte, one colour), and items that
 touch merge into one blob; a YOLO detector replaces this later without
 changing anything downstream.
 
+Shadows and changes in the light are set aside before any of that: a patch of mat that is only
+darker (or lighter) than the empty-mat photo, by about the same amount all over, with a soft edge and
+its own colour, is not an item (see `_without_shadows`).
+
 The owner can mark the mat on the Counter page. Only that area is searched,
 so hands at the edge, a phone beside the till or the desk behind the mat are
 never taken for items. If nearly all of the mat differs from the empty-mat
@@ -74,12 +78,14 @@ def synthetic_reference(frame: np.ndarray) -> np.ndarray:
 
 
 def segment(frame: np.ndarray, reference: np.ndarray | None, cfg: SegmentCfg, roi: Roi | None = None,
-            check_scene: bool = False, exclude: Roi | None = None) -> list[Blob]:
+            check_scene: bool = False, exclude: Roi | None = None, covered: np.ndarray | None = None) -> list[Blob]:
     """Items on the mat, in reading order.
 
     `check_scene` (only meaningful with a real empty-mat photo) raises
     `SceneChanged` when `scene_change_frac` or more of the mat differs from it.
     `exclude` is an area never searched: the tablet tray, which is counted on its own.
+    `covered` is where the detector already found items (full size, 0/255): not searched again, and
+    an item there is not taken for the sharp edge of the shadow it casts beside it.
     """
     h, w = frame.shape[:2]
     if reference is None:
@@ -87,32 +93,24 @@ def segment(frame: np.ndarray, reference: np.ndarray | None, cfg: SegmentCfg, ro
     elif reference.shape[:2] != (h, w):
         reference = cv2.resize(reference, (w, h), interpolation=cv2.INTER_AREA)
 
-    scale = min(1.0, cfg.work_width / w)
-    small = (max(1, int(w * scale)), max(1, int(h * scale)))
-    a = cv2.GaussianBlur(cv2.resize(frame, small, interpolation=cv2.INTER_AREA), (5, 5), 0)
-    b = cv2.GaussianBlur(cv2.resize(reference, small, interpolation=cv2.INTER_AREA), (5, 5), 0)
-
-    # Distance in LAB with lightness slightly down-weighted: soft shadows only
-    # change L, while most packaging also differs from the mat in colour. A
-    # white pharmacy box differs from a pale mat in L alone, which is why the
-    # kit's mat should be dark and saturated.
-    la = cv2.cvtColor(a, cv2.COLOR_BGR2LAB).astype(np.int16)
-    lb = cv2.cvtColor(b, cv2.COLOR_BGR2LAB).astype(np.int16)
-    diff = np.abs(la - lb)
-    dist = cfg.lightness_weight * diff[..., 0] + diff[..., 1] + diff[..., 2]
-    mask = (dist > cfg.diff_threshold).astype(np.uint8) * 255
+    scale, small, a, mask, b = _difference(frame, reference, cfg)
     rx0, ry0, rx1, ry1 = roi_box(roi, *small)
     inside = np.zeros_like(mask)
     inside[ry0:ry1, rx0:rx1] = 255
     if exclude is not None:
         ex0, ey0, ex1, ey1 = roi_box(exclude, *small)
         inside[ey0:ey1, ex0:ex1] = 0
+    found = None
+    if covered is not None:
+        found = cv2.resize(covered, small, interpolation=cv2.INTER_NEAREST)
+        inside[found > 0] = 0
     mask &= inside
     total = max(1, (rx1 - rx0) * (ry1 - ry0))  # areas are shares of the mat, not of the whole view
     if check_scene:
         changed = float((mask[ry0:ry1, rx0:rx1] > 0).mean())
         if changed >= cfg.scene_change_frac:
             raise SceneChanged(changed)
+    mask = _without_shadows(mask, a, b, cfg, found)  # after the check: a camera that moved is still told apart
 
     k = max(3, int(round(small[0] / 160)) | 1)
     # Separate items, before the gap-filling below joins them: hairline seams inside one item
@@ -224,6 +222,81 @@ def split_touching(blob_mask: np.ndarray, image: np.ndarray, cfg: SegmentCfg) ->
     parts = [(markers == k).astype(np.uint8) * 255 for k in range(2, n + 1)]
     parts = [pt for pt in parts if (pt > 0).sum() >= cfg.split_min_frac * size]
     return parts if len(parts) >= 2 else [blob_mask]
+
+
+def _difference(frame: np.ndarray, reference: np.ndarray, cfg: SegmentCfg
+                ) -> tuple[float, tuple[int, int], np.ndarray, np.ndarray, np.ndarray]:
+    """(scale, working size, the blurred working frame, where it differs from the empty mat as 0/255,
+    the blurred working empty-mat photo)."""
+    h, w = frame.shape[:2]
+    scale = min(1.0, cfg.work_width / w)
+    small = (max(1, int(w * scale)), max(1, int(h * scale)))
+    a = cv2.GaussianBlur(cv2.resize(frame, small, interpolation=cv2.INTER_AREA), (5, 5), 0)
+    b = cv2.GaussianBlur(cv2.resize(reference, small, interpolation=cv2.INTER_AREA), (5, 5), 0)
+
+    # Distance in LAB with lightness slightly down-weighted: soft shadows only
+    # change L, while most packaging also differs from the mat in colour. A
+    # white pharmacy box differs from a pale mat in L alone, which is why the
+    # kit's mat should be dark and saturated.
+    la = cv2.cvtColor(a, cv2.COLOR_BGR2LAB).astype(np.int16)
+    lb = cv2.cvtColor(b, cv2.COLOR_BGR2LAB).astype(np.int16)
+    diff = np.abs(la - lb)
+    dist = cfg.lightness_weight * diff[..., 0] + diff[..., 1] + diff[..., 2]
+    return scale, small, a, (dist > cfg.diff_threshold).astype(np.uint8) * 255, b
+
+
+def _without_shadows(mask: np.ndarray, a: np.ndarray, b: np.ndarray, cfg: SegmentCfg,
+                     found: np.ndarray | None = None) -> np.ndarray:
+    """The change mask without shadows and changes in the light. `found`: areas holding items the
+    detector already found, whose outlines don't count against a shadow beside them having a soft edge.
+
+    Each patch of change is looked at whole. A shadow (or a shadow in the empty-mat photo that has
+    since gone) changes the brightness by about the same factor all over: smooth inside, fading out
+    at its edge, with the mat's colour kept. An item, even a dark grey one on a grey mat, has edges,
+    print or highlights inside it, or a sharp outline. Measured on photos from the pilot counter:
+    shadows and light patches vary 0.23-0.54 inside, items 0.89 and up.
+    """
+    if not cfg.shadow_filter or not mask.any():
+        return mask
+    k = max(3, int(round(mask.shape[1] / 160)) | 1)
+    groups = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((k * 3, k * 3), np.uint8))
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(groups)
+    if n <= 1:
+        return mask
+    fa, fb = a.astype(np.float32), b.astype(np.float32)
+    log_ratio = np.log((fa.mean(axis=2) + 4) / (fb.mean(axis=2) + 4))  # how much darker or lighter, per pixel
+    step = np.hypot(cv2.Sobel(log_ratio, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(log_ratio, cv2.CV_32F, 0, 1, ksize=3))
+    chroma = np.abs(fa / (fa.sum(axis=2, keepdims=True) + 1) - fb / (fb.sum(axis=2, keepdims=True) + 1)).sum(axis=2)
+    ring = np.ones((5, 5), np.uint8)
+    near_found = cv2.dilate(found, np.ones((7, 7), np.uint8)) > 0 if found is not None else None
+    out = mask.copy()
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_AREA] < 40:
+            continue  # too small to judge; the area filter decides
+        x, y, w, h = stats[i, :4]
+        x0, y0, x1, y1 = max(0, x - 3), max(0, y - 3), x + w + 3, y + h + 3   # a margin for the edge band
+        comp = (labels[y0:y1, x0:x1] == i).astype(np.uint8)
+        changed_px = (comp > 0) & (mask[y0:y1, x0:x1] > 0)
+        core = cv2.erode(comp, ring) > 0
+        edge = (cv2.dilate(comp, ring) > 0) & ~core
+        if near_found is not None:
+            edge &= ~near_found[y0:y1, x0:x1]
+        st = step[y0:y1, x0:x1]
+        ratio = float(np.exp(np.median(log_ratio[y0:y1, x0:x1][changed_px])))
+        smooth = (np.percentile(st[core], 95) if core.any() else 0.0) <= cfg.shadow_smooth
+        soft = not edge.any() or np.percentile(st[edge], 90) <= cfg.shadow_smooth
+        if (smooth and soft and cfg.shadow_darker <= ratio <= cfg.shadow_lighter
+                and float(np.median(chroma[y0:y1, x0:x1][changed_px])) <= cfg.shadow_chroma):
+            out[y0:y1, x0:x1][comp > 0] = 0
+    return out
+
+
+def changed(frame: np.ndarray, reference: np.ndarray, cfg: SegmentCfg) -> np.ndarray:
+    """Where the frame differs from the empty-mat photo, at working size (0/1): no specks, no shadows."""
+    scale, small, a, mask, b = _difference(frame, reference, cfg)
+    mask = _without_shadows(mask, a, b, cfg)
+    k = max(3, int(round(small[0] / 160)) | 1)
+    return (cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((k, k), np.uint8)) > 0).astype(np.uint8)
 
 
 def _crop(part: np.ndarray, was_split: bool, rgb: np.ndarray, mat_rgb: np.ndarray, scale: float, total: int,

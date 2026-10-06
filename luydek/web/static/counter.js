@@ -41,6 +41,139 @@
     }[s];
   }
 
+  // --- feedback: a beep for each item it sees, and the sale shown when it is recorded ------------
+  // Nobody should have to wonder whether a sale was recorded. Each item the camera sees gets a beep
+  // (high: it knows the item; low double: it will ask about it) and a "+1" with its photo on the
+  // picture. When the counter is cleared, a chime and a Sold card list what was sold; the card stays
+  // until the next item is put down or it is tapped, and every sale stays in the list beside it.
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const clock = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const Sound = (() => {
+    const KEY = "luydek-sound";
+    const AC = window.AudioContext || window.webkitAudioContext;
+    let on = true, ctx = null;
+    try { on = localStorage.getItem(KEY) !== "off"; } catch { /* private window: sound on */ }
+    const ready = () => !!ctx && ctx.state === "running";
+    // Browsers only allow sound after the page has been tapped or clicked once.
+    function unlock() {
+      if (!AC) return;
+      if (!ctx) { try { ctx = new AC(); ctx.onstatechange = show; } catch { return; } }
+      if (ctx.state === "suspended") ctx.resume().then(show, show);
+      show();
+    }
+    function play(notes) {  // [frequency Hz, start s, length s, wave]
+      if (!on || !ready()) return;
+      const t0 = ctx.currentTime + 0.02;
+      for (const [f, at, len, wave] of notes) {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = wave || "sine";
+        o.frequency.value = f;
+        const vol = wave === "square" ? 0.07 : 0.25;  // a square wave sounds much louder at the same level
+        g.gain.setValueAtTime(0.0001, t0 + at);
+        g.gain.exponentialRampToValueAtTime(vol, t0 + at + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + len);
+        o.connect(g).connect(ctx.destination);
+        o.start(t0 + at);
+        o.stop(t0 + at + len + 0.03);
+      }
+    }
+    function show() {
+      const b = $("btn-sound");
+      if (!b) return;
+      if (!AC) { b.hidden = true; return; }
+      const locked = on && !ready();
+      b.setAttribute("aria-pressed", String(on));
+      b.className = "btn btn-sm " + (locked ? "btn-warning" : "btn-outline-secondary");
+      b.innerHTML = `<i class="bi bi-volume-${on ? "up" : "mute"}" aria-hidden="true"></i> `
+        + `<span>${locked ? "Tap to turn sound on" : on ? "Sound on" : "Sound off"}</span>`;
+    }
+    return {
+      init() {
+        unlock();  // allowed straight away where the browser lets this site play sound
+        for (const ev of ["pointerdown", "keydown"]) document.addEventListener(ev, unlock, { capture: true });
+        const b = $("btn-sound");
+        if (b) b.addEventListener("click", () => {
+          if (on && !ready()) unlock();
+          else {
+            on = !on;
+            try { localStorage.setItem(KEY, on ? "on" : "off"); } catch { /* private window */ }
+          }
+          show();
+          setTimeout(() => play([[1850, 0, 0.09, "square"]]), 60);  // so the owner hears what an item sounds like
+        });
+        show();
+      },
+      // One beep per new item, a little apart: high for a known item, a low double beep for one it will ask about.
+      items(sure) {
+        const notes = [];
+        sure.slice(0, 6).forEach((ok, i) => {
+          const at = i * 0.22;
+          if (ok) notes.push([1850, at, 0.09, "square"]);
+          else notes.push([700, at, 0.07, "square"], [700, at + 0.11, 0.07, "square"]);
+        });
+        play(notes);
+      },
+      sold() { play([[1047, 0, 0.16], [1319, 0.13, 0.16], [1568, 0.26, 0.35]]); },
+    };
+  })();
+
+  let seen = {}, seenTray = 0;  // per product, the most of it seen at once in this sale: only new ones beep
+  function announce(dets, tray) {
+    const now = {};
+    for (const d of dets) if (!d.ignored) (now[d.pack_id ?? "?"] = now[d.pack_id ?? "?"] || []).push(d);
+    const fresh = [];
+    for (const [key, list] of Object.entries(now)) {
+      const extra = list.length - (seen[key] || 0);
+      if (extra > 0) { fresh.push(...list.slice(-extra)); seen[key] = list.length; }
+    }
+    const pieces = tray && tray.pieces ? tray.pieces : 0;
+    const trayNew = pieces > seenTray;
+    seenTray = Math.max(seenTray, pieces);
+    if (!fresh.length && !trayNew) return;
+    hideSold();
+    Sound.items(fresh.map((d) => d.tier === "high").concat(trayNew ? [!!tray.sure] : []));
+    for (const d of fresh) chip(d.crop, d.label === "?" ? "Something it doesn't know yet" : d.label, d.tier === "high");
+    if (trayNew) chip(null, trayText(tray), !!tray.sure, "capsule");
+  }
+
+  function chip(photo, text, sure, icon) {
+    const feed = $("seen");
+    const el = document.createElement("div");
+    el.className = "seen-chip " + (sure ? "sure" : "unsure");
+    el.innerHTML = (photo ? `<img src="${esc(photo)}" alt="">` : `<i class="bi bi-${icon || "question-lg"}" aria-hidden="true"></i>`)
+      + `<span><b>+1</b> ${esc(text)}${sure ? "" : "<small>it will ask you about this one</small>"}</span>`;
+    feed.append(el);
+    while (feed.children.length > 4) feed.firstElementChild.remove();
+    setTimeout(() => el.classList.add("out"), 3200);
+    setTimeout(() => el.remove(), 3700);
+  }
+
+  function lineName(l) {
+    const name = l.label === "?" ? "Something it doesn't know yet" : l.label;
+    return l.method === "tray" ? `${l.count} × ${name}` : name;
+  }
+
+  function showSold(s) {
+    const lines = s.lines.filter((l) => l.status !== "removed");
+    if (!lines.length) return;
+    const n = lines.reduce((sum, l) => sum + (l.method === "tray" ? 1 : l.count || 1), 0);
+    const ask = lines.filter((l) => l.status === "pending").length;
+    const card = $("sold");
+    card.innerHTML = `<div class="sold-head"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+        <span>Sold: ${n} item${n === 1 ? "" : "s"}${ask ? ` <small>· ${ask} to check</small>` : ""}</span>
+        <span class="sold-time">${clock()}</span></div>
+      <ul>${lines.map((l) => `<li class="${l.status === "auto" ? "done" : "ask"}">${l.photo ? `<img src="${esc(l.photo)}" alt="">` : '<i class="bi bi-question-lg" aria-hidden="true"></i>'}
+        <span class="name">${esc(lineName(l))}${l.method !== "tray" && l.count > 1 ? ` <b>×${l.count}</b>` : ""}
+          <small>${l.status === "auto" ? "recorded" : "you'll be asked to check it"}</small></span></li>`).join("")}</ul>`;
+    card.classList.toggle("has-checks", ask > 0);
+    card.classList.remove("d-none", "show");
+    void card.offsetWidth;  // restart the animation for a sale right after another
+    card.classList.add("show");
+    Sound.sold();
+  }
+  function hideSold() { $("sold").classList.add("d-none"); }
+
   // --- frames -----------------------------------------------------------------------
 
   function toGray(d) {
@@ -116,6 +249,7 @@
       lastDetections = res;
       $("txn").textContent = "#" + txnId + " (frame " + res.frame_no + ")";
       showDetections(res.detections, res.tray);
+      announce(res.detections, res.tray);
       draw();
     } catch (e) {
       if (e.status === 409) sceneChanged(e.body);
@@ -126,6 +260,7 @@
   async function closeSale() {
     if (!txnId) return;
     const id = txnId; txnId = null; lastDetections = null; draw();
+    seen = {}; seenTray = 0;
     $("txn").textContent = "–";
     try { logSale(await post(`/api/transactions/${id}/close`, new FormData())); }
     catch (e) { console.error(e); }
@@ -159,13 +294,19 @@
 
   function logSale(s) {
     if (!s.closed || s.empty) return;
+    showSold(s);
     const box = $("salelog");
-    if (box.querySelector(".text-secondary")) box.innerHTML = "";
+    if (box.querySelector(":scope > .text-secondary")) box.innerHTML = "";
+    box.querySelectorAll(".sale.fresh").forEach((el) => el.classList.remove("fresh"));
     const div = document.createElement("div");
-    div.className = "sale";
-    const items = s.lines.map((l) => `<span class="pill status-${l.status}">${l.method === "tray" ? '<i class="bi bi-capsule" aria-hidden="true"></i> ' + l.count + " × " : ""}${l.label}</span>`).join(" ");
-    div.innerHTML = `<b>Sale #${s.txn_id}</b> · ${s.auto} auto, ${s.pending} to check<br>${items}`;
+    div.className = "sale fresh";
+    const items = s.lines.map((l) => `<span class="sale-item status-${esc(l.status)}">${l.photo ? `<img src="${esc(l.photo)}" alt="">` : ""}`
+      + `${l.method === "tray" ? '<i class="bi bi-capsule" aria-hidden="true"></i> ' : ""}${esc(lineName(l))}`
+      + `${l.method !== "tray" && l.count > 1 ? " ×" + l.count : ""}</span>`).join("");
+    div.innerHTML = `<div class="d-flex justify-content-between"><b>Sale #${s.txn_id}</b><span class="muted">${clock()}</span></div>`
+      + `<div class="muted">${s.auto} recorded${s.pending ? `, ${s.pending} to check` : ""}</div><div class="sale-items">${items}</div>`;
     box.prepend(div);
+    while (box.children.length > 20) box.lastElementChild.remove();
   }
 
   // --- drawing: the mat, the tray and the last capture -----------------------------------------
@@ -257,6 +398,7 @@
   function setMarking(target) {
     marking = marking === target ? null : target;
     dragFrom = null; dragBox = null;
+    if (marking) hideSold();  // the whole picture is needed to drag the box
     showAreas();
   }
   async function saveArea(area, box) {
@@ -387,18 +529,39 @@
       : Math.abs(r - 3 / 4) < 0.02 ? "3:4" : Math.abs(r - 9 / 16) < 0.02 ? "9:16" : r.toFixed(2) + ":1"; };
     const zoom = cam.zoom !== 1 ? ` · zoom ${cam.zoom.toFixed(1)}× (${cam.hw ? "the camera's own" : "digital"})` : "";
     $("cam-info").textContent = `Camera picture ${w}×${h} (${shape(w, h)})${zoom} · photos sent at ${sw}×${sh}`;
+    showHd();
+  }
+
+  // Items close together need HD photos (720 pixels or more on the short side). Say so on the main
+  // view, with the reason: a small camera picture, or a digital zoom cropping a bigger one.
+  function showHd() {
+    const [w, h] = cam.resolution(), [sw, sh] = cam.size(), [mw, mh] = cam.maxSize();
+    const low = w > 0 && !cam.hd();
+    $("hd-alert").classList.toggle("d-none", !low);
+    if (!low) return;
+    $("hd-title").textContent = `Photos are sent at ${sw}×${sh}, below HD: items close together are hard to tell apart.`;
+    const why = [];
+    if (!cam.hw && cam.zoom > 1.05)
+      why.push(`The ${cam.zoom.toFixed(1)}× zoom is digital: it keeps only the middle of the camera's ${w}×${h} picture.`
+               + " Zoom out to 1× and put the camera closer to the mat (or lower) instead.");
+    if (Math.min(w, h) < 720)
+      why.push(Math.min(mw, mh) > Math.min(w, h)
+        ? `The camera can give ${mw}×${mh} but opened at ${w}×${h}: choose it again under Camera setup, or reload the page.`
+        : `This camera's largest picture is ${w}×${h}. A 1080p webcam (1920×1080) or a phone camera sees far more.`);
+    $("hd-text").textContent = why.join(" ");
   }
   const setupOpen = () => $("setup").classList.contains("show");
   zoomUi = cam.controls({ surface: overlay, enabled: () => setupOpen() && !marking });
   cam.onzoom = () => { showCamInfo(); viewChanged("zoom"); };
   cam.onResize(draw);
+  cam.onResize(() => { if (cam.track) showCamInfo(); });  // a new picture size: is it still HD?
   $("setup").addEventListener("shown.bs.collapse", zoomUi.refresh);
   $("setup").addEventListener("hidden.bs.collapse", zoomUi.refresh);
 
   async function refreshState() {
     try {
       const s = await (await fetch("/api/state")).json();
-      $("ready").textContent = s.recognizer_ready ? "ready" : "loading… (the first photo waits for it)";
+      $("ready").textContent = s.recognizer_ready ? `ready · items found by ${s.finder}` : "loading… (the first photo waits for it)";
       $("gallery").textContent = s.gallery;
       if (s.open_txn && !txnId) { txnId = s.open_txn; $("txn").textContent = "#" + txnId; }
       const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -430,10 +593,16 @@
       const res = await post("/api/sale-photo", new FormData(e.target));
       lastDetections = null; draw();
       showDetections(res.detections, res.tray);
-      logSale(res.summary);
+      seen = {}; seenTray = 0;
+      announce(res.detections, res.tray);
+      seen = {}; seenTray = 0;
+      setTimeout(() => logSale(res.summary), 900);  // the beeps first, then the sale, as at the counter
     } catch (err) { alert(err.message); }
     finally { btn.disabled = false; btn.textContent = "Recognize as one sale"; }
   };
+
+  Sound.init();
+  $("sold").addEventListener("click", hideSold);
 
   // The Setup page links here with #setup: open the camera setup panel.
   if (location.hash === "#setup") bootstrap.Collapse.getOrCreateInstance($("setup"), { toggle: false }).show();
