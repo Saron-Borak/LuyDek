@@ -35,6 +35,7 @@ MIGRATIONS = {
                       "unit_name": "TEXT", "lot_no": "TEXT"},
     "stock_movements": {"batch_id": "INTEGER", "location_id": "INTEGER", "lot_no": "TEXT"},
     "gallery_images": {"area_frac": "REAL"},
+    "locations": {"kind": "TEXT", "levels": "INTEGER"},
 }
 
 

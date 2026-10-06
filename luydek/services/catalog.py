@@ -451,7 +451,7 @@ def reset(conn: sqlite3.Connection) -> None:
     for table in (
         "taps", "bot_messages", "digests", "forecasts", "invoice_lines", "invoices",
         "stock_movements", "transaction_items", "frame_detections", "transactions",
-        "gallery_images", "product_aliases", "product_packs", "products", "suppliers",
+        "gallery_images", "product_aliases", "product_packs", "facings", "products", "suppliers",
         "bot_users", "settings",
     ):
         conn.execute(f"DELETE FROM {table}")

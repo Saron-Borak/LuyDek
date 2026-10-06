@@ -22,7 +22,7 @@ import anthropic
 import numpy as np
 import segno
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from PIL import Image, ImageOps
@@ -35,7 +35,7 @@ from ..config import Config, get_config
 from ..i18n import t
 from ..recognition import cutout, labels, pipeline, segment, tray
 from ..services import (accuracy, batches, catalog, forecast, invoices, learn, locations, loose, metrics, report,
-                        sources, stock, stockin, transactions)
+                        shelfphoto, shelfsheet, sources, stock, stockin, stockmap, transactions)
 from . import charts as charts_mod
 from . import miniapp
 
@@ -1123,6 +1123,182 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         counts = {a: sum(1 for x in tasks if x.action == a) for a in ("remove", "front", "clear")}
         return page(request, "shelf.html", groups=groups, counts=counts, places=places, products=products, days=days,
                     dated=dated, suggested=locations.SUGGESTED, unrecorded=unrecorded, lot_flags=lot_flags)
+
+    # --- the stock map: each shelf face on, every batch in its spot -------------------------------------
+
+    @app.get("/map", response_class=HTMLResponse)
+    def map_page(request: Request, q: str = "", show: str = "", shelf: int | None = None):
+        with db.session(cfg) as conn:
+            data = stockmap.stock_map(conn, cfg)
+        return page(request, "map.html", data=data, q=q, show=show, shelf=shelf, kinds=stockmap.KINDS)
+
+    @app.get("/api/map")
+    def api_map():
+        with db.session(cfg) as conn:
+            return stockmap.stock_map(conn, cfg)
+
+    def _spots(conn, items) -> list[dict]:
+        """Spots from the page, each a product in the list or a new one by name. Photos of it off a shelf
+        photo teach the camera a product it has few photos of (its first, for a new one)."""
+        out, teach = [], []
+        for it in items:
+            product = _int(it.get("product"))
+            if product is None:
+                name = learn.clean_name(str(it.get("new_name") or ""))
+                if not name:
+                    raise ValueError("Each spot needs a product: pick one, or type the name of a new one.")
+                product = catalog.resolve_alias(conn, name)
+                if product is None or not conn.execute("SELECT active FROM products WHERE id = ?",
+                                                       (product,)).fetchone()[0]:
+                    product = catalog.add_product(conn, sku=catalog.unique_sku(conn, name), name_en=name,
+                                                  name_km=name, origin="shelf")
+            teach += [(c, product) for c in (it.get("crops") or [])[:3] if _crop_ok(c)]
+            out.append({"product": product, "level": _int(it.get("level")) or 1, "width": _int(it.get("width")) or 1})
+        if teach:
+            rec = pipeline.get_recognizer(cfg)
+            for crop, product in teach:
+                pack_id = catalog.default_pack_id(conn, product)
+                have = conn.execute("SELECT COUNT(*) FROM gallery_images WHERE pack_id = ?", (pack_id,)).fetchone()[0]
+                if have < MIN_PHOTOS:
+                    rec.teach(conn, crop, pack_id, MIN_PHOTOS)
+        return out
+
+    @app.post("/api/map/places")
+    async def api_map_add_place(request: Request):
+        """A new place, empty or with its spots (from a shelf photo)."""
+        body = await request.json()
+
+        def run() -> dict:
+            with db.session(cfg) as conn:
+                location_id = stockmap.add_place(conn, str(body.get("name") or ""), body.get("kind"),
+                                                 _int(body.get("levels")))
+                if body.get("items"):
+                    stockmap.save_shelf(conn, location_id, _spots(conn, body["items"]), levels=_int(body.get("levels")))
+                return {**stockmap.stock_map(conn, cfg), "added": location_id}
+        try:
+            return await run_in_threadpool(run)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/map/places/{location_id}/shelf")
+    async def api_map_save_shelf(request: Request, location_id: int):
+        """A shelf as the owner arranged it: its name, what it is, its levels and what stands where."""
+        body = await request.json()
+
+        def run() -> dict:
+            with db.session(cfg) as conn:
+                name = " ".join(str(body.get("name") or "").split())
+                if name:
+                    locations.rename(conn, location_id, name)
+                items = _spots(conn, body["items"]) if isinstance(body.get("items"), list) else None
+                stockmap.save_shelf(conn, location_id, items, levels=_int(body.get("levels")), kind=body.get("kind"))
+                return stockmap.stock_map(conn, cfg)
+        try:
+            return await run_in_threadpool(run)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/map/order")
+    async def api_map_order(request: Request):
+        """The order of the places: the slides, and the walk."""
+        body = await request.json()
+        try:
+            with db.session(cfg) as conn:
+                stockmap.reorder(conn, [int(i) for i in body.get("ids") or []])
+                return stockmap.stock_map(conn, cfg)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/map/places/{location_id}/remove")
+    def api_map_remove_place(location_id: int):
+        """The place goes from the map; its products and batches are kept, with no place."""
+        with db.session(cfg) as conn:
+            locations.remove(conn, location_id)
+            return stockmap.stock_map(conn, cfg)
+
+    @app.post("/api/map/photo")
+    async def api_map_photo(image: UploadFile = File(...)):
+        """What stands on a shelf, read off a photo of it, for the owner to check before saving."""
+        data = await image.read()
+
+        def run() -> dict:
+            frame = segment.decode(data)
+            rec = pipeline.get_recognizer(cfg)
+            with db.session(cfg) as conn:
+                return shelfphoto.proposal(conn, rec.read_shelf(conn, frame, f"shelf{uuid.uuid4().hex[:8]}"))
+        try:
+            return await run_in_threadpool(run)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/map/sheet/read")
+    async def api_map_sheet_read(file: UploadFile = File(...), sheet: str = Form("")):
+        """The owner's spreadsheet: its rows, which column is what (a guess), and each row read that way."""
+        data = await file.read()
+        if len(data) > 10 * 1024 * 1024:
+            raise HTTPException(400, "That file is over 10 MB: is it the right one?")
+        try:
+            rows, sheets = shelfsheet.read(data, file.filename or "", sheet or None)
+            heading, mapping = shelfsheet.guess(rows)
+            with db.session(cfg) as conn:
+                read = shelfsheet.interpret(conn, rows, heading, mapping)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"table": rows, "sheets": sheets, "sheet": sheet or (sheets[0] if sheets else ""), "heading": heading,
+                "mapping": mapping, **read}
+
+    @app.post("/api/map/sheet/check")
+    async def api_map_sheet_check(request: Request):
+        """The rows read again, after the owner changed which column is what."""
+        body = await request.json()
+        try:
+            mapping = {f: _int((body.get("mapping") or {}).get(f)) for f in shelfsheet.FIELDS}
+            with db.session(cfg) as conn:
+                return shelfsheet.interpret(conn, body["table"], int(body.get("heading") or 0), mapping,
+                                            " ".join(str(body.get("shelf_for_all") or "").split()) or None)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(400, f"That sheet doesn't look right ({exc})")
+
+    @app.post("/api/map/sheet/save")
+    async def api_map_sheet_save(request: Request):
+        """The sheet's products on their shelves, and their stock counted, if the owner asked."""
+        body = await request.json()
+        try:
+            with db.session(cfg) as conn:
+                done = shelfsheet.save(conn, list(body.get("rows") or []), count_stock=bool(body.get("count_stock")))
+                return {**stockmap.stock_map(conn, cfg), "done": done}
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.get("/map/shelves.csv")
+    def map_sheet_export():
+        """The shelves as a spreadsheet, to fill in or correct in Excel and bring back."""
+        with db.session(cfg) as conn:
+            text = shelfsheet.export(conn)
+        return Response(text.encode("utf-8"), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="luydek-shelves.csv"'})
+
+    @app.post("/api/map/batches/{batch_id}/remove")
+    async def api_map_remove_batch(request: Request, batch_id: int):
+        """Taken off the shelf (expired, damaged): out of stock, with the reason."""
+        body = await request.json()
+        reason = body.get("reason") if body.get("reason") in ("expired", "damaged") else "expired"
+        try:
+            with db.session(cfg) as conn:
+                n = batches.remove(conn, batch_id, _int(body.get("qty")), reason=reason, by="map")
+                return {**stockmap.stock_map(conn, cfg), "removed": n}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/map/batches/{batch_id}/move")
+    async def api_map_move_batch(request: Request, batch_id: int):
+        body = await request.json()
+        try:
+            with db.session(cfg) as conn:
+                batches.update(conn, batch_id, location_id=_int(body.get("location_id")))
+                return stockmap.stock_map(conn, cfg)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
 
     @app.post("/source-flags/{flag_id}/clear")
     def clear_source_flag(request: Request, flag_id: int):

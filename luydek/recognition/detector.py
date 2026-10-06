@@ -215,6 +215,26 @@ def tidy(found: list[Found], roi: Box, exclude: Box | None, cfg: DetectorCfg, se
     return [found[i] for i in out]
 
 
+def groups(found: list[Found], min_part: float = 0.03) -> set[int]:
+    """Boxes around two or more things standing side by side on one board (a whole shelf level, a row
+    of cans), for a photo of a shelf. There, such a box is a group, never an item: `tidy` would keep it
+    and drop the products in it as its parts. Things side by side overlap little left to right and
+    stand on the same line; the parts of one product (a cap above a label) don't."""
+    out = set()
+    for i, big in enumerate(found):
+        a = _area(big.box)
+        inner = [j for j, f in enumerate(found) if j != i and min_part * a <= _area(f.box) < 0.8 * a
+                 and _overlap(f.box, big.box) >= 0.85 * _area(f.box)]
+        for j, k in combinations(inner, 2):
+            p, q = found[j].box, found[k].box
+            across = min(p[2], q[2]) - max(p[0], q[0])
+            if (across < 0.3 * min(p[2] - p[0], q[2] - q[0])
+                    and abs(p[3] - q[3]) < 0.25 * min(p[3] - p[1], q[3] - q[1])):
+                out.add(i)
+                break
+    return out
+
+
 def outline_mask(found: list[Found], w: int, h: int, grow: int = 0) -> np.ndarray:
     """All outlines filled in, full size (0/255), each widened by `grow` pixels."""
     m = np.zeros((h, w), np.uint8)

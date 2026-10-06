@@ -41,6 +41,23 @@ class Detection:
     area_frac: float = 0.0      # its size, as a share of the frame
 
 
+@dataclass
+class ShelfItem:
+    """A product on a photo of a shelf: where it stands, and what it looks most like."""
+    box: tuple[int, int, int, int]
+    crop_path: str
+    pack_id: int | None
+    score: float
+    tier: str
+    candidates: list[tuple[int, float]]
+    aside: bool = False      # a thin strip (a price tag, a shelf label): shown set aside, not asked about
+    vec: np.ndarray | None = None   # its CLIP vector: neighbours the camera doesn't know are one question if alike
+
+
+SHELF_MIN_AREA = 0.0008  # a shelf photo holds dozens of items: much smaller ones than on the mat count
+STRIP = (2.5, 0.25)      # wider than tall by this much, and this low beside the taller items: a price tag
+
+
 class Skipped(Exception):
     """A hold-to-record frame not worth keeping: "hand" (in the way), "empty" (lifted off the mat) or "same"
     (a near-copy of a photo the product already has)."""
@@ -160,6 +177,45 @@ class Recognizer:
         rest = segment.segment(frame, reference, rc.segment, roi, exclude=tray_roi, covered=covered)
         out = items + rest
         out.sort(key=lambda bl: (bl.bbox[1] // 50, bl.bbox[0]))
+        return out
+
+    def read_shelf(self, conn: sqlite3.Connection, frame: np.ndarray, crop_prefix: str) -> list[ShelfItem]:
+        """Each item on a photo of a shelf, taken from the front: its box and its closest products. Only
+        the detector can find them (a shelf has no empty-mat photo to compare with). A box around things
+        standing side by side (a whole level) is a group, not an item. Thin strips along the boards
+        (price tags) are marked `aside`: the owner sees them and can bring any back. Whatever else the
+        camera isn't sure of, the owner is asked about."""
+        if self.finder is None:
+            raise ValueError("Reading a shelf photo needs the item finder (YOLOE), and it isn't loaded: "
+                             "use a spreadsheet, or add the products by hand.")
+        rc = self.cfg.recognition
+        h, w = frame.shape[:2]
+        seg = rc.segment.model_copy(update={"min_area_frac": SHELF_MIN_AREA})
+        raw = self.finder.detect(frame)
+        apart = detector.groups(raw)
+        found = detector.tidy([f for i, f in enumerate(raw) if i not in apart], (0, 0, w, h), None, rc.detector, seg, w)
+        if not found:
+            return []
+        tall = float(np.percentile([f.box[3] - f.box[1] for f in found], 75))
+        # Neighbours stand close on a shelf: each crop has the ones reaching into it painted out, as on the mat.
+        blobs = detector.blobs(frame, found, (0, 0, w, h), segment.synthetic_reference(frame), seg)
+        crops, boxes = [b.crop for b in blobs], [f.box for f in found]
+        vectors = self.encoder.encode_images(crops)
+        gallery = self.cache.get(conn)
+        (self.cfg.media_dir / "crops").mkdir(parents=True, exist_ok=True)
+        out = []
+        for i, (crop, box, vec) in enumerate(zip(crops, boxes, vectors, strict=True)):
+            rel = f"crops/{crop_prefix}_{i}.jpg"
+            crop.save(self.cfg.media_dir / rel, quality=90)
+            m = gallery.match(vec, rc.top_k_per_pack)
+            if m.pack_id is None:      # looks like clutter (a price tag, the shelf edge): asked, with the closest products
+                pack_id, score, t = (m.candidates[0][0] if m.candidates else None), 0.0, "low"
+            else:
+                pack_id, score, t = m.pack_id, m.score, tier(m.score, m.margin, rc)
+            bw, bh = box[2] - box[0], box[3] - box[1]
+            strip = bw >= STRIP[0] * bh and bh < STRIP[1] * tall
+            out.append(ShelfItem(tuple(int(v) for v in box), rel, pack_id, round(float(score), 4), t, m.candidates, strip,
+                                 vec))
         return out
 
     def _choose_parts(self, blobs: list, vectors: np.ndarray, gallery) -> tuple[list, np.ndarray]:

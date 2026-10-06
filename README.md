@@ -330,6 +330,53 @@ walk checks that this is true.
   the sales still waiting to be checked, so nothing is taken off twice. Every count is logged,
   the ones that matched too.
 
+### The stock map (`/map`)
+
+Each shelf face on, the way the owner sees it in the shop: its levels top to bottom, each product in
+its spot left to right (as wide as its facings), with how many are left and the first date to
+expire. One shelf at a time, like slides: the arrows, the strip of shelf names, the arrow keys, or a
+swipe on a phone. Fridges, the counter and the back room are drawn as what they are.
+
+- **Find anything:** type a product or a lot number. Its spots light up, the map goes to the first
+  shelf with one, the strip says how many are on each shelf, and the panel says where each one is
+  (*Shelf A · level 2 of 4 · 3rd from the left*), with its batches, dates, lots and value, and
+  **Taken off** / **Moved to**.
+- **Show only:** expired, expiring within 30 days, won't sell in time, sleeping money, out of stock,
+  no place yet. The chips say how many (or how much money).
+- **Layers:** *Expiry* (red: expired, amber: expires soon or won't sell in time, green: fine),
+  *Dead stock* (darker violet: more money sleeping at cost: no sale in 45 days, or months of stock
+  at today's pace, the order lists' rule) and *Stock*. A product out of stock is a dashed gap in its
+  spot.
+- **Today's walk:** the shelf check shelf by shelf, with the job on each product (*Take off ×6*,
+  *Put in front*), and **Next stop**.
+- **Edit this shelf:** drag products along a level or to another one, **+** adds one, tap one to move
+  it, make it wider or take it off; change the levels, the name, what it is, its place in the walk.
+
+**New shelf**, three ways:
+
+- **From a photo:** one photo of the whole shelf, straight on. The item finder (YOLOE) finds each
+  product, CLIP says which it looks like, and the levels come from where their bottoms line up.
+  Neighbours that are the same product are one spot, as wide as there are of them. Anything it
+  isn't sure of is marked **?** and must be answered (the closest products, another, a new one by
+  name, or *Not a product*) before saving; nothing is dropped on its own. A product with fewer than
+  5 photos learns from its photo off the shelf (a new one gets its first). Needs the item finder's
+  weights in `models/`.
+- **From a spreadsheet:** the owner's own list, `.xlsx` or `.csv`, read with no spreadsheet package
+  (an old `.xls` must be saved as `.xlsx` first). The columns are guessed from their headings, in
+  English or Khmer (*Item*, *Qty*, *Exp*, *ធ្នើ*, *ចំនួន*…), and can be changed. Each product is matched
+  to the list by barcode, then by a name it is known by, then the closest name (a guess to check);
+  the rest become new products unless the owner picks one, or leaves the row out. Dates as shops
+  write them: *31/12/2026*, *12/2026*, *Dec 2026*, Excel dates. An empty shelf cell means the shelf
+  above (merged cells); with no level column, a shelf's products are shared out over its levels.
+  **Count the stock** sets what is on each shelf in the sheet to the sheet's quantities, as batches
+  with their dates; stock on shelves the sheet doesn't mention is kept, so a sheet of the fridge is
+  a count of the fridge.
+- **Empty:** a name, what it is and how many levels; then fill it in with **+**.
+
+**Shelves as a spreadsheet** (`/map/shelves.csv`) gives every product back as a sheet: a row per
+batch on each shelf (level, position, facings, quantity, expiry, lot), the products on no shelf
+first. Fill it in or correct it in Excel and bring it back: the same sheet makes the same shelves.
+
 ### Bringing stock in (`/stock-in`)
 
 The camera does the counting, for a shop's first day and for any delivery without an invoice.

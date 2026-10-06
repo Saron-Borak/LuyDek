@@ -83,7 +83,7 @@
     <div class="flex-grow-1" style="min-width:12rem">
       <a href="/catalog/{{ r.id }}" class="name text-decoration-none text-reset">{{ r.name_en }}</a>
       {% if r.is_critical %}<span class="pill must">must-have</span>{% endif %}
-      {% if r.origin != 'catalog' %}<span class="pill new-from" title="added {{ (r.added_at or '')[:10] }}">{{ 'from a sale' if r.origin == 'counter' else 'from an invoice' }}</span>{% endif %}
+      {% if r.origin != 'catalog' %}<span class="pill new-from" title="added {{ (r.added_at or '')[:10] }}">{{ {'counter': 'from a sale', 'invoice': 'from an invoice', 'stock_in': 'from stock in', 'sheet': 'from a spreadsheet', 'shelf': 'from a shelf'}.get(r.origin, 'added') }}</span>{% endif %}
       <div class="km small muted">{{ r.name_km if r.name_km != r.name_en }}</div>
       {% set box = boxes.get(r.id) %}
       <div class="meta">{{ r.emoji or '' }} {{ r.supplier_name or 'no supplier' }} ·

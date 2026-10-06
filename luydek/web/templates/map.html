@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Stock map{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1><i class="bi bi-map" aria-hidden="true"></i> Stock map</h1>
+    <div class="lead-line">Each shelf face on, the way you see it in the shop. Find any product, see what has expired
+      and where money is sleeping; go from shelf to shelf with the arrows.</div>
+  </div>
+  <button type="button" class="btn btn-dark" id="btn-new"><i class="bi bi-plus-lg" aria-hidden="true"></i> New shelf</button>
+</div>
+
+<div class="map-tools card mb-3"><div class="card-body d-flex flex-column gap-2">
+  <div class="d-flex gap-2 flex-wrap align-items-center">
+    <div class="map-search flex-grow-1">
+      <i class="bi bi-search" aria-hidden="true"></i>
+      <input type="search" id="q" class="form-control form-control-lg" placeholder="Find a product, or a lot number"
+             value="{{ q }}" aria-label="Find a product or a lot number" autocomplete="off">
+    </div>
+    <div class="btn-group" role="group" aria-label="What the colours show" id="layers">
+      <button type="button" class="btn btn-outline-dark" data-layer="expiry"><i class="bi bi-calendar2-x" aria-hidden="true"></i> Expiry</button>
+      <button type="button" class="btn btn-outline-dark" data-layer="dead"><i class="bi bi-moon-stars" aria-hidden="true"></i> Dead stock</button>
+      <button type="button" class="btn btn-outline-dark" data-layer="stock"><i class="bi bi-boxes" aria-hidden="true"></i> Stock</button>
+    </div>
+  </div>
+  <div class="chips" id="filters" role="group" aria-label="Show only"></div>
+</div></div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card shelf-card">
+      <div class="shelf-head">
+        <button type="button" class="btn btn-light nav-btn" id="prev" aria-label="Previous shelf"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+        <div class="shelf-title" aria-live="polite">
+          <div class="name" id="shelf-name"></div>
+          <div class="sub" id="shelf-sub"></div>
+        </div>
+        <button type="button" class="btn btn-light nav-btn" id="next" aria-label="Next shelf"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+      </div>
+      <div class="shelf-strip" id="strip" role="tablist" aria-label="Shelves"></div>
+      <div class="shelf-stage" id="stage"></div>
+      <div class="shelf-bar" id="bar">
+        <button type="button" class="btn btn-sm btn-outline-dark" id="btn-walk" aria-pressed="false">
+          <i class="bi bi-signpost-split" aria-hidden="true"></i> Today's walk</button>
+        <button type="button" class="btn btn-sm btn-outline-dark" id="btn-edit" aria-pressed="false">
+          <i class="bi bi-pencil-square" aria-hidden="true"></i> Edit this shelf</button>
+        <a class="btn btn-sm btn-outline-dark ms-auto" href="/map/shelves.csv" download>
+          <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Shelves as a spreadsheet</a>
+      </div>
+      <div class="shelf-edit d-none" id="edit-bar">
+        <span class="small">Drag a product to move it, or tap it for more. <b>+</b> adds one to a level.</span>
+        <span class="ms-auto d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-dark" id="edit-cancel">Cancel</button>
+          <button type="button" class="btn btn-sm btn-success" id="edit-save">Save this shelf</button>
+        </span>
+      </div>
+      <div class="card-footer map-legend" id="legend"></div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card map-panel" id="panel" aria-live="polite"></div>
+  </div>
+</div>
+
+{# New shelf: empty, from a photo of it, or from the owner's spreadsheet #}
+<dialog id="maker" class="maker" aria-labelledby="maker-title">
+  <div class="maker-head">
+    <span id="maker-title" class="fw-semibold">New shelf</span>
+    <button type="button" class="btn-close" data-close aria-label="Close"></button>
+  </div>
+  <div class="maker-tabs" role="tablist">
+    <button type="button" role="tab" data-tab="photo"><i class="bi bi-camera" aria-hidden="true"></i> From a photo</button>
+    <button type="button" role="tab" data-tab="sheet"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> From a spreadsheet</button>
+    <button type="button" role="tab" data-tab="empty"><i class="bi bi-plus-square" aria-hidden="true"></i> Empty</button>
+  </div>
+  <div class="maker-body">
+    <section data-pane="empty">
+      <form id="mk-empty" class="d-flex flex-column gap-2">
+        <label class="form-label mb-0" for="mk-name">Name</label>
+        <input id="mk-name" name="name" class="form-control" placeholder="e.g. Shelf D, Drinks fridge" required>
+        <div class="d-flex gap-2">
+          <div class="flex-grow-1"><label class="form-label mb-0" for="mk-kind">What it is</label>
+            <select id="mk-kind" name="kind" class="form-select">{% for k in kinds %}<option value="{{ k }}">{{ k|capitalize }}</option>{% endfor %}</select></div>
+          <div style="width:7rem"><label class="form-label mb-0" for="mk-levels">Levels</label>
+            <input id="mk-levels" name="levels" type="number" min="1" max="12" value="4" class="form-control"></div>
+        </div>
+        <button class="btn btn-dark align-self-start mt-1">Add it, then fill it in</button>
+      </form>
+    </section>
+    <section data-pane="photo">
+      <div id="ph-start">
+        <p class="small mb-2">Stand in front of the shelf and take one photo of all of it, straight on. The camera finds each
+          product and its level; you check what it isn't sure of before anything is saved.</p>
+        <div class="d-flex gap-2 flex-wrap align-items-end mb-2">
+          <div class="flex-grow-1"><label class="form-label mb-0" for="ph-target">Which shelf</label>
+            <select id="ph-target" class="form-select"></select></div>
+          <div class="flex-grow-1" id="ph-name-box"><label class="form-label mb-0" for="ph-name">Name of the new shelf</label>
+            <input id="ph-name" class="form-control" placeholder="e.g. Shelf D"></div>
+        </div>
+        <label class="btn btn-dark"><i class="bi bi-camera" aria-hidden="true"></i> Take or choose the photo
+          <input type="file" id="ph-file" accept="image/*" capture="environment" class="d-none"></label>
+        <div class="small muted mt-2" id="ph-status" role="status"></div>
+      </div>
+      <div id="ph-review" class="d-none"></div>
+    </section>
+    <section data-pane="sheet">
+      <div id="sh-start">
+        <p class="small mb-2">The list you already keep in Excel (.xlsx) or as a CSV: products, and if you have them, where
+          each one is, how many and when they expire. Any column names will do: you choose which is which.</p>
+        <label class="btn btn-dark"><i class="bi bi-upload" aria-hidden="true"></i> Choose the spreadsheet
+          <input type="file" id="sh-file" accept=".xlsx,.xlsm,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" class="d-none"></label>
+        <div class="small muted mt-2">No list yet? <a href="/map/shelves.csv" download>Download your products as a spreadsheet</a>,
+          fill in the shelf, level and quantity in Excel, and bring it back here.</div>
+        <div class="small muted mt-1" id="sh-status" role="status"></div>
+      </div>
+      <div id="sh-review" class="d-none"></div>
+    </section>
+  </div>
+</dialog>
+
+<datalist id="all-products"></datalist>
+<script type="application/json" id="map-data">{{ {"map": data, "show": show, "shelf": shelf}|tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('stockmap.js') }}"></script>
+<script src="{{ asset('shelfmaker.js') }}"></script>{% endblock %}

@@ -37,8 +37,22 @@ CREATE TABLE IF NOT EXISTS locations (
     id     INTEGER PRIMARY KEY,
     name   TEXT    NOT NULL UNIQUE,
     sort   INTEGER NOT NULL DEFAULT 0,
-    active INTEGER NOT NULL DEFAULT 1
+    active INTEGER NOT NULL DEFAULT 1,
+    kind   TEXT,                       -- shelf / fridge / counter / storage / other (guessed from the name if empty)
+    levels INTEGER                     -- how many levels it has, top to bottom (empty: the usual for its kind)
 );
+
+-- What stands where, seen from the front: each product's spot on a level (1 is the top), left to
+-- right, and how many facings wide. The stock map draws each shelf from this.
+CREATE TABLE IF NOT EXISTS facings (
+    id          INTEGER PRIMARY KEY,
+    location_id INTEGER NOT NULL REFERENCES locations(id),
+    level       INTEGER NOT NULL,
+    position    INTEGER NOT NULL,
+    product_id  INTEGER NOT NULL REFERENCES products(id),
+    width       INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS ix_facings_place ON facings(location_id, level, position);
 
 -- What the camera sees. Every product has a single-unit pack; a shrink-wrapped
 -- 6-pack is its own pack with units = 6, enrolled with its own photos.

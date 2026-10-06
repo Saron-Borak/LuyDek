@@ -193,3 +193,14 @@ def test_the_counter_page_suits_a_phone():
     assert 'readyState === "ended"' in js                          # the camera reopens after the phone wakes
     assert "LuyCam.whyNot()" in js                                  # plain words when the address isn't https
     assert 'viewChanged("zoom")' in js                             # a new zoom asks for a fresh calibration
+
+
+def test_every_stylesheet_closes_what_it_opens():
+    """One missing brace and every rule after it silently applies only inside the block left open
+    (it happened once, in a merge: the Sold card lost its styles on laptops)."""
+    for path in (WEB / "static").glob("*.css"):
+        depth = 0
+        for ch in re.sub(r"/\*.*?\*/", "", path.read_text(encoding="utf-8"), flags=re.S):
+            depth += (ch == "{") - (ch == "}")
+            assert depth >= 0, f"{path.name}: a }} with nothing open"
+        assert depth == 0, f"{path.name}: {depth} block(s) never closed"
