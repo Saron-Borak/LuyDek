@@ -1,114 +1,111 @@
 {% extends "base.html" %}
-{% block title %}Counter camera{% endblock %}
+{% set back = '/more' %}
+{% set help_topic = 'checks' %}
+{% block title %}{{ _("Counter camera") }}{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1><i class="bi bi-camera-video" aria-hidden="true"></i> Counter camera</h1>
-    <div class="lead-line">Watches the mat and records each sale. Leave this page open on the counter computer.</div>
-  </div>
-</div>
+<header class="page-title">
+  <h1>{{ _("Counter camera") }}</h1>
+  <div class="sub">{{ _("Leave it open on the counter computer. Just sell: what stays still on the mat is recorded.") }}</div>
+</header>
+
 <div class="row g-3">
   <div class="col-lg-8">
-    <div class="card">
-      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <span><i class="bi bi-broadcast" aria-hidden="true"></i> Live view</span>
-        <span class="d-flex gap-2 align-items-center">
-          <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-sound" aria-pressed="true"
-                  title="A beep for each item it sees, a chime when the sale is recorded">
-            <i class="bi bi-volume-up" aria-hidden="true"></i> <span>Sound on</span></button>
-          <span id="state" class="state-pill state-NOREF">starting…</span>
-        </span>
-      </div>
-      <div class="card-body">
-        <div id="scene-alert" class="alert alert-danger d-none" role="alert">
-          <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> <span id="scene-title">Camera moved or the light changed</span></div>
-          <div class="small mb-2"><span id="scene-text"></span> Automatic capture is paused so no wrong sale is recorded.</div>
-          <div class="d-flex flex-wrap gap-2">
-            <button id="btn-scene-cal" class="btn btn-danger">Counter is clear — calibrate now</button>
-            <button id="btn-scene-ignore" class="btn btn-outline-secondary">It's fine, carry on</button>
-          </div>
-        </div>
-        <div id="hd-alert" class="alert alert-warning py-2 d-none" role="alert">
-          <div class="fw-semibold"><i class="bi bi-aspect-ratio" aria-hidden="true"></i> <span id="hd-title"></span></div>
-          <div class="small" id="hd-text"></div>
-        </div>
-        <div class="stage mb-2">
-          <video id="video" autoplay playsinline muted></video>
-          <canvas id="overlay"></canvas>
-          <!-- each item as the camera sees it, then the sale it became: so no sale goes unnoticed -->
-          <div class="seen-feed" id="seen" aria-hidden="true"></div>
-          <div class="sold-card d-none" id="sold" role="status" aria-live="polite" tabindex="-1"
-               title="Tap to close: it also goes when the next item is put down"></div>
-        </div>
-        <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
-          <span class="muted small" id="hint">Just sell: items that land on the mat and stay still are recorded; the sale closes when the mat is empty again.
-            A high beep: it knows the item. A low double beep: it will ask you about it.</span>
-          <button class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#setup" aria-expanded="{{ 'true' if setup_open else 'false' }}"><i class="bi bi-gear" aria-hidden="true"></i> Camera setup</button>
-        </div>
-        <!-- why it is (or isn't) capturing: for when it seems slow or never closes a sale -->
-        <div class="small muted mt-1 readout" id="readout" aria-live="off"></div>
+    <!-- what the camera is doing, and its sound -->
+    <div class="cam-bar">
+      <span id="state" class="state-pill state-NOREF">{{ _("starting…") }}</span>
+      <span class="ms-auto d-flex gap-2">
+        <button type="button" class="btn btn-outline-dark" id="btn-sound" aria-pressed="true"
+                title="A beep for each item it sees, a chime when the sale is recorded">
+          <i class="bi bi-volume-up" aria-hidden="true"></i> <span>{{ _("Sound on") }}</span></button>
+        <button type="button" class="btn btn-outline-dark" data-bs-toggle="collapse" data-bs-target="#setup"
+                aria-expanded="{{ 'true' if setup_open else 'false' }}" aria-controls="setup"><i class="bi bi-gear" aria-hidden="true"></i> {{ _("Camera setup") }}</button>
+      </span>
+    </div>
 
-        <!-- setup: open until the camera is calibrated and the mat is marked, folded away after -->
-        <div class="collapse {{ 'show' if setup_open }} mt-3" id="setup">
-          <div class="setup-panel">
-            <ol class="setup-steps">
-              <li><div class="fw-semibold">Point the camera straight down at a plain, matte mat</div>
-                <select id="camera" class="form-select mt-1" style="max-width:18rem" aria-label="camera"></select>
-                <div class="small muted mt-1" id="cam-info"></div>
-                <div class="small muted">Fill the picture with the mat: move the camera, or zoom by pinching the picture
-                  or with the 1× / 2× buttons on it. Changing the zoom later means calibrating again.</div></li>
-              <li><div class="fw-semibold">Clear the mat, then calibrate</div>
-                <div class="d-flex gap-2 align-items-center mt-1 flex-wrap">
-                  <button id="btn-calibrate" class="btn btn-lg btn-dark">Calibrate empty counter</button>
-                  <img id="refimg" class="thumb d-none" alt="the empty counter the camera compares against">
-                </div></li>
-              <li><div class="fw-semibold">Mark the mat, so hands and things beside it never count</div>
-                <div class="d-flex gap-2 flex-wrap mt-1">
-                  <button id="btn-roi" class="btn btn-lg btn-outline-dark">Mark the mat</button>
-                  <button id="btn-roi-clear" class="btn btn-outline-secondary d-none">Use the whole view</button>
-                </div>
-                <div id="roi-help" class="alert alert-warning py-2 mt-2 mb-0 d-none">
-                  Drag a box on the picture from one corner of the mat to the other. Only items inside it count.</div></li>
-              <li><div class="fw-semibold">Pharmacies only: mark the tablet tray <span class="muted fw-normal">(optional)</span></div>
-                <div class="d-flex gap-2 flex-wrap mt-1">
-                  <button id="btn-tray" class="btn btn-outline-dark"><i class="bi bi-capsule" aria-hidden="true"></i> Mark the tablet tray</button>
-                  <button id="btn-tray-clear" class="btn btn-outline-secondary d-none">No tray</button>
-                </div>
-                <div id="tray-help" class="alert alert-warning py-2 mt-2 mb-0 d-none">
-                  Drag a box around the small black card where loose tablets are put down. Calibrate with the card empty.
-                  When selling loose, put the box the tablets came from beside the card.</div></li>
-            </ol>
-            <details class="mt-2">
-              <summary class="muted small">Manual controls</summary>
-              <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
-                <div class="form-check form-switch ms-1">
-                  <input class="form-check-input" type="checkbox" id="auto" checked>
-                  <label class="form-check-label small" for="auto">Automatic capture</label>
-                </div>
-                <button id="btn-capture" class="btn btn-outline-primary">Capture now</button>
-                <button id="btn-close" class="btn btn-outline-secondary">Close sale</button>
-                <span class="small muted">Recognizer: <span id="ready">loading…</span> · <span id="gallery">–</span> product photos</span>
-              </div>
-            </details>
-          </div>
-        </div>
+    <div id="scene-alert" class="alert alert-danger d-none" role="alert">
+      <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> <span id="scene-title">Camera moved or the light changed</span></div>
+      <div class="small mb-2"><span id="scene-text"></span> Automatic capture is paused so no wrong sale is recorded.</div>
+      <div class="d-flex flex-wrap gap-2">
+        <button id="btn-scene-cal" class="btn btn-danger">Counter is clear: calibrate now</button>
+        <button id="btn-scene-ignore" class="btn btn-outline-dark">It's fine, carry on</button>
       </div>
+    </div>
+    <div id="hd-alert" class="alert alert-warning py-2 d-none" role="alert">
+      <div class="fw-semibold"><i class="bi bi-aspect-ratio" aria-hidden="true"></i> <span id="hd-title"></span></div>
+      <div class="small" id="hd-text"></div>
+    </div>
+
+    <!-- the live picture: each item as the camera sees it, then the sale it became -->
+    <div class="stage mb-2">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="seen-feed" id="seen" aria-hidden="true"></div>
+      <div class="sold-card d-none" id="sold" role="status" aria-live="polite" tabindex="-1"
+           title="Tap to close: it also goes when the next item is put down"></div>
+    </div>
+    <p class="cam-hint" id="hint">{{ _("A high beep: it knows the item. A low double beep: it will ask you about it. The sale closes when the mat is empty again.") }}</p>
+    <div class="small muted readout" id="readout" aria-live="off"></div>
+
+    <!-- setup: open until the camera is calibrated and the mat is marked, folded away after -->
+    <div class="collapse {{ 'show' if setup_open }} mt-3" id="setup">
+      <section class="fold-section setup-steps-card" aria-labelledby="setup-title">
+        <div class="panel-head"><b id="setup-title">{{ _("Camera setup") }}</b></div>
+        <ol class="setup-steps">
+          <li><div class="fw-semibold">Point the camera straight down at a plain, matte mat</div>
+            <select id="camera" class="form-select mt-1" style="max-width:18rem" aria-label="camera"></select>
+            <div class="small muted mt-1" id="cam-info"></div>
+            <div class="small muted">Fill the picture with the mat: move the camera, or zoom by pinching the picture
+              or with the 1× / 2× buttons on it. Changing the zoom later means calibrating again.</div></li>
+          <li><div class="fw-semibold">Clear the mat, then calibrate</div>
+            <div class="d-flex gap-2 align-items-center mt-1 flex-wrap">
+              <button id="btn-calibrate" class="btn btn-dark">Calibrate empty counter</button>
+              <img id="refimg" class="thumb d-none" alt="the empty counter the camera compares against">
+            </div></li>
+          <li><div class="fw-semibold">Mark the mat, so hands and things beside it never count</div>
+            <div class="d-flex gap-2 flex-wrap mt-1">
+              <button id="btn-roi" class="btn btn-outline-dark">Mark the mat</button>
+              <button id="btn-roi-clear" class="btn btn-outline-dark d-none">Use the whole view</button>
+            </div>
+            <div id="roi-help" class="alert alert-warning py-2 mt-2 mb-0 d-none">
+              Drag a box on the picture from one corner of the mat to the other. Only items inside it count.</div></li>
+          <li><div class="fw-semibold">Pharmacies only: mark the tablet tray <span class="muted fw-normal">(optional)</span></div>
+            <div class="d-flex gap-2 flex-wrap mt-1">
+              <button id="btn-tray" class="btn btn-outline-dark"><i class="bi bi-capsule" aria-hidden="true"></i> Mark the tablet tray</button>
+              <button id="btn-tray-clear" class="btn btn-outline-dark d-none">No tray</button>
+            </div>
+            <div id="tray-help" class="alert alert-warning py-2 mt-2 mb-0 d-none">
+              Drag a box around the small black card where loose tablets are put down. Calibrate with the card empty.
+              When selling loose, put the box the tablets came from beside the card.</div></li>
+        </ol>
+        <details class="inline-edit px-3 pb-3">
+          <summary>Manual controls</summary>
+          <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+            <div class="form-check form-switch ms-1">
+              <input class="form-check-input" type="checkbox" id="auto" checked>
+              <label class="form-check-label small" for="auto">Automatic capture</label>
+            </div>
+            <button id="btn-capture" class="btn btn-outline-dark">Capture now</button>
+            <button id="btn-close" class="btn btn-outline-dark">Close sale</button>
+            <span class="small muted">Recognizer: <span id="ready">loading…</span> · <span id="gallery">–</span> product photos</span>
+          </div>
+        </details>
+      </section>
     </div>
   </div>
+
   <div class="col-lg-4">
-    <div class="card mb-3">
-      <div class="card-header d-flex justify-content-between">Last photo <span class="muted fw-normal small">sale <span id="txn">–</span></span></div>
-      <ul class="list-group list-group-flush small" id="detections"><li class="list-group-item text-secondary">Nothing on the mat yet</li></ul>
-    </div>
-    <div class="card mb-3">
-      <div class="card-header d-flex justify-content-between align-items-center">Sales just recorded
-        <a class="small fw-normal" href="/log">Wrong? Fix it in the camera log</a></div>
-      <div class="card-body small salelog" id="salelog"><span class="text-secondary">none yet</span></div>
-    </div>
+    <section class="map-panel mb-3" aria-labelledby="last-title">
+      <div class="panel-head"><b id="last-title">{{ _("Last photo") }}</b><span>{{ _("Sale") }} <span id="txn">–</span></span></div>
+      <ul class="list-group list-group-flush small" id="detections"><li class="list-group-item text-secondary">{{ _("Nothing on the mat yet") }}</li></ul>
+    </section>
+    <section class="map-panel mb-3" aria-labelledby="just-title">
+      <div class="panel-head"><b id="just-title">{{ _("Sales just recorded") }}</b><span><a href="/log">{{ _("Wrong? Fix it in the camera log") }}</a></span></div>
+      <div class="p-3 small salelog" id="salelog"><span class="text-secondary">{{ _("none yet") }}</span></div>
+    </section>
     {% if team %}
-    <div class="card">
-      <div class="card-header"><i class="bi bi-play-circle" aria-hidden="true"></i> Demo: upload a photo as one sale</div>
-      <div class="card-body">
+    <details class="fold-section">
+      <summary>Demo: upload a photo as one sale</summary>
+      <div class="fold-body">
         <form id="upload" class="d-grid gap-2">
           <input type="file" name="image" accept="image/*" class="form-control" required aria-label="counter photo">
           <div class="form-check small">
@@ -118,9 +115,10 @@
           <button class="btn btn-outline-dark">Recognize as one sale</button>
         </form>
       </div>
-    </div>
+    </details>
     {% endif %}
   </div>
 </div>
+<script>window.CAM_WORDS = {{ phrases(["Counter empty", "Items arriving…", "Still: captured", "Calibrate first", "Recalibrate", "Sound on", "Sound off", "Tap to turn sound on"])|tojson }};</script>
 {% endblock %}
 {% block scripts %}<script src="{{ asset('camera.js') }}"></script><script src="{{ asset('counter.js') }}"></script>{% endblock %}

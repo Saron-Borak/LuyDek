@@ -1,86 +1,88 @@
 {% extends "base.html" %}
-{% block title %}Stock map{% endblock %}
+{% set back = '/more' %}
+{% set help_topic = 'shelf' %}
+{% block title %}{{ _("Stock map") }}{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1><i class="bi bi-map" aria-hidden="true"></i> Stock map</h1>
-    <div class="lead-line">Each shelf face on, the way you see it in the shop, or the whole shop in 3D. Find any product,
-      see what has expired and where money is sleeping.</div>
-  </div>
-  <div class="d-flex gap-2 flex-wrap">
-    <div class="btn-group view-switch" role="group" aria-label="How to see the shop" id="views">
-      <button type="button" class="btn btn-outline-dark" data-view="face" aria-pressed="true"><i class="bi bi-bookshelf" aria-hidden="true"></i> Face on</button>
-      <button type="button" class="btn btn-outline-dark" data-view="3d" aria-pressed="false"><i class="bi bi-box" aria-hidden="true"></i> 3D shop</button>
-    </div>
-    <button type="button" class="btn btn-dark" id="btn-new"><i class="bi bi-plus-lg" aria-hidden="true"></i> New shelf</button>
-  </div>
+<header class="page-title">
+  <h1>{{ _("Stock map") }}</h1>
+  <div class="sub">{{ _("Every shelf, what is on it and its dates.") }}</div>
+</header>
+
+<div class="segmented mb-3" id="views" role="group" aria-label="{{ _('Stock map') }}">
+  <button type="button" data-view="face" aria-pressed="true"><i class="bi bi-bookshelf" aria-hidden="true"></i> {{ _("Shelves") }}</button>
+  <button type="button" data-view="3d" aria-pressed="false"><i class="bi bi-box" aria-hidden="true"></i> {{ _("3D shop") }}</button>
 </div>
 
-<div class="map-tools card mb-3"><div class="card-body d-flex flex-column gap-2">
-  <div class="d-flex gap-2 flex-wrap align-items-center">
-    <div class="map-search flex-grow-1">
-      <i class="bi bi-search" aria-hidden="true"></i>
-      <input type="search" id="q" class="form-control form-control-lg" placeholder="Find a product, or a lot number"
-             value="{{ q }}" aria-label="Find a product or a lot number" autocomplete="off">
-    </div>
-    <div class="btn-group view-face" role="group" aria-label="What the colours show" id="layers">
-      <button type="button" class="btn btn-outline-dark" data-layer="expiry"><i class="bi bi-calendar2-x" aria-hidden="true"></i> Expiry</button>
-      <button type="button" class="btn btn-outline-dark" data-layer="dead"><i class="bi bi-moon-stars" aria-hidden="true"></i> Dead stock</button>
-      <button type="button" class="btn btn-outline-dark" data-layer="stock"><i class="bi bi-boxes" aria-hidden="true"></i> Stock</button>
-    </div>
-  </div>
-  <div class="chips" id="filters" role="group" aria-label="Show only"></div>
-</div></div>
+<!-- today's walk: shelf by shelf, what to take off and what to put in front (filled in by the page) -->
+<div id="walk-card"></div>
+
+<div class="search-box">
+  <i class="bi bi-search" aria-hidden="true"></i>
+  <input type="search" id="q" placeholder="{{ _('Find a product or a lot…') }}" value="{{ q }}" aria-label="{{ _('Find a product or a lot…') }}" autocomplete="off" enterkeyhint="search">
+</div>
+<div class="filter-strip" id="filters" role="group" aria-label="{{ _('Stock map') }}"></div>
 
 <div class="row g-3">
   <div class="col-lg-8 view-face">
-    <div class="card shelf-card">
+    <section class="shelf-card">
       <div class="shelf-head">
-        <button type="button" class="btn btn-light nav-btn" id="prev" aria-label="Previous shelf"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+        <button type="button" class="nav-btn" id="prev" aria-label="{{ _('Previous shelf') }}"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
         <div class="shelf-title" aria-live="polite">
           <div class="name" id="shelf-name"></div>
           <div class="sub" id="shelf-sub"></div>
         </div>
-        <button type="button" class="btn btn-light nav-btn" id="next" aria-label="Next shelf"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+        <button type="button" class="nav-btn" id="next" aria-label="{{ _('Next shelf') }}"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
       </div>
-      <div class="shelf-strip" id="strip" role="tablist" aria-label="Shelves"></div>
+      <div class="shelf-strip" id="strip" role="tablist" aria-label="{{ _('Shelves') }}"></div>
       <div class="shelf-stage" id="stage"></div>
-      <div class="shelf-bar" id="bar">
-        <button type="button" class="btn btn-sm btn-outline-dark" id="btn-walk" aria-pressed="false">
-          <i class="bi bi-signpost-split" aria-hidden="true"></i> Today's walk</button>
-        <button type="button" class="btn btn-sm btn-outline-dark" id="btn-edit" aria-pressed="false">
-          <i class="bi bi-pencil-square" aria-hidden="true"></i> Edit this shelf</button>
-        <a class="btn btn-sm btn-outline-dark ms-auto" href="/map/shelves.csv" download>
-          <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Shelves as a spreadsheet</a>
-      </div>
       <div class="shelf-edit d-none" id="edit-bar">
-        <span class="small">Drag a product to move it, or tap it for more. <b>+</b> adds one to a level.</span>
+        <span class="small">{{ _("Drag a product to move it, or tap it for more. + adds one to a level.") }}</span>
         <span class="ms-auto d-flex gap-2">
-          <button type="button" class="btn btn-sm btn-outline-dark" id="edit-cancel">Cancel</button>
-          <button type="button" class="btn btn-sm btn-success" id="edit-save">Save this shelf</button>
+          <button type="button" class="btn btn-sm btn-outline-dark" id="edit-cancel">{{ _("Cancel") }}</button>
+          <button type="button" class="btn btn-sm btn-dark" id="edit-save">{{ _("Save this shelf") }}</button>
         </span>
       </div>
-      <div class="card-footer map-legend" id="legend"></div>
-    </div>
+      <div class="layer-bar">
+        <div class="segmented small-seg" role="group" aria-label="{{ _('What the colours show') }}" id="layers">
+          <button type="button" data-layer="expiry">{{ _("Dates") }}</button>
+          <button type="button" data-layer="dead">{{ _("Sleeping money") }}</button>
+          <button type="button" data-layer="stock">{{ _("Stock left") }}</button>
+        </div>
+        <div class="legend-items" id="legend"></div>
+      </div>
+    </section>
   </div>
   <div class="col-lg-4 view-face">
-    <div class="card map-panel" id="panel" aria-live="polite"></div>
+    <section class="map-panel" id="panel" aria-live="polite"></section>
+    <details class="fold-section mt-3" id="bar">
+      <summary>{{ _("Shelf tools") }}</summary>
+      <div class="fold-body d-grid gap-2">
+        <button type="button" class="btn btn-outline-dark" id="btn-edit" aria-pressed="false"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ _("Edit this shelf") }}</button>
+        <button type="button" class="btn btn-outline-dark" id="btn-new"><i class="bi bi-plus-lg" aria-hidden="true"></i> {{ _("New shelf") }}</button>
+        <a class="btn btn-outline-dark" href="/map/shelves.csv" download><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> {{ _("Shelves as a spreadsheet") }}</a>
+      </div>
+    </details>
   </div>
 
   {# The whole shop in 3D: every place a rack on the floor, every product a box, coloured by one measure #}
   <div class="col-lg-8 view-3d d-none">
-    <div class="card shop3d-card">
+    <section class="shelf-card shop3d-card">
       <div class="shop3d-tools">
-        <label class="tool"><span>Colour by</span><select id="m3-metric" class="form-select form-select-sm"></select></label>
-        <label class="tool"><span>Colours</span><select id="m3-palette" class="form-select form-select-sm"></select></label>
-        <label class="tool"><span>Spread</span><select id="m3-spread" class="form-select form-select-sm">
-          <option value="linear">Even</option><option value="sqrt">Square root</option><option value="log">Log</option></select></label>
-        <div class="form-check form-switch tool-check"><input class="form-check-input" type="checkbox" id="m3-invert">
-          <label class="form-check-label" for="m3-invert">Turn the colours round</label></div>
+        <label class="tool"><span>{{ _("Colour by") }}</span><select id="m3-metric" class="form-select form-select-sm"></select></label>
         <div class="form-check form-switch tool-check"><input class="form-check-input" type="checkbox" id="m3-photos">
-          <label class="form-check-label" for="m3-photos">Photos</label></div>
+          <label class="form-check-label" for="m3-photos">{{ _("Photos") }}</label></div>
         <div class="form-check form-switch tool-check"><input class="form-check-input" type="checkbox" id="m3-move" checked>
-          <label class="form-check-label" for="m3-move">Suggested move</label></div>
+          <label class="form-check-label" for="m3-move">{{ _("Suggested move") }}</label></div>
+        <details class="tool-more">
+          <summary class="small">More colour options</summary>
+          <div class="tool-more-body">
+            <label class="tool"><span>Colours</span><select id="m3-palette" class="form-select form-select-sm"></select></label>
+            <label class="tool"><span>Spread</span><select id="m3-spread" class="form-select form-select-sm">
+              <option value="linear">Even</option><option value="sqrt">Square root</option><option value="log">Log</option></select></label>
+            <div class="form-check form-switch tool-check"><input class="form-check-input" type="checkbox" id="m3-invert">
+              <label class="form-check-label" for="m3-invert">Turn the colours round</label></div>
+          </div>
+        </details>
       </div>
       <div class="shop3d-stage" id="stage3d">
         <canvas id="shop3d" tabindex="0" role="img" aria-label="The shop in 3D: racks on the floor, products coloured by the measure chosen. The Face on view lists the same, shelf by shelf."></canvas>
@@ -91,11 +93,11 @@
           <button type="button" class="btn btn-light" data-cam="front" aria-label="From the front"><i class="bi bi-arrows-angle-contract" aria-hidden="true"></i></button>
           <button type="button" class="btn btn-light" data-cam="above" aria-label="From above"><i class="bi bi-grid-3x3" aria-hidden="true"></i></button>
         </div>
-        <div class="hint3d" id="hint3d">Drag to turn · scroll or pinch to zoom · right-drag or two fingers to move</div>
+        <div class="hint3d" id="hint3d">{{ _("Drag to turn, pinch to zoom.") }}</div>
       </div>
       <div class="shelf-bar">
         <button type="button" class="btn btn-sm btn-outline-dark" id="btn-arrange3d" aria-pressed="false">
-          <i class="bi bi-arrows-move" aria-hidden="true"></i> Arrange the shop</button>
+          <i class="bi bi-arrows-move" aria-hidden="true"></i> {{ _("Arrange the shop") }}</button>
       </div>
       <div class="shelf-edit d-none" id="arrange3d">
         <span class="small" id="arrange3d-text">Drag a rack to where it stands in your shop.</span>
@@ -103,16 +105,22 @@
           <button type="button" class="btn btn-sm btn-outline-dark" id="a3-turn" disabled><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Turn it</button>
           <button type="button" class="btn btn-sm btn-outline-dark" id="a3-auto">Lay them out on their own</button>
           <button type="button" class="btn btn-sm btn-outline-dark" id="a3-cancel">Cancel</button>
-          <button type="button" class="btn btn-sm btn-success" id="a3-save">Save the layout</button>
+          <button type="button" class="btn btn-sm btn-dark" id="a3-save">Save the layout</button>
         </span>
       </div>
-      <div class="card-footer map-legend" id="legend3d"></div>
-    </div>
+      <div class="layer-bar map-legend" id="legend3d"></div>
+    </section>
   </div>
   <div class="col-lg-4 view-3d d-none">
-    <div class="card map-panel" id="panel3d" aria-live="polite"></div>
+    <section class="map-panel" id="panel3d" aria-live="polite"></section>
   </div>
 </div>
+
+<dialog class="sheet" id="spot-sheet" aria-label="{{ _('Stock map') }}" tabindex="-1">
+  <div class="sheet-grip" aria-hidden="true"></div>
+  <div id="spot-body"></div>
+  <form method="dialog"><button class="sheet-close">{{ _("Close") }}</button></form>
+</dialog>
 
 {# New shelf: empty, from a photo of it, or from the owner's spreadsheet #}
 <dialog id="maker" class="maker" aria-labelledby="maker-title">
@@ -172,6 +180,15 @@
 
 <datalist id="all-products"></datalist>
 <script type="application/json" id="map-data">{{ {"map": data, "show": show, "shelf": shelf}|tojson }}</script>
+<script>
+// The map's words, in this phone's language. T("{n} level|{n} levels", {n: 4}) picks the English plural.
+window.MAP_WORDS = {{ phrases(MAP_KEYS)|tojson }};
+window.mapT = (key, vars = {}) => {
+  let s = (window.MAP_WORDS || {})[key] || key;
+  if (s.includes("|")) { const [one, many] = s.split("|"); s = (vars.count ?? vars.n) === 1 ? one : many; }
+  return s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+};
+</script>
 {% endblock %}
 {% block scripts %}<script src="{{ asset('stockmap.js') }}"></script>
 <script src="{{ asset('shelfmaker.js') }}"></script>

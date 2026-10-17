@@ -1,9 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Setup{% endblock %}
+{% set back = '/more' %}
+{% block title %}{{ _("Setup") }}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <h1><i class="bi bi-gear" aria-hidden="true"></i> Setup</h1>
+    <h1><i class="bi bi-gear" aria-hidden="true"></i> {{ _("Setup") }}</h1>
     <div class="lead-line">{% if done == total %}Everything is set up. Come back here if the camera moves or you add a supplier.
       {% else %}{{ done }} of {{ total }} steps done. Each one takes a few minutes.{% endif %}</div>
   </div>
@@ -26,7 +27,7 @@
 
 <div class="card mt-3" id="phone">
   <div class="card-header"><i class="bi bi-phone" aria-hidden="true"></i> Open LuyDek on your phone
-    <div class="sub">Scan once, then add it to the home screen — it opens like an app.</div></div>
+    <div class="sub">Scan once, then add it to the home screen. It opens like an app.</div></div>
   <div class="card-body">
     {% if not phone.url %}
     <div class="muted">This computer isn't on a Wi-Fi network right now. Connect it to the shop's Wi-Fi and reload this page.</div>

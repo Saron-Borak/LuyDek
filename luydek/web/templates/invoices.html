@@ -1,108 +1,105 @@
 {% extends "base.html" %}
-{% block title %}Deliveries{% endblock %}
+{% set back = '/more' %}
+{% set help_topic = 'howto' %}
+{% block title %}{{ _("Deliveries") }}{% endblock %}
 {% block content %}
 {% from "_macros.html" import empty %}
-{% set words = {'extracted': 'Waiting for your OK', 'confirmed': 'In stock ✓', 'queued': 'Waiting for internet',
-                'failed': "Couldn't read it", 'rejected': 'Discarded', 'products': 'Products added'} %}
-<div class="page-head">
-  <div>
-    <h1>Deliveries</h1>
-    <div class="lead-line">Add what the agent delivered. Photograph the paper invoice: it's read for you, and you check it before anything enters stock.</div>
-  </div>
-</div>
+{#- Each delivery's state, in words, with the tone of a tag. -#}
+{% set states = {'extracted': (_('Waiting for your OK'), 'tag-low'), 'confirmed': (_('In stock'), 'tag-ok'),
+                 'queued': (_('Waiting for internet'), ''), 'failed': (_("Couldn't read it"), 'tag-out'),
+                 'rejected': (_('Discarded'), ''), 'products': (_('Products added'), 'tag-info')} %}
+{% macro delivery_row(i) -%}
+  {% set word, tone = states[i.status] %}
+  <li><a class="row-item" href="/invoices/{{ i.id }}">
+    <span class="cell-icon"><i class="bi bi-{{ 'receipt' if i.photo_path else 'keyboard' }}" aria-hidden="true"></i></span>
+    <span class="row-text">
+      <b>{{ i.supplier or i.supplier_name_raw or _('Unknown supplier') }}</b>
+      <span>{{ i.received_at|when(True) }} · {{ _("{n} line|{n} lines", n=i.line_count) }}{% if i.units %} · +{{ i.units }}{% endif %}</span>
+    </span>
+    <span class="tag {{ tone }}">{{ word }}</span>
+    <i class="bi bi-chevron-right row-go" aria-hidden="true"></i></a></li>
+{%- endmacro %}
 
-<div class="row g-3">
-  <div class="col-lg-7">
-    <div class="card mb-3">
-      <div class="card-body p-4">
-        {% if not key_present %}
-        <div class="alert alert-warning">Reading photos needs an <code>ANTHROPIC_API_KEY</code> in <code>.env</code>.
-          Until then, <a href="#manual" data-bs-toggle="collapse">type the invoice in</a>.</div>
-        {% endif %}
-        <form id="upload" method="post" action="/invoices/upload" enctype="multipart/form-data" data-busy="Reading the invoice… (up to a minute)">
-          <label class="dropzone" id="drop" for="photo">
-            <span class="big"><i class="bi bi-receipt" aria-hidden="true"></i></span>
-            <span class="fs-5 fw-semibold">Take a photo of the invoice</span>
-            <span class="muted">or drop a photo here · Khmer, English, printed or handwritten</span>
-            <img id="preview" class="d-none mt-2" alt="chosen invoice photo">
-          </label>
-          <input type="file" id="photo" name="image" accept="image/*" capture="environment" class="d-none" required>
-          <div class="d-flex gap-2 mt-3 flex-wrap">
-            <button class="btn btn-xl btn-primary flex-grow-1" id="read-btn" disabled>Read invoice</button>
-            <button type="button" class="btn btn-xl btn-outline-dark" data-bs-toggle="collapse" data-bs-target="#manual"><i class="bi bi-keyboard" aria-hidden="true"></i> Type it in</button>
-          </div>
-          <div class="small muted mt-2">Takes up to a minute. Nothing is added to stock until you press <b>Add to stock</b>.</div>
-        </form>
-        <div class="tip mt-3"><i class="bi bi-lightbulb" aria-hidden="true"></i> <span><b>Setting up the shop?</b> Photograph a few
-          recent invoices, one at a time. Each line not in your products yet becomes one in a tap, with its name, case
-          size, price and supplier. Then choose <b>Only add the products</b>, so no stock is added twice.</span></div>
+<header class="page-title">
+  <h1>{{ _("Deliveries") }}</h1>
+  <div class="sub">{{ _("Photograph the paper invoice. It is read for you, and you check it before anything goes into stock.") }}</div>
+</header>
+
+{% if not key_present %}
+<div class="alert alert-warning">{{ _("Reading photos needs an ANTHROPIC_API_KEY in .env. Until then, type the invoice in.") }}</div>
+{% endif %}
+
+<!-- the one thing to do here: a photo of the invoice -->
+<form id="upload" class="snap-card mb-4" method="post" action="/invoices/upload" enctype="multipart/form-data"
+      data-busy="{{ _('Reading the invoice… (up to a minute)') }}">
+  <label class="dropzone" id="drop" for="photo">
+    <span class="snap-icon"><i class="bi bi-camera" aria-hidden="true"></i></span>
+    <span class="snap-title">{{ _("Take a photo of the invoice") }}</span>
+    <span class="muted small">{{ _("Khmer or English, printed or handwritten") }}</span>
+    <img id="preview" class="d-none mt-2" alt="{{ _('The invoice photo') }}">
+  </label>
+  <input type="file" id="photo" name="image" accept="image/*" capture="environment" class="visually-hidden" required>
+  <button class="btn btn-xl btn-dark w-100 mt-2" id="read-btn" disabled>{{ _("Read the invoice") }}</button>
+  <div class="small muted mt-2">{{ _("Takes up to a minute. Nothing goes into stock until you tap Add to stock.") }}</div>
+</form>
+
+{% if waiting %}
+<h2 class="list-title">{{ _("Waiting for your OK") }} <span class="count">{{ waiting|length }}</span></h2>
+<ul class="row-list mb-4">
+  {% for i in waiting %}{{ delivery_row(i) }}{% endfor %}
+</ul>
+{% endif %}
+
+<h2 class="list-title">{{ _("Earlier deliveries") }}</h2>
+{% if done %}
+<ul class="row-list mb-4">
+  {% for i in done %}{{ delivery_row(i) }}{% endfor %}
+</ul>
+{% else %}
+<div class="row-list mb-4">{{ empty('truck', _('No deliveries yet'), _('Photograph the next invoice when the agent comes. The lines are read for you.')) }}</div>
+{% endif %}
+
+<!-- no photo, or no internet: type the lines in -->
+<details class="fold-section" id="manual" {{ 'open' if not key_present }}>
+  <summary><i class="bi bi-keyboard" aria-hidden="true"></i> {{ _("Type an invoice in") }}</summary>
+  <form method="post" action="/invoices/manual" class="fold-body" data-busy="{{ _('Saving…') }}">
+    <p class="small muted mt-0">{{ _("One row for each line on the invoice. You check it on the next page.") }}</p>
+    <label class="form-label" for="m-sup">{{ _("From") }}</label>
+    <select id="m-sup" name="supplier_id" class="form-select form-select-lg mb-3">
+      {% for s in suppliers %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
+    <div id="rows">
+    {% for i in range(20) %}
+    <fieldset class="line-card manual-row {{ 'd-none' if i >= 3 }}" data-row="{{ i }}">
+      <legend class="visually-hidden">{{ _("Line {n}", n=i + 1) }}</legend>
+      <div class="row g-2">
+        <div class="col-12"><label class="form-label small" for="mp-{{ i }}">{{ _("Product") }}</label>
+          <select id="mp-{{ i }}" name="product_{{ i }}" class="form-select"><option value="">{{ _("Pick…") }}</option>
+            {% for p in products %}<option value="{{ p.id }}">{{ pname(p) }}</option>{% endfor %}</select></div>
+        <div class="col-6"><label class="form-label small" for="mq-{{ i }}">{{ _("How many") }}</label>
+          <input id="mq-{{ i }}" name="qty_{{ i }}" type="number" step="any" min="0" inputmode="decimal" class="form-control"></div>
+        <div class="col-6"><label class="form-label small" for="mu-{{ i }}">{{ _("of") }}</label>
+          <select id="mu-{{ i }}" name="unit_{{ i }}" class="form-select"><option value="case">{{ _("cases") }}</option><option value="pack">{{ _("packs") }}</option><option value="piece">{{ _("single") }}</option></select></div>
+        <div class="col-6"><label class="form-label small" for="mc-{{ i }}">{{ _("Cost each $") }}</label>
+          <input id="mc-{{ i }}" name="cost_{{ i }}" type="number" step="0.01" min="0" inputmode="decimal" class="form-control" placeholder="{{ _('optional') }}"></div>
+        <div class="col-6"><label class="form-label small" for="me-{{ i }}">{{ _("Expires") }}</label>
+          <input id="me-{{ i }}" name="expiry_{{ i }}" type="date" class="form-control"></div>
+        <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="free_{{ i }}" value="1" id="free-{{ i }}">
+          <label class="form-check-label" for="free-{{ i }}"><i class="bi bi-gift" aria-hidden="true"></i> {{ _("Free (a bonus)") }}</label></div></div>
       </div>
+    </fieldset>
+    {% endfor %}
     </div>
+    <div class="d-grid gap-2">
+      <button type="button" class="btn btn-outline-dark" id="add-row"><i class="bi bi-plus-lg" aria-hidden="true"></i> {{ _("Add a line") }}</button>
+      <button class="btn btn-lg btn-dark">{{ _("Continue to check") }}</button>
+    </div>
+  </form>
+</details>
 
-    <div class="collapse {{ 'show' if not key_present }}" id="manual">
-      <div class="card">
-        <div class="card-header"><i class="bi bi-keyboard" aria-hidden="true"></i> Type an invoice in <div class="sub">One row per line on the invoice. You'll check it on the next page.</div></div>
-        <form method="post" action="/invoices/manual" class="card-body" data-busy="Saving…">
-          <label class="form-label" for="m-sup">From</label>
-          <select id="m-sup" name="supplier_id" class="form-select form-select-lg mb-3">
-            {% for s in suppliers %}<option value="{{ s.id }}">{{ s.emoji }} {{ s.name }}</option>{% endfor %}</select>
-          <div id="rows">
-          {% for i in range(20) %}
-          <div class="line-card manual-row {{ 'd-none' if i >= 3 }}" data-row="{{ i }}">
-            <div class="row g-2 align-items-end">
-              <div class="col-md-5"><label class="form-label small">Product</label>
-                <select name="product_{{ i }}" class="form-select"><option value="">—</option>
-                  {% for p in products %}<option value="{{ p.id }}">{{ p.name_en }}</option>{% endfor %}</select></div>
-              <div class="col-4 col-md-2"><label class="form-label small">How many</label>
-                <input name="qty_{{ i }}" type="number" step="any" min="0" inputmode="decimal" class="form-control"></div>
-              <div class="col-4 col-md-2"><label class="form-label small">of</label>
-                <select name="unit_{{ i }}" class="form-select"><option value="case">cases</option><option value="pack">packs</option><option value="piece">single</option></select></div>
-              <div class="col-4 col-md-3"><label class="form-label small">Cost each $</label>
-                <input name="cost_{{ i }}" type="number" step="0.01" min="0" inputmode="decimal" class="form-control" placeholder="optional"></div>
-              <div class="col-8 col-md-5"><label class="form-label small">Expires</label>
-                <input name="expiry_{{ i }}" type="date" class="form-control"></div>
-              <div class="col-4 col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="free_{{ i }}" value="1" id="free-{{ i }}">
-                <label class="form-check-label" for="free-{{ i }}"><i class="bi bi-gift" aria-hidden="true"></i> free</label></div></div>
-            </div>
-          </div>
-          {% endfor %}
-          </div>
-          <div class="d-flex gap-2 flex-wrap">
-            <button type="button" class="btn btn-outline-dark" id="add-row"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add a line</button>
-            <button class="btn btn-lg btn-dark ms-auto">Continue to check →</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-lg-5">
-    <div class="card mb-3">
-      <div class="card-header"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Waiting for your OK <span class="badge rounded-pill {{ 'text-bg-warning' if waiting else 'text-bg-success' }}">{{ waiting|length }}</span></div>
-      {% for i in waiting %}
-      <a class="inv-row" href="/invoices/{{ i.id }}">
-        <div class="flex-grow-1"><div class="fw-semibold">{{ i.supplier or i.supplier_name_raw or 'Unknown supplier' }}</div>
-          <div class="small muted">{{ i.received_at[5:16] }} · {{ i.line_count }} line{{ 's' if i.line_count != 1 }}{% if i.units %} · +{{ i.units }}{% endif %}</div></div>
-        <span class="badge-words bw-{{ i.status }}">{{ words[i.status] }}</span><span class="muted">›</span>
-      </a>
-      {% else %}
-      {{ empty('check2-circle', 'Nothing waiting for your OK', 'Every delivery so far is in stock.') }}
-      {% endfor %}
-    </div>
-    <div class="card">
-      <div class="card-header">Earlier deliveries</div>
-      {% for i in done %}
-      <a class="inv-row" href="/invoices/{{ i.id }}">
-        <div class="flex-grow-1"><div class="fw-semibold">{{ i.supplier or i.supplier_name_raw or 'Unknown supplier' }}</div>
-          <div class="small muted">{{ i.received_at[5:16] }} · {{ i.line_count }} line{{ 's' if i.line_count != 1 }}{% if i.units %} · +{{ i.units }}{% endif %}</div></div>
-        <span class="badge-words bw-{{ i.status }}">{{ words[i.status] }}</span><span class="muted">›</span>
-      </a>
-      {% else %}
-      {{ empty('truck', 'No deliveries yet', 'Photograph the next invoice when the agent comes; the lines are read for you.') }}
-      {% endfor %}
-    </div>
-  </div>
-</div>
+<details class="fold-section">
+  <summary><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ _("Setting up the shop?") }}</summary>
+  <div class="fold-body small">{{ _("Photograph a few recent invoices, one at a time. Each line that isn't one of your products yet becomes one in a tap, with its name, case size, price and supplier. Then choose Only add the products, so no stock is added twice.") }}</div>
+</details>
 {% endblock %}
 
 {% block scripts %}
@@ -113,7 +110,7 @@
   function chosen() {
     const f = input.files[0];
     btn.disabled = !f || {{ 'false' if key_present else 'true' }};
-    if (f) { preview.src = URL.createObjectURL(f); preview.classList.remove("d-none"); }
+    if (f) { preview.src = URL.createObjectURL(f); preview.classList.remove("d-none"); drop.classList.add("has-photo"); }
   }
   input.addEventListener("change", chosen);
   ["dragenter", "dragover"].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.add("drag"); }));
@@ -121,9 +118,11 @@
   drop.addEventListener("drop", (ev) => { if (ev.dataTransfer.files.length) { input.files = ev.dataTransfer.files; chosen(); } });
   document.getElementById("add-row").addEventListener("click", () => {
     const next = document.querySelector(".manual-row.d-none");
-    if (next) next.classList.remove("d-none");
+    if (next) { next.classList.remove("d-none"); next.querySelector("select")?.focus(); }
     if (!document.querySelector(".manual-row.d-none")) document.getElementById("add-row").disabled = true;
   });
+  // A link to /invoices#manual (from a delivery that couldn't be read) opens the typed-in form.
+  if (location.hash === "#manual") document.getElementById("manual").open = true;
 })();
 </script>
 {% endblock %}

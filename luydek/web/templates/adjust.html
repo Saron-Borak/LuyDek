@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% set back = '/' %}
+{% set help_topic = 'howto' %}
+{% block title %}{{ _("Sold or used") }}{% endblock %}
+{% block content %}
+<header class="page-title">
+  <h1>{{ _("Sold or used") }}</h1>
+  <div class="sub">{{ _("For stock that left without passing the camera.") }}</div>
+</header>
+
+<form method="post" action="/adjust" class="flow" id="adjust-form" data-busy="{{ _('Saving…') }}">
+  <input type="hidden" name="next" value="/adjust">
+  <fieldset class="flow-step">
+    <legend>{{ _("Why?") }}</legend>
+    <div class="option-grid">
+      {% for reason in reasons %}
+      <input type="radio" class="btn-check" name="reason" id="r-{{ reason }}" value="{{ reason }}" {% if loop.first %}checked{% endif %}>
+      <label class="option" for="r-{{ reason }}">{{ t(lang_code, 'reason_' + reason)|plain }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <fieldset class="flow-step">
+    <legend>{{ _("Which product?") }}</legend>
+    <div class="chosen {{ 'd-none' if not chosen }}" id="adjust-chosen">
+      <b>{{ chosen.label if chosen }}</b>
+      <button type="button" class="btn btn-sm btn-outline-dark" id="adjust-change">{{ _("Change") }}</button></div>
+    <div id="adjust-picker" class="{{ 'd-none' if chosen }}"></div>
+    <input type="hidden" name="product_id" id="adj-product" value="{{ chosen.product if chosen }}">
+    <div class="field-error d-none" id="adjust-need" role="alert">{{ _("Pick a product first.") }}</div>
+  </fieldset>
+
+  <fieldset class="flow-step">
+    <legend>{{ _("How many?") }}</legend>
+    <div class="stepper">
+      <button type="button" data-step="-1" aria-label="−1">−</button>
+      <input type="number" name="qty" value="1" min="1" inputmode="numeric" aria-label="{{ _('How many?') }}" autocomplete="off">
+      <button type="button" data-step="1" aria-label="+1">+</button>
+    </div>
+  </fieldset>
+
+  <button class="btn btn-dark btn-lg w-100 mt-2">{{ _("Save") }}</button>
+</form>
+<script type="application/json" id="picker-data">{{ picker|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('picker.js') }}"></script>
+<script>
+// Sold or used: why (one tap), which product (best sellers first, or type), how many (− and +).
+(() => {
+  const items = JSON.parse(document.getElementById("picker-data").textContent);
+  const chosen = document.getElementById("adjust-chosen"), hidden = document.getElementById("adj-product");
+  const pickerBox = document.getElementById("adjust-picker"), need = document.getElementById("adjust-need");
+  const picker = LuyDek.picker(pickerBox, items, {
+    baseOnly: true, top: 6,
+    onPick(i) {
+      hidden.value = i.product;
+      chosen.querySelector("b").textContent = i.label;
+      chosen.classList.remove("d-none"); pickerBox.classList.add("d-none"); need.classList.add("d-none");
+    },
+  });
+  document.getElementById("adjust-change").onclick = () => {
+    chosen.classList.add("d-none"); pickerBox.classList.remove("d-none"); picker.reset(); picker.focus();
+  };
+  document.getElementById("adjust-form").addEventListener("submit", (e) => {
+    if (!hidden.value) { e.preventDefault(); need.classList.remove("d-none"); picker.focus(); }
+  });
+})();
+</script>
+{% endblock %}

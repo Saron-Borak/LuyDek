@@ -21,7 +21,13 @@
   let M = LM.data();
 
   const money = (v) => "$" + (Math.round(v * 100) / 100).toFixed(2);
-  const short = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}` : "");
+  // a date the way people say it: "5 Oct", or "5 Oct 2027" when it is not this year
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const short = (iso) => {
+    if (!iso) return "";
+    const day = `${+iso.slice(8, 10)} ${MONTHS[+iso.slice(5, 7) - 1]}`;
+    return +iso.slice(0, 4) === new Date().getFullYear() ? day : `${day} ${iso.slice(0, 4)}`;
+  };
   const nth = (n) => n + (["th", "st", "nd", "rd"][(n % 100 >= 11 && n % 100 <= 13) ? 0 : n % 10] || "th");
   const prod = (id) => M.products[id] || { name: "?" };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -36,7 +42,7 @@
   };
   const STATUS = [
     ["expired", "Expired", "#C0392B"], ["soon", "Expires soon", "#EFA027"], ["clear", "Won't sell in time", "#8A5A14"],
-    ["sleeping", "Sleeping money", "#534AB7"], ["fine", "Fine", "#6BA34A"], ["none", "None here, or not counted", "#CFCCC2"],
+    ["sleeping", "Sleeping money", "#1F6C9F"], ["fine", "Fine", "#6BA34A"], ["none", "None here, or not counted", "#CFCCC2"],
   ];
   const METRICS = {
     status: { label: "What to do", cat: true },
@@ -89,10 +95,23 @@
     return a.map((v, j) => Math.round(v + (b[j] - v) * k));
   }
   let domain = [0, 1];
-  function colourOf(s) {     // [r, g, b], or null: drawn as a gap
+  // A spot's batches, soonest date first; the measures about dates colour each one on its own, since one product
+  // often has several dates on the shelf: last month's at the front, this week's delivery behind.
+  const lotsOf = (s) => s.batches.slice().sort((a, b) => (a.expiry || "9999").localeCompare(b.expiry || "9999"));
+  const byLot = () => metric === "status" || metric === "expiry";
+  function lotStatus(b) {
+    if (b.status.includes("expired")) return "expired";
+    if (b.status.includes("expiring")) return "soon";
+    if (b.status.includes("clear")) return "clear";
+    if (b.status.includes("sleeping")) return "sleeping";
+    return "fine";
+  }
+  const lotText = (b) => `${b.left} ${b.expiry ? (b.days_left < 0 ? `expired ${short(b.expiry)}` : `exp ${short(b.expiry)}`) : "no date"}`;
+  function colourOf(s, lot = null) {     // [r, g, b], or null: drawn as a gap
     if (s.out) return null;
+    if (lot && metric === "status") return rgb(STATUS.find((x) => x[0] === lotStatus(lot))[2]);
     if (METRICS[metric].cat) return rgb(STATUS.find((x) => x[0] === statusOf(s))[2]);
-    const v = valueOf(s);
+    const v = lot && metric === "expiry" ? (lot.expiry ? lot.days_left : null) : valueOf(s);
     if (v == null) return rgb("#CFCCC2");
     const t = SPREAD[spread][0](domain[1] > domain[0] ? (v - domain[0]) / (domain[1] - domain[0]) : 0.5);
     return along(PALETTES[palette], invert ? 1 - t : t);
@@ -141,9 +160,23 @@
       let x = -W / 2 + 0.05;
       row.forEach((s, j) => {
         const fw = (s.width || 1) * U;
-        const part = { box: [x + 0.015, y, -D / 2 + 0.07, x + fw - 0.015, y + ph, D / 2 - 0.05], role: "product", level: lv,
-                       spot: s, index: j, place: p.id };
-        parts.push(part); spots.push(part);
+        const full = [x + 0.015, y, -D / 2 + 0.07, x + fw - 0.015, y + ph, D / 2 - 0.05];
+        const ls = byLot() ? lotsOf(s) : [];
+        if (ls.length > 1) {
+          const total = ls.reduce((t, b) => t + b.left, 0);
+          let x0 = full[0];
+          ls.forEach((b, k) => {
+            const x1 = k === ls.length - 1 ? full[3] : x0 + (full[3] - full[0]) * b.left / total;
+            const part = { box: [x0, full[1], full[2], x1, full[4], full[5]], full, role: "product", level: lv, spot: s,
+                           index: j, place: p.id, lot: b, first: k === 0 };
+            parts.push(part);
+            if (k === 0) spots.push(part);
+            x0 = x1;
+          });
+        } else {
+          const part = { box: full, full, role: "product", level: lv, spot: s, index: j, place: p.id, first: true };
+          parts.push(part); spots.push(part);
+        }
         x += fw;
       });
     });
@@ -377,16 +410,16 @@
           box(wb, q.colour, { edge: "rgba(0,0,0,.18)", alpha: arranging && picked === r.id ? 0.85 : 1 });
           continue;
         }
-        const s = q.spot, colour = colourOf(s);
+        const s = q.spot, colour = colourOf(s, q.lot);
         const dim = looking && !LM.isHit(s);
-        const gid = photos ? prod(s.product).photo : null;
+        const gid = photos && q.first !== false ? prod(s.product).photo : null;
         const faces = box(wb, colour || [255, 255, 255], { gap: !colour, alpha: dim ? 0.16 : 1, front,
                                                            photo: gid && !dim ? image(gid) : null });
-        q.wb = wb;
-        where[`${q.place}:${q.level}:${q.index}`] = q;
+        q.wb = q.full ? toWorld(r, q.full) : wb;               // the whole spot, for outlines and the arcs
+        if (q.first !== false) where[`${q.place}:${q.level}:${q.index}`] = q;
         for (const pts of faces) hits.push({ pts, q, r });
       }
-      if (arranging) for (const pts of box(r.wb, [0, 0, 0], { alpha: 0, edge: picked === r.id ? "#534AB7" : null })) hits.push({ pts, r, rackOnly: true });
+      if (arranging) for (const pts of box(r.wb, [0, 0, 0], { alpha: 0, edge: picked === r.id ? "#111111" : null })) hits.push({ pts, r, rackOnly: true });
       label(r);
     }
     walls(true);
@@ -394,7 +427,7 @@
     if (showMove && M.move && !arranging) arcs();
   }
   function message(text) {
-    ctx.fillStyle = "#5F5E5A"; ctx.font = "600 15px system-ui, sans-serif"; ctx.textAlign = "center";
+    ctx.fillStyle = "#5F5E5A"; ctx.font = "600 15px Geist, system-ui, sans-serif"; ctx.textAlign = "center";
     ctx.fillText(text, Wpx / 2, Hpx / 2);
   }
   function floor() {
@@ -430,10 +463,16 @@
     const at = project([r.x, r.h + 0.18, r.z]);
     if (!at) return;
     const size = clamp(C.F * 0.12 / at[2], 10, 14);
-    ctx.font = `700 ${size}px system-ui, sans-serif`;
+    ctx.font = `700 ${size}px Geist, system-ui, sans-serif`;
     const w = ctx.measureText(r.name).width + 14, h = size + 9;
-    const x = at[0] - w / 2, y = at[1] - h;
-    ctx.fillStyle = arranging && picked === r.id ? "#534AB7" : "rgba(38,33,92,.88)";
+    const x = at[0] - w / 2;
+    let y = at[1] - h;
+    for (let tries = 0; tries < 4; tries++) {     // a nearer rack's name steps up over a farther one's
+      const hit = labels.find((l) => x < l.x + l.w && l.x < x + w && y < l.y + l.h && l.y < y + h);
+      if (!hit) break;
+      y = hit.y - h - 3;
+    }
+    ctx.fillStyle = arranging && picked === r.id ? "#111111" : "rgba(17,17,17,.82)";
     rr(x, y, w, h, h / 2); ctx.fill();
     ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText(r.name, at[0], y + h / 2 + 0.5);
@@ -447,7 +486,7 @@
       if (!F.vis(q.wb, C.pos)) continue;
       const pts = F.c(q.wb).map(project);
       if (pts.some((p) => !p)) continue;
-      poly(pts); ctx.strokeStyle = "#534AB7"; ctx.lineWidth = 2.5; ctx.stroke();
+      poly(pts); ctx.strokeStyle = "#111111"; ctx.lineWidth = 2.5; ctx.stroke();
     }
   }
 
@@ -517,8 +556,10 @@
     const tip = $("tip3d");
     if (!q) { tip.classList.add("d-none"); return; }
     const pr = prod(q.spot.product);
+    const ls = lotsOf(q.spot);
     tip.innerHTML = `<div class="fw-semibold">${esc(pr.name)}</div><div class="small">${esc(placeLine(q))}</div>
-      <div class="small"><b>${esc(valueLine(q.spot))}</b></div>`;
+      <div class="small"><b>${esc(q.lot && byLot() ? `${STATUS.find((x) => x[0] === lotStatus(q.lot))[1]}: ${lotText(q.lot)}` : valueLine(q.spot))}</b></div>
+      ${ls.length > 1 ? `<div class="small muted">${ls.length} dates here: ${esc(ls.map(lotText).join(" · "))}</div>` : ""}`;
     tip.classList.remove("d-none");
     const st = $("stage3d").getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
     tip.style.left = `${clamp(x + 14, 4, st.width - tw - 4)}px`;
@@ -540,7 +581,8 @@
           <button type="button" class="btn-close" data-act="unpin" aria-label="Close"></button></div>
         <ul class="list-group list-group-flush small">
           <li class="list-group-item"><b>${esc(valueLine(s))}</b></li>
-          <li class="list-group-item">${s.out ? "None left" : `${units} here`}${first ? ` · first date ${short(first.expiry)}` : ""}</li>
+          <li class="list-group-item">${s.out ? "None left" : `${units} here`}${first ? ` · first date ${short(first.expiry)}` : ""}
+            ${s.batches.length ? `<div class="lots mt-1">${lotsOf(s).map((b) => `<span class="lot lot-${{ expired: "expired", soon: "soon", clear: "soon" }[lotStatus(b)] || (b.expiry ? "ok" : "undated")}"><b>${b.left}</b> ${b.expiry ? short(b.expiry) : "no date"}</span>`).join("")}</div>` : ""}</li>
           <li class="list-group-item">${pr.tracked ? `${pr.sold_28d} sold in 4 weeks, ${pr.sold_7d} in the last week` : "Not counted yet"}${pr.since_sale != null ? ` · last sale ${pr.since_sale} d ago` : ""}</li>
         </ul>
         ${q.place !== "none" ? `<div class="card-body pt-2"><button type="button" class="btn btn-sm btn-dark" data-open="${q.place}" data-product="${s.product}">

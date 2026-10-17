@@ -1,9 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Accuracy test{% endblock %}
+{% set back = '/more' %}
+{% block title %}{{ _("Accuracy test") }}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <h1><i class="bi bi-bullseye" aria-hidden="true"></i> Accuracy test</h1>
+    <h1><i class="bi bi-bullseye" aria-hidden="true"></i> {{ _("Accuracy test") }}</h1>
     <div class="lead-line">How often the camera is right in this shop's own light, before trusting it with sales. Put one
       product on the mat (or a few of the same), say which it is, and press Test. Do it in daylight, again under the
       evening lamp, and with the look-alikes.</div>

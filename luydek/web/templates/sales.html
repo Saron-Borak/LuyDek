@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set back = '/more' %}
+{% set help_topic = 'checks' %}
+{% block title %}{{ _("Sales") }}{% endblock %}
+{% block content %}
+{% from "_macros.html" import empty %}
+<header class="page-title">
+  <h1>{{ _("Sales") }}</h1>
+  <div class="sub">{{ _("What the counter camera saw, and what it wasn't sure about.") }}</div>
+</header>
+
+<!-- first what the camera wasn't sure about: until the owner answers, the stock counts its guess -->
+<div id="check-wrap">{% include "_checks.html" %}</div>
+{% if set_aside_today %}
+<a class="next-card mb-3" href="/log#aside">
+  <i class="bi bi-eye-slash" aria-hidden="true"></i>
+  <span class="row-text"><b>{{ _("The camera set aside {n} thing today as clutter or background.|The camera set aside {n} things today as clutter or background.", n=set_aside_today) }}</b>
+    <span>{{ _("Nothing is lost: if one was a sale, say so in the camera log.") }}</span></span>
+  <i class="bi bi-chevron-right row-go" aria-hidden="true"></i>
+</a>
+{% endif %}
+
+<div class="row g-3 mt-1">
+  <div class="col-md-5"><div class="stat sales h-100">
+    <div class="l mt-0">{{ _("Sales today") }}</div>
+    <div class="n my-1" data-stat-sales>{{ today.txns }}</div>
+    <div class="h">{% if not today.txns %}{{ _("No sales yet today") }}{% else %}{{ _("{n} item|{n} items", n=today['items']) }}{% if today.auto_rate is not none %} · {{ _("{n}% automatic", n=today.auto_rate) }}{% endif %}{% endif %}</div>
+    {% if week.this or week.last %}<div class="h week">{{ _("This week {n} sold", n=week.this) }}
+      {%- if week.pct is not none %} · <span class="{{ 'up' if week.pct >= 0 else 'down' }}"><i class="bi bi-arrow-{{ 'up' if week.pct >= 0 else 'down' }}-short" aria-hidden="true"></i>{{ week.pct|abs }}%</span> {{ _("vs last week") }}{% endif %}</div>{% endif %}
+    {% if sales_spark %}<div class="spark-wrap">{{ sales_spark }}</div>{% endif %}</div></div>
+  <div class="col-md-7"><section class="map-panel h-100" aria-labelledby="busy-title">
+    <div class="panel-head"><b id="busy-title"><i class="bi bi-clock" aria-hidden="true"></i> {{ _("Busy hours") }}</b><span>{{ _("Sales per hour on a usual day, last 4 weeks") }}</span></div>
+    {% if busy_chart %}
+    <div class="p-3 pb-2">
+      {{ busy_chart }}
+      <div class="small muted mt-1">{{ _("Busiest around {hour}. Restock and plan breaks before then.", hour=busy_peak) }}</div>
+    </div>
+    {% else %}
+    {{ empty('clock', _('Not enough sales yet'), _('The busy hours show once the camera has recorded a few days of sales.')) }}
+    {% endif %}
+  </section></div>
+</div>
+
+<a class="link-row mt-3" href="/counter"><i class="bi bi-webcam" aria-hidden="true"></i> {{ _("Open the counter camera") }} <i class="bi bi-chevron-right ms-auto" aria-hidden="true"></i></a>
+
+<h2 class="list-title mt-4">{{ _("Latest sales") }}</h2>
+{% if not recent %}
+<div class="row-list">{{ empty('camera-video', _('No camera sales yet'), _('Sales appear here as the counter camera records them.'), '/counter', _('Open the counter camera')) }}</div>
+{% else %}
+<ul class="row-list">
+  {% for r in recent %}
+  <li class="row-item sale-row">
+    <span class="date-chip"><b class="mono">{{ r.txn.started_at[11:16] }}</b><span>{{ r.txn.started_at|day(True) }}</span></span>
+    <span class="row-text">
+      <span class="sale-items">{% for it in r['items'] %}
+        <span class="pill status-{{ it.status }}" title="{{ it.tier }} {{ '%.2f'|format(it.confidence) }} · {{ it.method }}">
+          {% if it.method == 'tray' %}<i class="bi bi-capsule" aria-hidden="true"></i> {% endif %}{{ pack_label(it, lang_code) if it.pack_id else '?' }}{% if it.count > 1 %} ×{{ it.count }}{% endif %}</span>
+      {% endfor %}</span>
+      <span>{% if r.txn.status == 'auto' %}{{ _("automatic") }}{% elif r.txn.status == 'pending' %}{{ _("waiting for a check") }}{% elif r.txn.status == 'verified' %}{{ _("checked") }}{% elif r.txn.status == 'best_guess' %}{{ _("best guess") }}{% else %}{{ r.txn.status }}{% endif %}</span>
+    </span>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+<a class="link-row mt-2" href="/log"><i class="bi bi-journal-text" aria-hidden="true"></i> {{ _("Camera log") }} <span class="small muted fw-normal">{{ _("every sale, and fix any") }}</span> <i class="bi bi-chevron-right ms-auto" aria-hidden="true"></i></a>
+
+<details class="fold-section mt-4">
+  <summary><i class="bi bi-speedometer2" aria-hidden="true"></i> {{ _("How the camera is doing") }}</summary>
+  <ul class="row-list grouped mx-3 mb-3">
+    <li class="row-item"><span class="row-text"><b>{{ _("Right without help") }}</b><span>{{ _("last 7 days") }}</span></span>
+      <span class="row-n">{{ trend[-1].accuracy ~ '%' if trend[-1].accuracy is not none else '–' }}</span></li>
+    <li class="row-item"><span class="row-text"><b>{{ _("Your taps a day") }}</b><span>{{ _("keep under 10") }}</span></span>
+      <span class="row-n {{ 'tone-bad' if taps > 10 }}">{{ taps }}</span></li>
+    <li class="row-item"><span class="row-text"><b>{{ _("Order advice followed") }}</b></span>
+      <span class="row-n">{{ follow.rate ~ '%' if follow.rate is not none else '–' }}</span></li>
+  </ul>
+</details>
+
+<!-- "something else": the product picker for a check -->
+<div class="modal fade" id="pick-modal" tabindex="-1" aria-labelledby="pick-title">
+  <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="pick-title">{{ _("Which product?") }}</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Close') }}"></button></div>
+    <div class="modal-body"><div id="pick-picker"></div></div>
+    <div class="modal-footer d-none" id="several-bar">
+      <div class="flex-grow-1"><div class="small muted mb-1">{{ _("In this photo (tap one to take it off):") }}</div><div class="chips" id="several-list"></div></div>
+      <button type="button" class="btn btn-lg btn-dark" id="several-save" disabled>{{ _("Record them") }}</button>
+    </div>
+  </div></div>
+</div>
+<script type="application/json" id="picker-data">{{ picker|tojson }}</script>
+<script>window.CHECK_WORDS = {{ phrases(["Check {n} item|Check {n} items", "{n} need you to pick below", "waiting above", "all caught up",
+  "Not a sale", "New product: {name}", "Saved to name later", "{n} item recorded as guessed|{n} items recorded as guessed",
+  "Couldn't change the number. Check the Wi-Fi.", "Record {n} item|Record {n} items", "Record them",
+  "What's in this photo? Pick each one", "{n} items from one photo", "Changed"])|tojson }};</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('picker.js') }}"></script>
+<script src="{{ asset('checks.js') }}"></script>
+<script src="{{ asset('tips.js') }}"></script>
+{% endblock %}

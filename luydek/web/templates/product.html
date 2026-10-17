@@ -1,27 +1,119 @@
 {% extends "base.html" %}
-{% block title %}{{ p.name_en }}{% endblock %}
+{% set back = '/stock' %}
+{% set help_topic = 'words' %}
+{% block title %}{{ pname(p) }}{% endblock %}
 {% block content %}
 {% set total_photos = gallery.values()|map('length')|sum %}
-<div class="mb-2"><a href="/catalog" class="text-decoration-none"><i class="bi bi-arrow-left" aria-hidden="true"></i> Products</a></div>
-<div class="page-head">
+{% set states = lots|map(attribute='state')|list %}
+{% set shown = 'new' if level is none else ('out' if level <= 0 else ('expired' if 'expired' in states else ('expiring' if 'soon' in states else 'ok'))) %}
+{% set tags = {'out': "OUT", 'expired': "PAST ITS DATE", 'expiring': "EXPIRES SOON", 'new': "NOT COUNTED", 'ok': "OK"} %}
+
+<header class="product-head">
+  <span class="prow-pic big">{% if photos.product.get(p.id) %}<img src="/thumb/{{ photos.product.get(p.id) }}.jpg" alt="" width="72" height="72">{% else %}<i class="bi bi-image" aria-hidden="true"></i>{% endif %}</span>
+  <div class="min-w-0">
+    <h1>{{ pname(p) }}</h1>
+    {% set other = p.name_en if pname(p) != p.name_en else (p.name_km if p.name_km != p.name_en else '') %}
+    {% if other %}<div class="alt">{{ other }}</div>{% endif %}
+    <div class="meta">{{ p.supplier_name or 'no supplier' }} ·
+      {% if loose and loose.box %}{{ loose.box[0] }} of {{ loose.box[1] }}{% else %}case of {{ p.case_size }}{% endif %} · ${{ '%.2f'|format(p.unit_cost) }} per {{ p.unit|unit }}</div>
+  </div>
+</header>
+
+<!-- how many, and the two things the owner does with that number -->
+<section class="product-count">
   <div>
-    <h1>{{ p.name_en }} {% if p.is_critical %}<span class="pill must align-middle fs-6">must-have</span>{% endif %}</h1>
-    <div class="lead-line"><span class="km">{{ p.name_km if p.name_km != p.name_en }}</span>
-      {{ p.emoji or '' }} {{ p.supplier_name or 'no supplier' }} ·
-      {% if loose and loose.box %}{{ loose.box[0] }} of {{ loose.box[1] }}{% else %}case of {{ p.case_size }}{% endif %} · ${{ '%.2f'|format(p.unit_cost) }} per {{ p.unit }}</div>
-    <a href="/catalog/{{ p.id }}/history" class="btn btn-sm btn-outline-dark mt-2"><i class="bi bi-clock-history" aria-hidden="true"></i>
-      Full history: every sale the camera saw, and every stock change</a>
+    <span class="pc-n">{% if level is none %}–{% elif level < 0 %}0{% else %}{{ level }}{% endif %}</span>
+    <span class="pc-unit">{{ (p.unit|plural(level if level and level > 0 else 2))|unit }} {{ _("on the shelf") }}</span>
+    {% if loose and loose.breakdown and level and level > 0 %}<span class="pc-unit">= {{ loose.breakdown }}</span>{% endif %}
   </div>
-  <div class="stat {{ 'bad' if level is not none and level <= 0 else 'ok' }}" style="height:auto;min-width:12rem">
-    <div class="n">{% if level is none %}–{% elif level < 0 %}0{% else %}{{ level }}{% endif %}</div>
-    <div class="l">on the shelf</div>
-    <div class="h">{% if level is none %}not counted yet{% elif level < 0 %}count is off — recount below{% elif loose and loose.breakdown %}{{ p.unit|plural(level) }} = {{ loose.breakdown }}{% else %}{{ p.unit|plural(level) }}{% endif %}</div>
-  </div>
+  <div class="tags"><span class="tag tag-{{ shown }}">{{ _(tags[shown]) }}</span>{% if p.is_critical %}<span class="tag tag-must">{{ _("MUST-HAVE") }}</span>{% endif %}</div>
+</section>
+<div class="action-pair">
+  <a class="btn btn-dark btn-lg" href="/count?product={{ p.id }}"><i class="bi bi-clipboard-check" aria-hidden="true"></i> {{ _("Count") }}</a>
+  <a class="btn btn-outline-dark btn-lg" href="/adjust?product={{ p.id }}"><i class="bi bi-bag-dash" aria-hidden="true"></i> {{ _("Sold or used") }}</a>
 </div>
 
-<div class="row g-3">
-  <!-- photos -->
-  <div class="col-xl-7" id="photos">
+<!-- each delivery on the shelf, with its own date and place -->
+<section class="mb-4" id="stock" aria-labelledby="deliveries-title">
+  <h2 class="list-title" id="deliveries-title">{{ _("Deliveries on the shelf") }}</h2>
+  <p class="muted small mb-2">{{ _("Each delivery keeps its own date. Sales take the one that expires first.") }}</p>
+  {% if lots %}
+  <div class="table-responsive deliveries">
+    <table class="table mb-0 batch-table align-middle">
+      <thead><tr><th>{{ _("Expires") }}</th><th class="num">{{ _("Left") }}</th><th>{{ _("Where") }}</th><th>{{ _("Lot") }}</th><th>{{ _("Came in") }}</th><th></th></tr></thead>
+      <tbody>
+      {% for x in lots %}
+      <tr class="batch-{{ x.state }}">
+        <td><span class="lot lot-{{ x.state }} fs-6">{% if x.b.expiry %}{{ x.b.expiry|day }}{% else %}{{ _("no date on the pack") }}{% endif %}</span>
+          <div class="small {{ 'text-danger fw-semibold' if x.state == 'expired' else 'muted' }}">{% if x.days is none %}{% if x.b.est_expiry %}keeps till about {{ x.b.est_expiry|day }}{% endif %}
+            {% elif x.days < 0 %}{{ _("expired {d} day ago|expired {d} days ago", d=-x.days, count=-x.days) }}{% elif x.days == 0 %}{{ _("Expires today") }}{% else %}{{ _("in {d} day|in {d} days", d=x.days, count=x.days) }}{% endif %}</div>
+          <details class="inline-edit"><summary>{{ _("Change the date") }}</summary>
+            <form method="post" action="/batches/{{ x.b.id }}/edit" class="d-flex gap-1 mt-1">
+              <input name="expiry" type="date" value="{{ x.b.expiry or '' }}" class="form-control form-control-sm" aria-label="expiry date">
+              <button class="btn btn-sm btn-outline-dark">{{ _("Save") }}</button></form></details></td>
+        <td class="num"><span class="fs-5 fw-bold">{{ x.b.left }}</span></td>
+        <td><form method="post" action="/batches/{{ x.b.id }}/edit">
+          <select name="location_id" class="form-select form-select-sm place-select" aria-label="{{ _('Where') }}" onchange="this.form.submit()">
+            <option value="">{{ _("No place yet") }}</option>
+            {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == x.b.location_id }}>{{ l.name }}</option>{% endfor %}
+          </select></form></td>
+        <td class="small" data-label="{{ _('Lot') }}">{{ x.b.lot_no or '–' }}</td>
+        <td class="small text-nowrap muted" data-label="{{ _('Came in') }}">{{ x.b.received_at|day }}</td>
+        <td class="text-end"><form method="post" action="/batches/{{ x.b.id }}/remove" onsubmit='return confirm({{ (_("Take off") ~ " " ~ x.b.left ~ "?")|tojson }})'>
+          <button class="btn btn-sm {{ 'btn-outline-danger' if x.state == 'expired' else 'btn-light' }}" title="{{ _('Take off') }}" aria-label="{{ _('Take off') }} {{ x.b.left }}"><i class="bi bi-trash3" aria-hidden="true"></i>{% if x.state == 'expired' %} {{ _("Take off") }}{% endif %}</button></form></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif level %}<div class="small muted">{{ _("No dates yet") }}</div>{% endif %}
+
+  <form method="post" action="/catalog/{{ p.id }}/place" class="place-form">
+    <label class="form-label" for="home"><i class="bi bi-geo-alt" aria-hidden="true"></i> {{ _("New deliveries go on") }}</label>
+    <div class="d-flex gap-2">
+      <select id="home" name="location_id" class="form-select">
+        <option value="">{{ _("No place yet") }}</option>
+        {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == p.location_id }}>{{ l.name }}</option>{% endfor %}
+      </select>
+      <button class="btn btn-outline-dark">{{ _("Save") }}</button>
+    </div>
+    {% if not places %}<a href="/shelf#places" class="small">Name the shop's places first</a>{% endif %}
+  </form>
+
+  {% if moves %}
+  <details class="mt-3">
+  <summary class="small muted">Latest changes</summary>
+  <table class="table table-sm mb-0 small mt-1">
+    {% for m in moves %}
+    <tr><td class="muted text-nowrap">{{ m.created_at|when(True) }}</td>
+      <td>{{ {'sale': 'sold', 'delivery': 'delivered', 'freebie': 'free from supplier', 'adjustment': 'adjusted', 'opening': 'counted', 'spot_check': 'recounted'}.get(m.type, m.type) }}
+        {% if m.simulated %}<span class="pill bg-warning-subtle text-warning-emphasis">simulated</span>{% endif %}</td>
+      <td class="num fw-semibold {{ 'text-success' if m.qty > 0 else 'text-danger' }}">{{ '%+d'|format(m.qty) }}</td></tr>
+    {% endfor %}
+  </table>
+  </details>
+  {% endif %}
+  <a class="link-row mt-3" href="/catalog/{{ p.id }}/history"><i class="bi bi-clock-history" aria-hidden="true"></i> {{ _("Full history") }}<i class="bi bi-chevron-right ms-auto" aria-hidden="true"></i></a>
+</section>
+
+<!-- the sales chart, open: it answers "does it sell?" -->
+<details class="fold-section" id="sales" open>
+  <summary>{{ _("Sales, last 4 weeks") }} <span class="muted fw-normal">{{ sales.total }} sold · about {{ '%g'|format(sales.per_day) }} a day</span></summary>
+  <div class="fold-body">
+      <div class="card-body pb-2">
+        {% if sales.total or sales.empty_days %}
+        {{ sales.chart }}
+        <div class="d-flex flex-wrap gap-3 small muted mt-1">
+          <span>This week <b class="text-body">{{ sales.this_week }}</b> · last week <b class="text-body">{{ sales.last_week }}</b></span>
+          {% if sales.empty_days %}<span><span class="swatch-empty"></span> shelf empty {{ sales.empty_days }} day{{ 's' if sales.empty_days != 1 }}</span>{% endif %}
+        </div>
+        {% else %}<div class="empty-state py-4"><div class="ico"><i class="bi bi-bar-chart" aria-hidden="true"></i></div><div class="small">No sales yet. Bars appear here as the camera records them.</div></div>{% endif %}
+      </div>
+  </div>
+</details>
+
+<details class="fold-section" id="photos">
+  <summary>{{ _("Photos for the camera") }} <span class="muted fw-normal">{{ total_photos }}</span></summary>
+  <div class="fold-body">
     {% if p.sold_loose %}
     <div class="alert alert-info"><i class="bi bi-capsule" aria-hidden="true"></i> Loose {{ p.unit|plural(2) }} are counted on the tablet tray, so they need no photos.
       Photograph the <b>box</b> (and strip) instead: that is what goes down beside the tray and tells the camera which medicine it is.</div>
@@ -32,9 +124,9 @@
     <div class="card mb-3">
       <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div><i class="bi bi-camera" aria-hidden="true"></i> {% if pk.units == 1 %}Photos of one {{ p.unit }}{% else %}Photos of the {{ pk.label }} ({{ pk.units }} {{ p.unit|plural(pk.units) }}){% endif %}
-          <div class="sub">{% if pk_photos|length >= min_photos %}✓ {{ pk_photos|length }} photos — the camera knows it
-            {% elif optional %}Optional — helps when a {{ pk.label }} is put beside the tray instead of the box
-            {% else %}{{ pk_photos|length }} of {{ min_photos }} photos — take {{ min_photos - pk_photos|length }} more{% endif %}</div></div>
+          <div class="sub">{% if pk_photos|length >= min_photos %}✓ {{ pk_photos|length }} photos, the camera knows it
+            {% elif optional %}Optional: helps when a {{ pk.label }} is put beside the tray instead of the box
+            {% else %}{{ pk_photos|length }} of {{ min_photos }} photos: take {{ min_photos - pk_photos|length }} more{% endif %}</div></div>
         <a href="/catalog/enroll?pack_id={{ pk.id }}" class="btn {{ 'btn-primary' if pk_photos|length < min_photos and not optional else 'btn-outline-primary' }}"><i class="bi bi-camera" aria-hidden="true"></i> Take photos</a>
       </div>
       <div class="card-body">
@@ -77,79 +169,11 @@
     </div>
     {% endif %}
   </div>
+</details>
 
-  <!-- details, stock, names -->
-  <div class="col-xl-5">
-    <div class="card mb-3">
-      <div class="card-header d-flex justify-content-between align-items-baseline flex-wrap gap-2">
-        <span><i class="bi bi-graph-up" aria-hidden="true"></i> Sales, last 4 weeks</span>
-        <span class="sub">{{ sales.total }} sold · about {{ '%g'|format(sales.per_day) }} a day</span></div>
-      <div class="card-body pb-2">
-        {% if sales.total or sales.empty_days %}
-        {{ sales.chart }}
-        <div class="d-flex flex-wrap gap-3 small muted mt-1">
-          <span>This week <b class="text-body">{{ sales.this_week }}</b> · last week <b class="text-body">{{ sales.last_week }}</b></span>
-          {% if sales.empty_days %}<span><span class="swatch-empty"></span> shelf empty {{ sales.empty_days }} day{{ 's' if sales.empty_days != 1 }}</span>{% endif %}
-        </div>
-        {% else %}<div class="empty-state py-4"><div class="ico"><i class="bi bi-bar-chart" aria-hidden="true"></i></div><div class="small">No sales yet. Bars appear here as the camera records them.</div></div>{% endif %}
-      </div>
-    </div>
-
-    <div class="card mb-3">
-      <div class="card-header"><i class="bi bi-clipboard-check" aria-hidden="true"></i> Stock</div>
-      <div class="card-body">
-        <form method="post" action="/catalog/{{ p.id }}/stock" class="d-flex gap-2 align-items-end flex-wrap">
-          <div><label class="form-label" for="counted">I counted{% if p.sold_loose %} ({{ p.unit|plural(2) }}){% endif %}</label>
-            <input id="counted" name="counted" type="number" min="0" inputmode="numeric" class="form-control form-control-lg" style="width:9rem" placeholder="{{ level if level is not none and level >= 0 else '' }}" required></div>
-          <button class="btn btn-lg btn-dark">Set stock</button>
-        </form>
-        <form method="post" action="/catalog/{{ p.id }}/place" class="d-flex gap-2 align-items-end flex-wrap mt-3">
-          <div><label class="form-label" for="home"><i class="bi bi-geo-alt" aria-hidden="true"></i> Lives on</label>
-            <select id="home" name="location_id" class="form-select" style="min-width:12rem">
-              <option value="">No place yet</option>
-              {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == p.location_id }}>{{ l.name }}</option>{% endfor %}
-            </select></div>
-          <button class="btn btn-outline-dark">Save</button>
-          {% if not places %}<a href="/shelf#places" class="small">Name the shop's places first</a>{% endif %}
-        </form>
-        {% if lots %}
-        <div class="mt-3">
-          <div class="small fw-semibold mb-1">On the shelf, by batch <span class="muted fw-normal">· sold oldest expiry first</span></div>
-          <table class="table table-sm small mb-0 batch-table">
-            <tr class="muted"><th>Came in</th><th class="text-end">Left</th><th>Expires</th><th>Place</th><th></th></tr>
-            {% for x in lots %}
-            <tr><td class="text-nowrap">{{ x.b.received_at[:10] }}</td>
-              <td class="num text-end fw-semibold">{{ x.b.left }}</td>
-              <td><form method="post" action="/batches/{{ x.b.id }}/edit" class="d-flex gap-1">
-                <input name="expiry" type="date" value="{{ x.b.expiry or '' }}" class="form-control form-control-sm {{ 'is-invalid' if x.b.expiry and x.b.expiry < today }}" aria-label="expiry date" onchange="this.form.submit()">
-                </form>{% if not x.b.expiry and x.b.est_expiry %}<div class="muted">about {{ x.b.est_expiry }}</div>{% endif %}</td>
-              <td><form method="post" action="/batches/{{ x.b.id }}/edit">
-                <select name="location_id" class="form-select form-select-sm" aria-label="place" onchange="this.form.submit()">
-                  <option value="">-</option>
-                  {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == x.b.location_id }}>{{ l.name }}</option>{% endfor %}
-                </select></form></td>
-              <td><form method="post" action="/batches/{{ x.b.id }}/remove" onsubmit='return confirm("Take all {{ x.b.left }} of this batch off the stock (expired or damaged)?")'>
-                <button class="btn btn-sm btn-light" title="Take this batch off the stock"><i class="bi bi-trash3" aria-hidden="true"></i></button></form></td></tr>
-            {% endfor %}
-          </table>
-        </div>
-        {% endif %}
-        {% if moves %}
-        <details class="mt-3">
-        <summary class="small muted">Latest changes · <a href="/catalog/{{ p.id }}/history?tab=stock">all of them</a></summary>
-        <table class="table table-sm mb-0 small mt-1">
-          {% for m in moves %}
-          <tr><td class="muted text-nowrap">{{ m.created_at[5:16] }}</td>
-            <td>{{ {'sale': 'sold', 'delivery': 'delivered', 'freebie': 'free from supplier', 'adjustment': 'adjusted', 'opening': 'counted', 'spot_check': 'recounted'}.get(m.type, m.type) }}
-              {% if m.simulated %}<span class="pill bg-warning-subtle text-warning-emphasis">simulated</span>{% endif %}</td>
-            <td class="num fw-semibold {{ 'text-success' if m.qty > 0 else 'text-danger' }}">{{ '%+d'|format(m.qty) }}</td></tr>
-          {% endfor %}
-        </table>
-        </details>
-        {% endif %}
-      </div>
-    </div>
-
+<details class="fold-section" id="details">
+  <summary>{{ _("Details") }}</summary>
+  <div class="fold-body">
     {% if loose %}
     <div class="card mb-3" id="loose">
       <div class="card-header"><i class="bi bi-capsule" aria-hidden="true"></i> Sold by the {{ p.unit }}</div>
@@ -191,7 +215,7 @@
           <input id="e-km" name="name_km" value="{{ p.name_km }}" class="form-control km"></div>
         <div class="col-12"><label class="form-label" for="e-sup">Supplier</label>
           <select id="e-sup" name="supplier_id" class="form-select">
-            {% for s in suppliers %}<option value="{{ s.id }}" {% if s.id == p.supplier_id %}selected{% endif %}>{{ s.emoji }} {{ s.name }}</option>{% endfor %}</select></div>
+            {% for s in suppliers %}<option value="{{ s.id }}" {% if s.id == p.supplier_id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></div>
         <div class="col-6"><label class="form-label" for="e-unit">Sold as a</label>
           <input id="e-unit" name="unit" value="{{ p.unit }}" class="form-control"></div>
         <div class="col-6"><label class="form-label" for="e-case">Per case{% if p.sold_loose %} ({{ p.unit|plural(2) }}){% endif %}</label>
@@ -203,7 +227,7 @@
           <div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="no_expiry" value="1" id="e-noexp" {% if p.shelf_life_days == 0 %}checked{% endif %}>
             <label class="form-check-label small" for="e-noexp">doesn't expire</label></div></div>
         <div class="col-12"><label class="form-label" for="e-bar">Barcode</label>
-          <input id="e-bar" name="barcode" value="{{ (packs[-1] if p.sold_loose else packs[0]).barcode or '' }}" class="form-control" inputmode="numeric"></div>
+          <input id="e-bar" name="barcode" value="{{ (packs[-1] if p.sold_loose else packs[0]).barcode or '' }}" class="form-control" inputmode="numeric" autocomplete="off" spellcheck="false"></div>
         <div class="col-12"><div class="form-check form-switch">
           <input class="form-check-input" type="checkbox" role="switch" name="is_critical" value="1" id="e-crit" {% if p.is_critical %}checked{% endif %}>
           <label class="form-check-label" for="e-crit">Must never run out</label></div></div>
@@ -225,7 +249,7 @@
           {% endfor %}
         </div>
         <form method="post" action="/catalog/{{ p.id }}/aliases" class="d-flex gap-2">
-          <input name="alias" class="form-control" placeholder='e.g. "Coca 330" or "កូកា"' required>
+          <input name="alias" class="form-control" placeholder="e.g. “Coca 330” or “កូកា”…" autocomplete="off" required>
           <button class="btn btn-outline-dark text-nowrap">Add name</button>
         </form>
       </div>
@@ -235,10 +259,11 @@
       <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
         <span class="muted small">No longer sold? Removing hides it from the catalog and order lists. Its sales history is kept.</span>
         <form method="post" action="/catalog/{{ p.id }}/archive" onsubmit='return confirm({{ ("Remove " ~ p.name_en ~ " from the catalog?")|tojson }})'>
-          <button class="btn btn-outline-danger">Remove product</button></form>
+          <button class="btn btn-outline-danger">{{ _("Remove product") }}</button></form>
       </div>
     </div>
   </div>
-</div>
+</details>
 {% endblock %}
-{% block scripts %}<script src="{{ asset('photos.js') }}"></script><script src="{{ asset('tips.js') }}"></script>{% endblock %}
+{% block scripts %}<script src="{{ asset('photos.js') }}"></script><script src="{{ asset('tips.js') }}"></script>
+{% endblock %}

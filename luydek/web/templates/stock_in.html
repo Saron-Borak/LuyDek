@@ -1,9 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Stock in{% endblock %}
+{% set back = '/invoices' %}
+{% set help_topic = 'howto' %}
+{% block title %}{{ _("Stock in") }}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <h1><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> Stock in</h1>
+    <h1><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> {{ _("Stock in") }}</h1>
     <div class="lead-line">{% if mode == 'count' %}Count what is on the shelf: put it on the mat a few at a time and press
       Scan. What you count here replaces what LuyDek had, batch by batch with their dates.
       {% else %}A delivery with no invoice: put it on the mat a few at a time and press Scan. Then read the dates, check

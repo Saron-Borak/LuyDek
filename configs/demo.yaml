@@ -1,0 +1,22 @@
+# A DEMO shop: real products, SIMULATED history. "Sokha Mini-Mart" is a made-up Phnom Penh mini-mart
+# as it would look after eight weeks on LuyDek, with every feature in use. Built by scripts/demo_shop.py
+# from data/demo/assets (product photos with their credits, the counter mat, cut-outs):
+#   python scripts/demo_shop.py
+#   python -m luydek --config configs/demo.yaml --port 8030
+
+shop:
+  name: "Sokha Mini-Mart (demo)"
+  pin: "2468"
+  default_lang: en
+  # the web pages, until a phone picks its own language
+  web_lang: km
+  team_tools: true
+
+telegram:
+  # The real shop's server already polls the bot in .env; two pollers conflict.
+  enabled: false
+
+paths:
+  db: data/demo/luydek.db
+  media: data/demo/media
+  seed_catalog: data/seed_catalog.yaml

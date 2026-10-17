@@ -251,7 +251,7 @@
     const box = $("sh-review");
     const heads = sheet.table[sheet.heading] || [];
     const width = Math.max(heads.length, ...sheet.table.slice(sheet.heading, sheet.heading + 30).map((r) => r.length));
-    const colOpts = (f) => `<option value="">—</option>` + Array.from({ length: width }, (_, i) =>
+    const colOpts = (f) => `<option value="">-</option>` + Array.from({ length: width }, (_, i) =>
       `<option value="${i}" ${sheet.mapping[f] === i ? "selected" : ""}>${letter(i)}${heads[i] !== "" && heads[i] != null ? `: ${esc(String(heads[i]).slice(0, 24))}` : ""}</option>`).join("");
     const rows = sheet.rows;
     const keep = rows.filter((r) => choiceOf(r) !== "skip");

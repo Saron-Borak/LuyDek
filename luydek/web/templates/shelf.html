@@ -1,149 +1,152 @@
 {% extends "base.html" %}
-{% block title %}Shelf check{% endblock %}
+{% set back = '/more' %}
+{% set help_topic = 'shelf' %}
+{% block title %}{{ _("Shelf check") }}{% endblock %}
 {% block content %}
 {% from "_macros.html" import pic, empty %}
-{% set words = {'remove': 'Expired: take it off', 'front': 'Put it in front', 'clear': "Won't sell in time"} %}
-{% set icons = {'remove': 'trash3', 'front': 'arrow-up-circle', 'clear': 'tag'} %}
-<div class="page-head">
-  <div>
-    <h1><i class="bi bi-calendar2-check" aria-hidden="true"></i> Shelf check</h1>
-    <div class="lead-line">Walk the shop once, place by place: take off what has expired, put what expires within
-      {{ days }} days in front, and clear what won't sell before its date. Telegram sends this every week too (/shelf).</div>
-  </div>
-</div>
+{% macro action_tag(a) -%}
+  {%- if a == 'remove' -%}<span class="tag tag-out"><i class="bi bi-trash3" aria-hidden="true"></i>&nbsp;{{ _("Expired: take it off") }}</span>
+  {%- elif a == 'front' -%}<span class="tag tag-low"><i class="bi bi-arrow-up-circle" aria-hidden="true"></i>&nbsp;{{ _("Put it in front") }}</span>
+  {%- else -%}<span class="tag tag-info"><i class="bi bi-tag" aria-hidden="true"></i>&nbsp;{{ _("Won't sell in time") }}</span>{%- endif -%}
+{%- endmacro %}
 
-<div class="row g-3 mb-3">
-  <div class="col-4"><div class="stat {{ 'bad' if counts['remove'] else 'ok' }}"><div class="n">{{ counts['remove'] }}</div><div class="l">to take off</div><div class="h">expired</div></div></div>
-  <div class="col-4"><div class="stat"><div class="n">{{ counts['front'] }}</div><div class="l">to put in front</div><div class="h">expires within {{ days }} days</div></div></div>
-  <div class="col-4"><div class="stat {{ 'warn' if counts['clear'] }}"><div class="n">{{ counts['clear'] }}</div><div class="l">won't sell in time</div><div class="h">discount, bundle or return</div></div></div>
+<header class="page-title">
+  <h1>{{ _("Shelf check") }}</h1>
+  <div class="sub">{{ _("Walk the shop once, place by place. Telegram sends this list every week too.") }}</div>
+</header>
+
+<!-- the three answers first: how much there is to do -->
+<div class="sum-strip mb-3">
+  <div class="{{ 'tone-bad' if counts['remove'] }}"><b>{{ counts['remove'] }}</b><span>{{ _("to take off") }}</span><small>{{ _("expired") }}</small></div>
+  <div class="{{ 'tone-warn' if counts['front'] }}"><b>{{ counts['front'] }}</b><span>{{ _("to put in front") }}</span><small>{{ _("expires within {n} days", n=days) }}</small></div>
+  <div class="{{ 'tone-info' if counts['clear'] }}"><b>{{ counts['clear'] }}</b><span>{{ _("won't sell in time") }}</span><small>{{ _("discount, bundle or return") }}</small></div>
 </div>
+<a class="link-row mb-4" href="/map"><i class="bi bi-map" aria-hidden="true"></i> {{ _("Walk it on the stock map") }} <i class="bi bi-chevron-right ms-auto" aria-hidden="true"></i></a>
 
 {% if not groups %}
-<div class="card mb-3"><div class="card-body">
-  {% if dated %}{{ empty('check2-circle', 'Nothing expires in the next ' ~ days ~ ' days', dated ~ ' product' ~ ('s have' if dated != 1 else ' has') ~ ' expiry dates on record.') }}
-  {% else %}{{ empty('calendar2-x', 'No expiry dates yet', 'They come from invoices, from a photo of the date when stock comes in, or typed on a product page.', '/stock-in', 'Stock in with dates') }}{% endif %}
-</div></div>
+<div class="row-list mb-4">
+  {% if dated %}{{ empty('check2-circle', _('Nothing expires in the next {n} days', n=days), _('{n} product has expiry dates on record.|{n} products have expiry dates on record.', n=dated)) }}
+  {% else %}{{ empty('calendar2-x', _('No expiry dates yet'), _('They come from invoices, from a photo of the date when stock comes in, or typed on a product page.'), '/stock-in', _('Stock in with dates')) }}{% endif %}
+</div>
 {% endif %}
 
 {% for g in groups %}
-<div class="card mb-3 shelf-place">
-  <div class="card-header"><i class="bi bi-geo-alt" aria-hidden="true"></i> {{ g.place or 'No place set' }}
-    <span class="sub">{{ g.tasks|length }} to do</span></div>
-  <ul class="list-group list-group-flush">
+<section class="mb-4 shelf-place" aria-labelledby="place-{{ loop.index }}">
+  <h2 class="list-title" id="place-{{ loop.index }}"><i class="bi bi-geo-alt" aria-hidden="true"></i> {{ g.place or _('No place set') }} <span class="count">{{ g.tasks|length }}</span></h2>
+  <ul class="row-list">
     {% for x in g.tasks %}
-    <li class="list-group-item shelf-task task-{{ x.action }}">
-      <div class="d-flex gap-3 align-items-center flex-wrap">
-        {{ pic(photos.product.get(x.product.id), 44) }}
-        <div class="flex-grow-1" style="min-width:12rem">
-          <a class="fw-semibold" href="/catalog/{{ x.product.id }}">{{ x.product.name_en }}</a>
-          <div class="small muted">{{ x.batch.left }} left · {% if x.days_left < 0 %}expired {{ x.batch.expiry }} ({{ -x.days_left }} day{{ 's' if x.days_left != -1 }} ago){% elif x.days_left == 0 %}expires today{% else %}expires {{ x.batch.expiry }} (in {{ x.days_left }} day{{ 's' if x.days_left != 1 }}){% endif %}
-            {% if x.batch.lot_no %}· lot {{ x.batch.lot_no }}{% endif %}</div>
+    <li class="shelf-task task-{{ x.action }}">
+      <div class="shelf-task-main">
+        {{ pic(photos.product.get(x.product.id), 48) }}
+        <div class="row-text">
+          <a class="fw-semibold text-reset" href="/catalog/{{ x.product.id }}">{{ pname(x.product) }}</a>
+          <span>{{ _("{n} left", n=x.batch.left) }} ·
+            {% if x.days_left < 0 %}{{ _("expired {date}", date=x.batch.expiry|day) }} ({{ _("{n} day ago|{n} days ago", n=-x.days_left) }})
+            {%- elif x.days_left == 0 %}{{ _("expires today") }}
+            {%- else %}{{ _("expires {date}", date=x.batch.expiry|day) }} ({{ _("in {n} day|in {n} days", n=x.days_left) }}){% endif %}
+            {%- if x.batch.lot_no %} · <span class="mono">{{ _("lot {lot}", lot=x.batch.lot_no) }}</span>{% endif %}</span>
+          <span class="tags mt-1">{{ action_tag(x.action) }}</span>
         </div>
-        <span class="pill action-{{ x.action }}"><i class="bi bi-{{ icons[x.action] }}" aria-hidden="true"></i> {{ words[x.action] }}</span>
       </div>
-      {% if x.action == 'clear' %}<div class="small mt-1 muted">At the pace it sells it won't be gone by then: discount it, sell it in a bundle, or send it back with the agent.</div>{% endif %}
-      <div class="d-flex gap-2 flex-wrap mt-2">
-        <form method="post" action="/batches/{{ x.batch.id }}/remove" class="d-flex gap-1 align-items-center">
-          <input name="qty" type="number" min="1" max="{{ x.batch.left }}" value="{{ x.batch.left }}" class="form-control form-control-sm" style="width:5rem" aria-label="how many">
-          <button class="btn btn-sm {{ 'btn-danger' if x.action == 'remove' else 'btn-outline-danger' }}"><i class="bi bi-trash3" aria-hidden="true"></i> Taken off</button>
-        </form>
-        <form method="post" action="/batches/{{ x.batch.id }}/edit" class="d-flex gap-1 align-items-center">
-          <select name="location_id" class="form-select form-select-sm" aria-label="moved to">
-            <option value="">No place</option>
+      {% if x.action == 'clear' %}<div class="shelf-task-note">{{ _("At the speed it sells, it won't be gone by then: discount it, sell it in a bundle, or send it back with the agent.") }}</div>{% endif %}
+      <form method="post" action="/batches/{{ x.batch.id }}/remove" class="shelf-task-act">
+        <label class="visually-hidden" for="off-{{ x.batch.id }}">{{ _("How many were taken off the shelf?") }}</label>
+        <input id="off-{{ x.batch.id }}" name="qty" type="number" min="1" max="{{ x.batch.left }}" value="{{ x.batch.left }}" inputmode="numeric" class="form-control">
+        <button class="btn {{ 'btn-dark' if x.action == 'remove' else 'btn-outline-dark' }}"><i class="bi bi-trash3" aria-hidden="true"></i> {{ _("Taken off") }}</button>
+      </form>
+      <details class="inline-edit shelf-task-more">
+        <summary>{{ _("Moved, or the date is wrong?") }}</summary>
+        <form method="post" action="/batches/{{ x.batch.id }}/edit" class="shelf-task-act mt-2">
+          <select name="location_id" class="form-select" aria-label="{{ _('Moved to') }}">
+            <option value="">{{ _("No place") }}</option>
             {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == x.batch.location_id }}>{{ l.name }}</option>{% endfor %}
           </select>
-          <button class="btn btn-sm btn-outline-dark">Moved</button>
+          <button class="btn btn-outline-dark">{{ _("Moved") }}</button>
         </form>
-        <form method="post" action="/batches/{{ x.batch.id }}/edit" class="d-flex gap-1 align-items-center">
-          <input name="expiry" type="date" value="{{ x.batch.expiry }}" class="form-control form-control-sm" aria-label="expiry date">
-          <button class="btn btn-sm btn-outline-dark">Fix date</button>
+        <form method="post" action="/batches/{{ x.batch.id }}/edit" class="shelf-task-act mt-2">
+          <input name="expiry" type="date" value="{{ x.batch.expiry }}" class="form-control" aria-label="{{ _('Expiry date') }}">
+          <button class="btn btn-outline-dark">{{ _("Fix the date") }}</button>
         </form>
-      </div>
+      </details>
     </li>
     {% endfor %}
   </ul>
-</div>
+</section>
 {% endfor %}
 
 {% if unrecorded or lot_flags %}
-<div class="card mb-3" id="sources">
-  <div class="card-header"><i class="bi bi-search" aria-hidden="true"></i> Where did it come from?
-    <div class="sub">Stock that no delivery or invoice brought in. A delivery that skipped the paperwork, a market run,
-      or goods from somewhere else: copies of a brand can look exactly like the real thing, so the paperwork is the check.</div></div>
-  <ul class="list-group list-group-flush">
+<section class="mb-4" id="sources" aria-labelledby="sources-title">
+  <h2 class="list-title" id="sources-title"><i class="bi bi-search" aria-hidden="true"></i> {{ _("Where did it come from?") }}</h2>
+  <p class="small muted">{{ _("Stock that no delivery or invoice brought in: a delivery without paperwork, a market run, or goods from somewhere else. Copies of a brand can look exactly like the real thing, so the paperwork is the check.") }}</p>
+  <ul class="row-list">
     {% for r in unrecorded %}
-    <li class="list-group-item d-flex gap-3 align-items-center flex-wrap">
-      {{ pic(photos.product.get(r.product_id), 40) }}
-      <div class="flex-grow-1" style="min-width:12rem">
-        <a class="fw-semibold" href="/catalog/{{ r.product_id }}">{{ r.name_en }}</a>
-        <div class="small muted">Sold {{ r.units }} in the last 4 weeks that no delivery brought in{% if r.found %}: a count later found {{ r.found }} on the shelf{% endif %}{% if r.missing %}{{ ',' if r.found else ':' }} {{ r.missing }} still not covered by any stock{% endif %}.</div>
-      </div>
-      <a class="btn btn-sm btn-outline-dark" href="/stock-in"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> Record a delivery</a>
+    <li class="row-item">
+      {{ pic(photos.product.get(r.product_id), 44) }}
+      <span class="row-text">
+        <a class="fw-semibold text-reset" href="/catalog/{{ r.product_id }}">{{ pname(r) }}</a>
+        <span>{{ _("Sold {n} in the last 4 weeks that no delivery brought in", n=r.units) }}{% if r.found %}: {{ _("a count later found {n} on the shelf", n=r.found) }}{% endif %}{% if r.missing %}{{ ',' if r.found else ':' }} {{ _("{n} still not covered by any stock", n=r.missing) }}{% endif %}.</span>
+        <a class="btn btn-sm btn-outline-dark mt-2 align-self-start" href="/stock-in"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> {{ _("Record a delivery") }}</a>
+      </span>
     </li>
     {% endfor %}
     {% for f in lot_flags %}
-    <li class="list-group-item d-flex gap-3 align-items-center flex-wrap">
-      {{ pic(photos.product.get(f.product_id), 40) }}
-      <div class="flex-grow-1" style="min-width:12rem">
-        <a class="fw-semibold" href="/catalog/{{ f.product_id }}">{{ f.name_en }}</a>
-        <div class="small muted">The pack says lot <b>{{ f.found }}</b>, but the {% if f.invoice_id %}<a href="/invoices/{{ f.invoice_id }}">invoice</a>{% else %}invoice{% endif %}
-          {% if f.supplier %}from {{ f.supplier }} {% endif %}says <b>{{ f.expected }}</b>. Ask the supplier whether they sent that lot.</div>
-      </div>
-      <form method="post" action="/source-flags/{{ f.id }}/clear"><button class="btn btn-sm btn-outline-dark">Checked: it's fine</button></form>
+    <li class="row-item">
+      {{ pic(photos.product.get(f.product_id), 44) }}
+      <span class="row-text">
+        <a class="fw-semibold text-reset" href="/catalog/{{ f.product_id }}">{{ pname(f) }}</a>
+        <span>{{ _("The pack says lot {found}, but the invoice says {expected}. Ask the supplier whether they sent that lot.", found=f.found, expected=f.expected) }}
+          {% if f.invoice_id %}<a href="/invoices/{{ f.invoice_id }}">{{ _("See the invoice") }}</a>{% endif %}</span>
+        <form method="post" action="/source-flags/{{ f.id }}/clear" class="mt-2"><button class="btn btn-sm btn-outline-dark">{{ _("Checked: it's fine") }}</button></form>
+      </span>
     </li>
     {% endfor %}
   </ul>
-</div>
+</section>
 {% endif %}
 
-<div class="row g-3" id="places">
-  <div class="col-lg-5">
-    <div class="card">
-      <div class="card-header"><i class="bi bi-geo-alt" aria-hidden="true"></i> Places in the shop
-        <div class="sub">In walking order. New stock goes where its product lives.</div></div>
-      <ul class="list-group list-group-flush">
-        {% for l in places %}
-        <li class="list-group-item d-flex gap-2 align-items-center">
-          <form method="post" action="/shelf/places/{{ l.id }}" class="d-flex gap-2 flex-grow-1">
-            <input name="name" value="{{ l.name }}" class="form-control form-control-sm" aria-label="place name">
-            <button class="btn btn-sm btn-outline-dark">Rename</button></form>
-          <form method="post" action="/shelf/places/{{ l.id }}/remove" onsubmit='return confirm({{ ("Remove " ~ l.name ~ "? Products that live there will have no place.")|tojson }})'>
-            <button class="btn btn-sm btn-light" aria-label="remove {{ l.name }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button></form>
-        </li>
+<h2 class="list-title mt-2" id="places">{{ _("Places in the shop") }}</h2>
+<details class="fold-section" {{ 'open' if not places }}>
+  <summary><i class="bi bi-geo-alt" aria-hidden="true"></i> {{ _("Your places") }} <span class="count-pill">{{ places|length }}</span></summary>
+  <div class="fold-body">
+    <p class="small muted mt-0">{{ _("In walking order. New stock goes where its product lives.") }}</p>
+    <ul class="list-unstyled d-grid gap-2 mb-3">
+      {% for l in places %}
+      <li class="d-flex gap-2 align-items-center">
+        <form method="post" action="/shelf/places/{{ l.id }}" class="d-flex gap-2 flex-grow-1">
+          <input name="name" value="{{ l.name }}" class="form-control" aria-label="{{ _('Place name') }}">
+          <button class="btn btn-outline-dark">{{ _("Rename") }}</button></form>
+        <form method="post" action="/shelf/places/{{ l.id }}/remove" onsubmit='return confirm({{ _("Remove {name}? Products that live there will have no place.", name=l.name)|tojson }})'>
+          <button class="btn btn-outline-dark" aria-label="{{ _('Remove {name}', name=l.name) }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button></form>
+      </li>
+      {% endfor %}
+    </ul>
+    <form method="post" action="/shelf/places" class="d-flex gap-2">
+      <input name="name" class="form-control" placeholder="{{ _('Fridge, Shelf A, Drawer 4…') }}" required aria-label="{{ _('New place') }}">
+      <button class="btn btn-dark">{{ _("Add") }}</button></form>
+    {% if not places %}
+    <form method="post" action="/shelf/places/suggested" class="mt-2 d-grid">
+      <button class="btn btn-outline-dark">{{ _("Add the usual places: {names}", names=suggested|join(', ')) }}</button></form>
+    {% endif %}
+  </div>
+</details>
+<details class="fold-section">
+  <summary><i class="bi bi-box-seam" aria-hidden="true"></i> {{ _("Where each product lives") }}</summary>
+  <div class="fold-body">
+    {% if places %}
+    <p class="small muted mt-0">{{ _("Products without a place are at the top.") }}</p>
+    <form method="post" action="/shelf/homes">
+      <ul class="list-unstyled home-list mb-3">
+        {% for pr in products %}
+        <li><label for="home-{{ pr.id }}">{{ pic(photos.product.get(pr.id), 32) }} <span>{{ pname(pr) }}</span></label>
+          <select id="home-{{ pr.id }}" name="home_{{ pr.id }}" class="form-select">
+            <option value="">{{ _("No place yet") }}</option>
+            {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == pr.location_id }}>{{ l.name }}</option>{% endfor %}
+          </select></li>
         {% endfor %}
       </ul>
-      <div class="card-body">
-        <form method="post" action="/shelf/places" class="d-flex gap-2">
-          <input name="name" class="form-control" placeholder="Fridge, Shelf A, Drawer 4..." required aria-label="new place">
-          <button class="btn btn-dark">Add</button></form>
-        {% if not places %}
-        <form method="post" action="/shelf/places/suggested" class="mt-2">
-          <button class="btn btn-outline-dark">Add the usual places: {{ suggested|join(', ') }}</button></form>
-        {% endif %}
-      </div>
-    </div>
+      <button class="btn btn-dark w-100">{{ _("Save") }}</button>
+    </form>
+    {% else %}{{ empty('geo-alt', _('Name your places first'), _('Then pick where each product lives.')) }}{% endif %}
   </div>
-  <div class="col-lg-7">
-    <div class="card">
-      <div class="card-header"><i class="bi bi-box-seam" aria-hidden="true"></i> Where each product lives
-        <div class="sub">Products without a place are at the top.</div></div>
-      {% if places %}
-      <form method="post" action="/shelf/homes">
-        <div class="table-responsive" style="max-height:28rem">
-          <table class="table table-sm align-middle mb-0">
-            {% for pr in products %}
-            <tr><td>{{ pic(photos.product.get(pr.id), 28) }} {{ pr.name_en }}</td>
-              <td style="width:12rem"><select name="home_{{ pr.id }}" class="form-select form-select-sm" aria-label="where {{ pr.name_en }} lives">
-                <option value="">No place yet</option>
-                {% for l in places %}<option value="{{ l.id }}" {{ 'selected' if l.id == pr.location_id }}>{{ l.name }}</option>{% endfor %}
-              </select></td></tr>
-            {% endfor %}
-          </table>
-        </div>
-        <div class="card-footer bg-white"><button class="btn btn-dark">Save</button></div>
-      </form>
-      {% else %}<div class="card-body">{{ empty('geo-alt', 'Name your places first', 'Then pick where each product lives.') }}</div>{% endif %}
-    </div>
-  </div>
-</div>
+</details>
 {% endblock %}

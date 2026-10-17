@@ -1,180 +1,236 @@
 {% extends "base.html" %}
-{% block title %}Products{% endblock %}
+{% set back = '/more' %}
+{% set help_topic = 'words' %}
+{% block title %}{{ _("Products") }}{% endblock %}
 {% block content %}
 {% from "_macros.html" import pic %}
 {% set need_photos = products|selectattr('photos', 'lt', min_photos)|list %}
 {% set learned = products|rejectattr('origin', 'equalto', 'catalog')|list %}
-<div class="page-head">
-  <div>
-    <h1>Products</h1>
-    <div class="lead-line">{{ products|length }} products ·
-      {% if need_photos %}<b class="text-danger">{{ need_photos|length }} still need photos</b> before the camera can recognise them
-      {% else %}every product has enough photos ✓{% endif %}</div>
-  </div>
-  <div class="d-flex gap-2 flex-wrap">
-    <a href="/catalog/new" class="btn btn-lg btn-dark"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add product</a>
-    <a href="/stock-in?mode=count" class="btn btn-lg btn-outline-dark"><i class="bi bi-upc-scan" aria-hidden="true"></i> Count with the camera</a>
-    <button class="btn btn-lg btn-outline-dark" data-bs-toggle="collapse" data-bs-target="#count"><i class="bi bi-clipboard-check" aria-hidden="true"></i> Count stock</button>
-  </div>
+{% set n_att = stock_rows.values()|selectattr('attention')|list|length %}
+{% set tags = {'out': _("OUT"), 'low': _("LOW"), 'expired': _("PAST ITS DATE"), 'expiring': _("EXPIRES SOON"), 'new': _("NOT COUNTED"), 'ok': _("OK")} %}
+{% set origins = {'counter': _('from a sale'), 'invoice': _('from an invoice'), 'stock_in': _('from stock in'),
+                  'sheet': _('from a spreadsheet'), 'shelf': _('from a shelf')} %}
+{% set ignore_words = {'phone': _('Phone'), 'cash': _('Cash'), 'calculator': _('Calculator'), 'plastic_bag': _('Plastic bag'),
+                       'hand': _('Hand'), 'other': _('Something else')} %}
+
+<header class="page-title">
+  <h1>{{ _("Products") }}</h1>
+  <div class="sub">{{ _("{n} product|{n} products", n=products|length) }} · ${{ '{:,.2f}'.format(stock_rows.values()|sum(attribute='value')) }} {{ _("at cost") }}</div>
+</header>
+
+<div class="action-pair">
+  <a href="/catalog/new" class="btn btn-dark"><i class="bi bi-plus-lg" aria-hidden="true"></i> {{ _("Add product") }}</a>
+  <button type="button" class="btn btn-outline-dark" data-bs-toggle="collapse" data-bs-target="#count" aria-expanded="false" aria-controls="count">
+    <i class="bi bi-clipboard-check" aria-hidden="true"></i> {{ _("Count everything") }}</button>
+</div>
+<div class="quick-links mb-3">
+  <a class="link-row" href="/stock-in?mode=count"><i class="bi bi-upc-scan" aria-hidden="true"></i> {{ _("Count with the camera") }}</a>
+  <a class="link-row" href="/spreadsheet"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> {{ _("Edit in Excel") }}</a>
 </div>
 
-{% if lookalikes %}
-<div class="card mb-3" id="lookalikes">
-  <div class="card-header"><i class="bi bi-intersect" aria-hidden="true"></i> Look-alikes the camera mixes up
-    <div class="sub">When it sees one of these it asks you, unless it is clearly sure{{ ' (or reads the label)' if cfg.labels.enabled }}.
-      To teach it the difference, take a few photos of the side where they differ: the size, flavour or strength printed on the pack.</div></div>
-  <ul class="list-group list-group-flush">
-    {% for x in lookalikes[:10] %}
-    <li class="list-group-item d-flex gap-2 align-items-center flex-wrap">
-      {{ pic(photos.pack.get(x.a.pack_id) or photos.product.get(x.a.product_id), 36) }}
-      <a class="fw-semibold" href="/catalog/enroll?pack_id={{ x.a.pack_id }}">{{ x.label_a }}</a>
-      <i class="bi bi-arrow-left-right muted" aria-label="and"></i>
-      {{ pic(photos.pack.get(x.b.pack_id) or photos.product.get(x.b.product_id), 36) }}
-      <a class="fw-semibold" href="/catalog/enroll?pack_id={{ x.b.pack_id }}">{{ x.label_b }}</a>
-      <span class="small muted ms-auto">{{ x.n }} photo{{ 's' if x.n != 1 }} mixed up</span>
-      <a class="btn btn-sm btn-outline-dark" href="/accuracy?pack={{ x.a.pack_id }}">Test them</a>
-    </li>
-    {% endfor %}
-  </ul>
-</div>
+{% if need_photos %}
+<a class="next-card tone-warn mb-3" href="#cat-filters" data-chip="photos">
+  <i class="bi bi-camera" aria-hidden="true"></i>
+  <span class="row-text"><b>{{ _("{n} product needs photos|{n} products need photos", n=need_photos|length) }}</b>
+    <span>{{ _("The counter camera recognises a product after {n} photos of it.", n=min_photos) }}</span></span>
+  <i class="bi bi-chevron-right row-go" aria-hidden="true"></i></a>
 {% endif %}
 
 <!-- whole-shop stock count (install day, or a monthly recount) -->
 <div class="collapse mb-3" id="count">
-  <div class="card">
-    <div class="card-header"><i class="bi bi-clipboard-check" aria-hidden="true"></i> Count what's on the shelf <div class="sub">Type the number you count. Leave a box empty to keep its current number.</div></div>
-    <form method="post" action="/catalog/opening-count" class="card-body" data-busy="Saving the counts…">
-      <div class="row g-2">
+  <section class="map-panel" aria-labelledby="count-title">
+    <div class="panel-head"><b id="count-title">{{ _("Count what's on the shelf") }}</b>
+      <span>{{ _("Type the number you count. Leave a box empty to keep its number.") }}</span></div>
+    <form method="post" action="/catalog/opening-count" data-busy="{{ _('Saving the counts…') }}">
+      <ul class="list-unstyled count-list mb-0">
         {% for r in products %}
-        <div class="col-md-6 col-xxl-4"><label class="d-flex align-items-center gap-2 border rounded-3 p-2 bg-white">
-          <span class="flex-grow-1">{{ r.name_en }}<span class="d-block small muted">now {{ r.on_hand if r.tracked else 'not counted' }}</span></span>
-          <input name="count_{{ r.id }}" type="number" min="0" inputmode="numeric" class="form-control" style="width:6.5rem" placeholder="{{ r.on_hand if r.tracked else '' }}"></label></div>
+        <li><label for="cnt-{{ r.id }}"><b>{{ pname(r) }}</b>
+            <span>{{ _("now {n}", n=r.on_hand) if r.tracked else _("not counted yet") }}</span></label>
+          <input id="cnt-{{ r.id }}" name="count_{{ r.id }}" type="number" min="0" inputmode="numeric" class="form-control" placeholder="{{ r.on_hand if r.tracked else '' }}"></li>
         {% endfor %}
-      </div>
-      <button class="btn btn-lg btn-dark mt-3">Save counts</button>
+      </ul>
+      <div class="p-3"><button class="btn btn-lg btn-dark w-100">{{ _("Save counts") }}</button></div>
+    </form>
+  </section>
+</div>
+
+<div class="search-box">
+  <i class="bi bi-search" aria-hidden="true"></i>
+  <input type="search" id="cat-search" placeholder="{{ _('Search a product…') }}" aria-label="{{ _('Search a product…') }}" autocomplete="off" enterkeyhint="search">
+</div>
+<div class="filter-strip" id="cat-filters" role="group" aria-label="{{ _('Products') }}">
+  <button type="button" class="chip" data-filter="all" aria-pressed="true">{{ _("All") }} <b>{{ products|length }}</b></button>
+  {% if n_att %}<button type="button" class="chip" data-filter="attention" aria-pressed="false">{{ _("Needs you") }} <b>{{ n_att }}</b></button>{% endif %}
+  <button type="button" class="chip" data-filter="photos" aria-pressed="false">{{ _("Needs photos") }} <b>{{ need_photos|length }}</b></button>
+  {% if learned %}<button type="button" class="chip" data-filter="learned" aria-pressed="false">{{ _("New from sales and invoices") }} <b>{{ learned|length }}</b></button>{% endif %}
+</div>
+<select id="cat-sup" class="form-select mb-3" aria-label="{{ _('Supplier') }}">
+  <option value="">{{ _("All suppliers") }}</option>
+  {% for s in suppliers %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
+
+{% if not products %}
+<div class="row-list mb-4"><div class="empty-state">
+  <div class="ico"><i class="bi bi-box-seam" aria-hidden="true"></i></div>
+  <div class="t">{{ _("No products yet") }}</div>
+  <div class="small">{{ _("Fastest: photograph a few supplier invoices on Deliveries. Every line becomes a product in one tap.") }}</div>
+  <a href="/catalog/new" class="btn btn-lg btn-dark mt-3"><i class="bi bi-plus-lg" aria-hidden="true"></i> {{ _("Add your first product") }}</a>
+</div></div>
+{% endif %}
+
+<ul class="product-list mb-4 {{ 'd-none' if not products }}" id="cat-list">
+{% for r in products %}
+  {% set st = stock_rows.get(r.id) %}{% set box = boxes.get(r.id) %}
+  {% set shown = st.shown if st else 'new' %}
+  <li class="cat-row" data-name="{{ (r.name_en ~ ' ' ~ r.name_km)|lower }}" data-sup="{{ r.supplier_id }}" data-photos="{{ 1 if r.photos < min_photos else 0 }}" data-learned="{{ 1 if r.origin != 'catalog' else 0 }}" data-attention="{{ 1 if st and st.attention else 0 }}">
+    <a class="prow" href="/catalog/{{ r.id }}">
+      <span class="prow-pic">{% if photos.product.get(r.id) %}<img src="/thumb/{{ photos.product.get(r.id) }}.jpg" alt="" width="56" height="56" loading="lazy">{% else %}<i class="bi bi-camera" aria-hidden="true"></i>{% endif %}</span>
+      <span class="prow-text">
+        <b>{{ pname(r) }}</b>
+        {% set other = r.name_en if pname(r) != r.name_en else (r.name_km if r.name_km != r.name_en else '') %}
+        {% if other %}<span class="alt">{{ other }}</span>{% endif %}
+        <span class="tags">{% if shown != 'ok' %}<span class="tag tag-{{ shown }}">{{ tags[shown] }}</span>{% endif %}
+          {%- if r.is_critical %}<span class="tag tag-must">{{ _("MUST-HAVE") }}</span>{% endif %}
+          {%- if r.origin != 'catalog' %}<span class="tag tag-low" title="{{ r.added_at|day }}">{{ origins.get(r.origin, _('added')) }}</span>{% endif %}</span>
+        <span class="why">{{ r.supplier_name or _('no supplier') }} ·
+          {% if box %}{{ _("{box} of {n} {unit}", box=box[0]|unit, n=box[1], unit=(r.unit|plural(box[1]))|unit) }} · {{ _("${money} per {unit}", money='%.2f'|format(r.unit_cost), unit=r.unit|unit) }}
+          {%- else %}{{ _("case of {n}", n=r.case_size) }} · {{ _("${money} each", money='%.2f'|format(r.unit_cost)) }}{% endif %}</span>
+        <span class="why {{ 'tone-warn-text' if r.photos < min_photos }}"><i class="bi bi-camera" aria-hidden="true"></i>
+          {% if r.photos >= min_photos %}{{ _("{n} photos", n=r.photos) }}{% else %}{{ _("{n} of {m} photos: add more", n=r.photos, m=min_photos) }}{% endif %}</span>
+      </span>
+      <span class="prow-n">
+        {% if not r.tracked %}<b>–</b><span>{{ _("not counted") }}</span>
+        {% elif r.on_hand < 0 %}<b>0</b><span class="text-danger">{{ _("recount") }}</span>
+        {% else %}<b>{{ r.on_hand }}</b><span>{{ (r.unit|plural(r.on_hand if r.on_hand > 0 else 2))|unit }}</span>{% endif %}
+      </span>
+    </a>
+  </li>
+{% endfor %}
+</ul>
+<div id="cat-empty" class="empty-state d-none">
+  <div class="ico"><i class="bi bi-search" aria-hidden="true"></i></div>
+  <div class="t">{{ _("Nothing matches.") }}</div>
+  <div class="small">{{ _("Try another name, or look in All.") }}</div>
+</div>
+
+{% if lookalikes %}
+<details class="fold-section" id="lookalikes">
+  <summary><i class="bi bi-intersect" aria-hidden="true"></i> {{ _("Look-alikes the camera mixes up") }} <span class="count-pill">{{ lookalikes|length }}</span></summary>
+  <div class="fold-body">
+    <p class="small muted mt-0">{{ _("When it sees one of these it asks you, unless it is clearly sure. To teach it the difference, take a few photos of the side where they differ: the size, flavour or strength printed on the pack.") }}</p>
+    <ul class="row-list">
+      {% for x in lookalikes[:10] %}
+      <li class="row-item flex-wrap">
+        <span class="d-flex align-items-center gap-2 flex-wrap flex-grow-1">
+          {{ pic(photos.pack.get(x.a.pack_id) or photos.product.get(x.a.product_id), 36) }}
+          <a class="fw-semibold" href="/catalog/enroll?pack_id={{ x.a.pack_id }}">{{ x.label_a }}</a>
+          <i class="bi bi-arrow-left-right muted" aria-label="{{ _('and') }}"></i>
+          {{ pic(photos.pack.get(x.b.pack_id) or photos.product.get(x.b.product_id), 36) }}
+          <a class="fw-semibold" href="/catalog/enroll?pack_id={{ x.b.pack_id }}">{{ x.label_b }}</a>
+        </span>
+        <span class="small muted">{{ _("{n} photo mixed up|{n} photos mixed up", n=x.n) }}</span>
+        <a class="btn btn-sm btn-outline-dark" href="/accuracy?pack={{ x.a.pack_id }}">{{ _("Test them") }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</details>
+{% endif %}
+
+<details class="fold-section" id="suppliers">
+  <summary><i class="bi bi-truck" aria-hidden="true"></i> {{ _("Suppliers and their visit days") }} <span class="count-pill">{{ suppliers|length }}</span></summary>
+  <div class="fold-body">
+    <p class="small muted mt-0">{{ _("Order lists are sent the evening before each visit.") }}</p>
+    {% for s in suppliers %}
+    <form method="post" action="/catalog/suppliers/{{ s.id }}" class="supplier-form">
+      <label class="visually-hidden" for="sn-{{ s.id }}">{{ _("Supplier name") }}</label>
+      <input id="sn-{{ s.id }}" name="name" value="{{ s.name }}" class="form-control sf-name">
+      <select name="visit_weekday" class="form-select" aria-label="{{ _('Visit day') }}">
+        {% for d in weekdays %}<option value="{{ loop.index0 }}" {% if loop.index0 == s.visit_weekday %}selected{% endif %}>{{ _(d) }}</option>{% endfor %}</select>
+      <div class="input-group"><span class="input-group-text">{{ _("min $") }}</span>
+        <input name="min_order" value="{{ '%g'|format(s.min_order) }}" type="number" min="0" step="any" inputmode="decimal" class="form-control" aria-label="{{ _('Smallest order, in dollars') }}"></div>
+      <button class="btn btn-outline-dark">{{ _("Save") }}</button>
+    </form>
+    {% endfor %}
+    <form method="post" action="/catalog/suppliers" class="supplier-form new">
+      <input name="name" class="form-control sf-name" placeholder="{{ _('New supplier, e.g. the bread agent…') }}" required aria-label="{{ _('New supplier name') }}">
+      <select name="visit_weekday" class="form-select" aria-label="{{ _('Visit day') }}">
+        {% for d in weekdays %}<option value="{{ loop.index0 }}">{{ _(d) }}</option>{% endfor %}</select>
+      <button class="btn btn-dark sf-wide"><i class="bi bi-plus-lg" aria-hidden="true"></i> {{ _("Add supplier") }}</button>
     </form>
   </div>
-</div>
+</details>
 
-<div class="card mb-4">
-  <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
-    <div class="chips" id="cat-filters">
-      <button class="chip active" data-filter="all">All {{ products|length }}</button>
-      <button class="chip" data-filter="photos">Needs photos {{ need_photos|length }}</button>
-      {% if learned %}<button class="chip" data-filter="learned">New from sales and invoices {{ learned|length }}</button>{% endif %}
-      {% for s in suppliers %}<button class="chip" data-filter="sup:{{ s.id }}">{{ s.emoji }} {{ s.name }}</button>{% endfor %}
-    </div>
-    <input type="search" class="form-control search" id="cat-search" placeholder="Find a product">
-  </div>
-  {% if not products %}
-  <div class="empty-state">
-    <div class="ico"><i class="bi bi-box-seam" aria-hidden="true"></i></div>
-    <div class="t">No products yet</div>
-    <div class="small">Add what you sell, then show each one to the camera a few times. Fastest: photograph a few
-      supplier invoices on <a href="/invoices">Deliveries</a>; every line becomes a product in one tap.</div>
-    <a href="/catalog/new" class="btn btn-lg btn-dark mt-3"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add your first product</a>
-  </div>
-  {% endif %}
-  <div id="cat-list">
-  {% for r in products %}
-  {% set pct = [100, (r.photos / min_photos * 100)|int]|min %}
-  <div class="product-row" data-name="{{ (r.name_en ~ ' ' ~ r.name_km)|lower }}" data-sup="{{ r.supplier_id }}" data-photos="{{ 1 if r.photos < min_photos else 0 }}" data-learned="{{ 1 if r.origin != 'catalog' else 0 }}">
-    {% if photos.product.get(r.id) %}<img class="thumb-lg" src="/thumb/{{ photos.product.get(r.id) }}.jpg" alt="">{% else %}<div class="ph" title="no photos yet"><i class="bi bi-camera" aria-hidden="true"></i></div>{% endif %}
-    <div class="flex-grow-1" style="min-width:12rem">
-      <a href="/catalog/{{ r.id }}" class="name text-decoration-none text-reset">{{ r.name_en }}</a>
-      {% if r.is_critical %}<span class="pill must">must-have</span>{% endif %}
-      {% if r.origin != 'catalog' %}<span class="pill new-from" title="added {{ (r.added_at or '')[:10] }}">{{ {'counter': 'from a sale', 'invoice': 'from an invoice', 'stock_in': 'from stock in', 'sheet': 'from a spreadsheet', 'shelf': 'from a shelf'}.get(r.origin, 'added') }}</span>{% endif %}
-      <div class="km small muted">{{ r.name_km if r.name_km != r.name_en }}</div>
-      {% set box = boxes.get(r.id) %}
-      <div class="meta">{{ r.emoji or '' }} {{ r.supplier_name or 'no supplier' }} ·
-        {% if box %}<i class="bi bi-capsule" aria-hidden="true"></i> {{ box[0] }} of {{ box[1] }} {{ r.unit|plural(box[1]) }} · ${{ '%.2f'|format(r.unit_cost) }} per {{ r.unit }}
-        {% else %}case of {{ r.case_size }} · ${{ '%.2f'|format(r.unit_cost) }} each{% endif %} ·
-        {% if not r.tracked %}<span class="text-warning-emphasis">not counted yet</span>{% elif r.on_hand < 0 %}<span class="text-danger">count is off — recount</span>{% else %}{{ r.on_hand }}{% if box %} {{ r.unit|plural(r.on_hand) }}{% endif %} on the shelf{% endif %}</div>
-    </div>
-    <div class="progress-photos">
-      <div class="bar"><span style="width:{{ pct }}%;background:{{ 'var(--ok)' if r.photos >= min_photos else ('var(--warn)' if r.photos else 'var(--bad)') }}"></span></div>
-      <div class="t {{ 'text-success' if r.photos >= min_photos }}">{% if r.photos >= min_photos %}✓ {{ r.photos }} photos{% else %}{{ r.photos }} / {{ min_photos }} photos{% endif %}</div>
-    </div>
-    <div class="d-flex gap-2">
-      <a href="/catalog/{{ r.id }}#photos" class="btn {{ 'btn-primary' if r.photos < min_photos else 'btn-outline-primary' }}"><i class="bi bi-camera" aria-hidden="true"></i> Photos</a>
-      <a href="/catalog/{{ r.id }}" class="btn btn-outline-secondary">Edit</a>
+<details class="fold-section">
+  <summary><i class="bi bi-eye-slash" aria-hidden="true"></i> {{ _("Things the camera should ignore") }}</summary>
+  <div class="fold-body">
+    <p class="small muted mt-0">{{ _("Take a few photos of each, so they never count as sales.") }}</p>
+    <div class="d-flex flex-wrap gap-2">
+      {% for label in ignore_labels %}
+      <a href="/catalog/enroll?ignore={{ label }}" class="btn btn-outline-dark">
+        <i class="bi bi-{{ {'phone': 'phone', 'cash': 'cash-coin', 'calculator': 'calculator', 'plastic_bag': 'bag', 'hand': 'hand-index', 'other': 'question-circle'}[label] }}" aria-hidden="true"></i>
+        {{ ignore_words[label] }} <span class="tag {{ 'tag-ok' if ignore.get(label, 0) >= 3 }}">{{ ignore.get(label, 0) }}</span></a>
+      {% endfor %}
     </div>
   </div>
-  {% endfor %}
-  </div>
-  <div id="cat-empty" class="p-4 text-center muted d-none">No products match.</div>
-</div>
-
-<div class="row g-3">
-  <div class="col-lg-7">
-    <div class="card h-100">
-      <div class="card-header" id="suppliers"><i class="bi bi-truck" aria-hidden="true"></i> Suppliers and their visit days <div class="sub">Order lists are sent the evening before each visit.</div></div>
-      <div class="card-body">
-        {% for s in suppliers %}
-        <form method="post" action="/catalog/suppliers/{{ s.id }}" class="row g-2 align-items-center mb-2">
-          <div class="col-12 col-md-4"><div class="input-group"><span class="input-group-text">{{ s.emoji }}</span>
-            <input name="name" value="{{ s.name }}" class="form-control" aria-label="supplier name"></div></div>
-          <div class="col-6 col-md-3"><select name="visit_weekday" class="form-select" aria-label="visit day">
-            {% for d in weekdays %}<option value="{{ loop.index0 }}" {% if loop.index0 == s.visit_weekday %}selected{% endif %}>{{ d }}</option>{% endfor %}</select></div>
-          <div class="col-6 col-md-3"><div class="input-group"><span class="input-group-text">min $</span>
-            <input name="min_order" value="{{ '%g'|format(s.min_order) }}" type="number" min="0" step="any" class="form-control" aria-label="minimum order in dollars"></div></div>
-          <div class="col-12 col-md-2 d-grid"><button class="btn btn-outline-dark">Save</button></div>
-        </form>
-        {% endfor %}
-        <hr>
-        <form method="post" action="/catalog/suppliers" class="row g-2 align-items-center">
-          <div class="col-12 col-md-4"><input name="name" class="form-control" placeholder="New supplier, e.g. Fresh bread agent" required aria-label="new supplier name"></div>
-          <div class="col-6 col-md-3"><select name="visit_weekday" class="form-select" aria-label="visit day">
-            {% for d in weekdays %}<option value="{{ loop.index0 }}">{{ d }}</option>{% endfor %}</select></div>
-          <div class="col-6 col-md-5 d-grid"><button class="btn btn-dark"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add supplier</button></div>
-        </form>
-      </div>
-    </div>
-  </div>
-  <div class="col-lg-5">
-    <div class="card h-100">
-      <div class="card-header"><i class="bi bi-eye-slash" aria-hidden="true"></i> Things the camera should ignore <div class="sub">Take a few photos of each so they never count as sales.</div></div>
-      <div class="card-body d-flex flex-wrap gap-2">
-        {% for label in ignore_labels %}
-        <a href="/catalog/enroll?ignore={{ label }}" class="btn {{ 'btn-outline-success' if ignore.get(label, 0) >= 3 else 'btn-outline-secondary' }}">
-          <i class="bi bi-{{ {'phone': 'phone', 'cash': 'cash-coin', 'calculator': 'calculator', 'plastic_bag': 'bag', 'hand': 'hand-index', 'other': 'question-circle'}[label] }}" aria-hidden="true"></i>
-          {{ label.replace('_', ' ') }} · {{ ignore.get(label, 0) }}</a>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-</div>
+</details>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (() => {
-  const rows = [...document.querySelectorAll("#cat-list .product-row")];
-  const search = document.getElementById("cat-search");
-  let filter = "all";
+  const rows = [...document.querySelectorAll("#cat-list .cat-row")];
+  const search = document.getElementById("cat-search"), sup = document.getElementById("cat-sup");
+  const chips = [...document.querySelectorAll("#cat-filters .chip")];
+  const DEFAULT = "all";
+  let filter = DEFAULT;
+  // The filter lives in the address (?show=…&sup=…&q=…): a filtered list can be bookmarked, shared or reloaded.
+  function remember() {
+    const u = new URL(location.href);
+    for (const [k, v] of [["show", filter === DEFAULT ? "" : filter], ["sup", sup.value], ["q", search.value.trim()]]) {
+      if (v) u.searchParams.set(k, v); else u.searchParams.delete(k);
+    }
+    history.replaceState(null, "", u);
+  }
+  function recall() {
+    const u = new URLSearchParams(location.search);
+    if (u.get("sup") && [...sup.options].some((o) => o.value === u.get("sup"))) sup.value = u.get("sup");
+    if (u.get("q")) search.value = u.get("q");
+    return u.get("show");
+  }
+  const keep = {
+    all: () => true,
+    photos: (r) => r.dataset.photos === "1",
+    learned: (r) => r.dataset.learned === "1",
+    attention: (r) => r.dataset.attention === "1",
+  };
   function apply() {
     const q = search.value.trim().toLowerCase();
     let shown = 0;
     for (const r of rows) {
-      const okFilter = filter === "all" || (filter === "photos" && r.dataset.photos === "1")
-        || (filter === "learned" && r.dataset.learned === "1")
-        || (filter.startsWith("sup:") && r.dataset.sup === filter.slice(4));
-      const ok = okFilter && (!q || r.dataset.name.includes(q));
+      const ok = keep[filter](r) && (!sup.value || r.dataset.sup === sup.value) && (!q || r.dataset.name.includes(q));
       r.classList.toggle("d-none", !ok);
       shown += ok;
     }
     document.getElementById("cat-empty").classList.toggle("d-none", shown > 0 || !rows.length);
+    remember();
   }
-  document.querySelectorAll("#cat-filters .chip").forEach((c) => c.onclick = () => {
-    filter = c.dataset.filter;
-    document.querySelectorAll("#cat-filters .chip").forEach((x) => x.classList.toggle("active", x === c));
+  function setFilter(f) {
+    if (!chips.some((c) => c.dataset.filter === f)) f = DEFAULT;
+    filter = f;
+    chips.forEach((c) => { const on = c.dataset.filter === f; c.classList.toggle("active", on); c.setAttribute("aria-pressed", String(on)); });
     apply();
-  });
-  search.oninput = apply;
-  // Links from the Setup page: #needs-photos filters the list, #count opens the stock count.
-  if (location.hash === "#needs-photos") document.querySelector('#cat-filters .chip[data-filter="photos"]')?.click();
-  if (location.hash === "#learned") document.querySelector('#cat-filters .chip[data-filter="learned"]')?.click();
+  }
+  chips.forEach((c) => c.addEventListener("click", () => setFilter(c.dataset.filter)));
+  search.addEventListener("input", apply);
+  sup.addEventListener("change", apply);
+  document.querySelectorAll("[data-chip]").forEach((a) => a.addEventListener("click", () => setFilter(a.dataset.chip)));
+  // Links from the Setup page: #needs-photos and #learned filter the list, #count opens the stock count,
+  // #suppliers and #lookalikes open their section.
+  const hashes = { "#needs-photos": "photos", "#learned": "learned" };
+  setFilter(hashes[location.hash] || recall() || DEFAULT);
   if (location.hash === "#count") bootstrap.Collapse.getOrCreateInstance(document.getElementById("count"), { toggle: false }).show();
+  const fold = document.querySelector(`details${location.hash.match(/^#[\w-]+$/) ? location.hash : "#none"}`);
+  if (fold) fold.open = true;
 })();
 </script>
 {% endblock %}

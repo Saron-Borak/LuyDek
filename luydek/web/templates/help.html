@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% set back = '/more' %}
+{% block title %}{{ _("Help") }}{% endblock %}
+{% block content %}
+<header class="page-title"><h1>{{ _("Help") }}</h1></header>
+
+<h2 class="list-title" id="howto">{{ _("How to") }}</h2>
+<div class="howto-list mb-4">
+  {% for icon, title, text in [
+    ('box-arrow-in-down', 'Record a delivery', 'Tap +, then Stock came in. Take a photo of the paper invoice. Check the lines and tap Add to stock.'),
+    ('clipboard-check', 'Fix a number', 'Tap +, then Count a shelf. Find the product, set how many are there, tap Save.'),
+    ('bag-dash', 'Something left without a sale', 'Tap +, then Sold or used. Pick why, the product and how many.'),
+    ('cart3', 'Get ready for an agent', 'Open Orders. Each agent has a list of what to buy, what to skip and why. Tap Copy for the agent.'),
+    ('camera', 'Check what the camera wasn\'t sure about', 'Home shows Check sales. Tap Yes when the guess is right, or pick the right product.'),
+    ('calendar2-check', 'Walk the shelves once a week', 'Open More, then Shelf check. Take off what has expired, put what expires soon in front.')] %}
+  <article class="howto" {% if loop.index == 5 %}id="checks"{% elif loop.index == 4 %}id="orders"{% elif loop.index == 6 %}id="shelf"{% endif %}>
+    <span class="cell-icon"><i class="bi bi-{{ icon }}" aria-hidden="true"></i></span>
+    <div><h3>{{ _(title) }}</h3><p>{{ _(text) }}</p></div>
+  </article>
+  {% endfor %}
+</div>
+
+<h2 class="list-title" id="words">{{ _("What the words mean") }}</h2>
+<dl class="glossary">
+  {% for key, term, text, tone in [
+    ('delivery', 'A delivery', 'Everything that came in together, with its own expiry date and place. A product often has a few at once.', 'ok'),
+    ('expired', 'Past its date', 'The date printed on the pack has passed. Take it off the shelf.', 'expired'),
+    ('soon', 'Expires soon', 'The date is within 30 days. Put it in front so it sells first.', 'expiring'),
+    ('clear', "Won't sell in time", 'At the speed it sells, some will still be there on its date. Discount it, sell it in a bundle, or give it back to the agent.', 'expiring'),
+    ('low', 'Running low', 'At the speed it sells, it runs out in about 3 days.', 'low'),
+    ('sleeping', 'Sleeping money', "Money in stock that hardly sells. Don't buy more; try to sell it or return it.", 'info'),
+    ('must', 'Must-have item', 'Something the shop must never run out of, like baby formula. Orders keep extra.', 'must'),
+    ('agent', 'Agent', "The supplier's person who visits on a set day to take your order.", 'new'),
+    ('practice', 'Practice data', 'Some sales were made up to show how LuyDek works. Order lists built from them are examples.', 'new')] %}
+  <div class="term" id="{{ key }}">
+    <dt><span class="tag tag-{{ tone }}">{{ _(term) }}</span></dt>
+    <dd>{{ _(text) }}</dd>
+  </div>
+  {% endfor %}
+</dl>
+{% endblock %}

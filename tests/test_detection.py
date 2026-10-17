@@ -96,7 +96,7 @@ def test_set_aside_things_are_logged_once_and_can_be_a_sale(client, conn, cfg):
     check = db.connect(cfg.db_path)
     [aside] = check.execute("SELECT * FROM ignored_detections").fetchall()   # once, though seen twice
     assert aside["reason"] == "phone" and aside["crop_path"]
-    assert "set aside 1 thing today" in client.get("/").text
+    assert "set aside 1 thing today" in client.get("/sales").text
 
     page = client.get("/log").text
     assert "Set aside: looks like a phone" in page and f'data-fix="ignored" data-id="{aside["id"]}"' in page
@@ -168,7 +168,7 @@ def test_the_check_card_says_why_it_asks_and_takes_several(client, conn, cfg):
     item_id = unknown_sale(conn, cfg, "w.jpg")
     conn.execute("UPDATE transaction_items SET hint = 'junk' WHERE id = ?", (item_id,))
     conn.commit()
-    page = client.get("/").text
+    page = client.get("/sales").text
     assert "It looked like clutter to the camera" in page and f'data-several="{item_id}"' in page
     r = client.post(f"/items/{item_id}/several", headers={"Accept": "application/json"},
                     data={"picks": f"{pack_of(conn, 'coke-330')}:1,{pack_of(conn, 'sprite-1500')}:1"})
@@ -187,7 +187,7 @@ def test_the_log_and_a_products_history_show_everything(client, conn, cfg):
     page = client.get(f"/catalog/{pid(conn, 'coke-330')}/history").text
     assert "History · Coca-Cola can 330ml" in page and "Checked: the camera was right" in page
     assert "Counted" in page and ">18<" in page                          # 20 counted, 2 sold: 18 left
-    assert 'href="/log"' in client.get("/").text
+    assert 'href="/log"' in client.get("/sales").text
 
 
 # --- the empty-mat photo keeps up with the light ------------------------------------------------

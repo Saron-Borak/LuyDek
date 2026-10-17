@@ -451,13 +451,13 @@ def save(conn: sqlite3.Connection, rows: list[dict], *, count_stock: bool, by: s
             if q > 0:
                 groups.append(stockin.Group(q, r.get("expiry") or None, r.get("lot") or None))
         for pid, places in parts.items():
-            _count(conn, pid, places, by)
+            count_places(conn, pid, places, by)
             counted += 1
             units += sum(g.count for gs in places.values() for g in gs)
     return {"places": len(by_shelf), "spots": standing, "created": created, "counted": counted, "units": units}
 
 
-def _count(conn: sqlite3.Connection, product_id: int, places: dict[int | None, list], by: str) -> None:
+def count_places(conn: sqlite3.Connection, product_id: int, places: dict[int | None, list], by: str) -> None:
     """Set a product's stock on each place counted (None: stock with no place yet) to its batches in the
     sheet, leaving its stock elsewhere alone. With none elsewhere, it is an exact count of everything,
     the way Stock in counts (sales still to be checked and any shortfall taken care of)."""

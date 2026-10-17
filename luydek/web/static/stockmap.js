@@ -10,6 +10,8 @@
 // products by dragging, adds them with +, and changes the levels.
 (() => {
   const $ = (id) => document.getElementById(id);
+  const T = window.mapT || ((k, v = {}) => k.split("|")[0].replace(/\{(\w+)\}/g, (m, x) => (x in v ? v[x] : m)));
+  const phone = () => window.matchMedia("(max-width: 991.98px)").matches;
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -28,21 +30,27 @@
   let enter = "";               // the way the last slide came in
 
   const money = (v) => "$" + (Math.round(v * 100) / 100).toFixed(2);
-  const short = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}` : "");
-  const nth = (n) => n + (["th", "st", "nd", "rd"][(n % 100 >= 11 && n % 100 <= 13) ? 0 : n % 10] || "th");
+  // a date the way people say it: "5 Oct", or "5 Oct 2027" when it is not this year
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const short = (iso) => {
+    if (!iso) return "";
+    const day = `${+iso.slice(8, 10)} ${MONTHS[+iso.slice(5, 7) - 1]}`;
+    return +iso.slice(0, 4) === new Date().getFullYear() ? day : `${day} ${iso.slice(0, 4)}`;
+  };
+  const nth = (n) => (document.documentElement.lang === "km" ? String(n) : n + (["th", "st", "nd", "rd"][(n % 100 >= 11 && n % 100 <= 13) ? 0 : n % 10] || "th"));
   const prod = (id) => M.products[id] || { name: (M.batches.find((b) => b.product === id) || {}).name || "?", photo: null };
   const place = (id) => M.places.find((p) => p.id === id);
-  const cap = (s) => s[0].toUpperCase() + s.slice(1);
+  const cap = (s) => T(s[0].toUpperCase() + s.slice(1));
 
   // --- what to show -------------------------------------------------------------------------------
   const FILTERS = [
-    ["all", "Everything", () => true],
-    ["expired", "Expired", (b) => b.status.includes("expired")],
-    ["expiring", `Expires within ${M.warning_days} days`, (b) => b.status.includes("expiring")],
-    ["clear", "Won't sell in time", (b) => b.status.includes("clear")],
-    ["sleeping", "Sleeping money", (b) => b.status.includes("sleeping")],
-    ["out", "Out of stock", null],
-    ["none", "No place yet", (b) => b.place == null],
+    ["all", T("Everything"), () => true],
+    ["expired", T("Past their date"), (b) => b.status.includes("expired")],
+    ["expiring", T("Expires within {n} days", { n: M.warning_days }), (b) => b.status.includes("expiring")],
+    ["clear", T("Won't sell in time"), (b) => b.status.includes("clear")],
+    ["sleeping", T("Sleeping money"), (b) => b.status.includes("sleeping")],
+    ["out", T("Out of stock"), null],
+    ["none", T("No place yet"), (b) => b.place == null],
   ];
   const testOf = () => (FILTERS.find((f) => f[0] === filter) || FILTERS[0])[2];
   const matchText = (r) => !query || [r.name, r.name_km, r.sku, r.lot].some((t) => t && t.toLowerCase().includes(query.toLowerCase()));
@@ -61,7 +69,7 @@
     }
     return all;
   }
-  const slideName = (id) => (id === "none" ? "No place yet" : (place(id) || {}).name || "?");
+  const slideName = (id) => (id === "none" ? T("No place yet") : (place(id) || {}).name || "?");
 
   // Each shelf as the page draws it: levels of spots, and what is on it but on no level.
   function shelf(id) {
@@ -86,15 +94,16 @@
 
   // Where a product is on a shelf, in words.
   function where(id, product) {
-    if (id === "none" || id == null) return "No place yet";
+    if (id === "none" || id == null) return T("No place yet");
     const p = place(id);
     if (!p) return "?";
     const at = p.facings.findIndex((f) => f.product === product);
-    if (at < 0) return `${p.name} · not on a level yet`;
+    if (at < 0) return `${p.name}, ${T("not on a level yet")}`;
     const f = p.facings[at];
     const pos = p.facings.slice(0, at).filter((g) => g.level === f.level).length + 1;
-    const lv = p.levels === 1 ? "" : f.level === 1 ? " · top level" : f.level === p.levels ? " · bottom level" : ` · level ${f.level} of ${p.levels}`;
-    return `${p.name}${lv} · ${nth(pos)} from the left`;
+    const lv = p.levels === 1 ? "" : f.level === 1 ? `, ${T("top level")}` : f.level === p.levels ? `, ${T("bottom level")}`
+      : `, ${T("level {n} of {m}", { n: f.level, m: p.levels })}`;
+    return `${p.name}${lv}, ${T("{n} from the left", { n: nth(pos) })}`;
   }
 
   // --- colours: one layer at a time -------------------------------------------------------------------
@@ -126,7 +135,7 @@
   }
 
   // --- drawing the shelf -------------------------------------------------------------------------------
-  const DO = { remove: "Take off", front: "Put in front", clear: "Won't sell in time: discount, bundle or return" };
+  const DO = { remove: T("Take off"), front: T("Put in front"), clear: T("Won't sell in time") };
   function taskFor(s) {
     if (mode !== "walk") return null;
     const stop = M.walk.find((w) => (w.place ?? "none") === cur);
@@ -136,25 +145,46 @@
     ts.sort((a, b) => order.indexOf(a.action) - order.indexOf(b.action));
     return { action: ts[0].action, left: ts.filter((t) => t.action === ts[0].action).reduce((n, t) => n + t.left, 0) };
   }
+  // A spot's batches, soonest date first: one product often has several dates on the shelf at once.
+  const dated = (s) => s.batches.slice().sort((a, b) => (a.expiry || "9999").localeCompare(b.expiry || "9999"));
+  const lotState = (b) => (b.status.includes("expired") ? "bad" : b.status.includes("expiring") || b.status.includes("clear") ? "warn"
+    : b.expiry ? "ok" : "none");
+  function lotWords(s) {   // what the strip says in words: the part that needs doing, not the whole spot
+    const bs = dated(s);
+    const expired = bs.filter((b) => b.status.includes("expired")).reduce((t, b) => t + b.left, 0);
+    if (expired) return { text: T("{n} expired", { n: expired }), tone: "bad" };
+    const soon = bs.filter((b) => b.status.includes("expiring")).reduce((t, b) => t + b.left, 0);
+    const first = bs.find((b) => b.expiry);
+    if (soon) return { text: T("exp {date}", { date: short(first.expiry) }), tone: "warn" };
+    const dates = new Set(bs.map((b) => b.expiry).filter(Boolean)).size;
+    if (first) return { text: `${T("exp {date}", { date: short(first.expiry) })}${dates > 1 ? ` +${dates - 1}` : ""}`, tone: "" };
+    return { text: T("no date"), tone: "" };
+  }
+  function strip(s) {
+    const bs = dated(s), total = bs.reduce((t, b) => t + b.left, 0);
+    if (!total || bs.length < 1) return "";
+    return `<span class="spot-lots" aria-hidden="true">${bs.map((b) => `<i class="seg seg-${lotState(b)}" style="flex:${b.left}"></i>`).join("")}</span>`;
+  }
+  const lotList = (s) => dated(s).map((b) => `${b.left} ${b.expiry ? (b.days_left < 0 ? T("expired {date}", { date: short(b.expiry) }) : T("exp {date}", { date: short(b.expiry) })) : T("no date")}`).join(", ");
   function spotHtml(s, small = false) {
     const pr = prod(s.product);
     const n = units(s);
-    const first = firstDate(s);
     const searching = looking();
     const hit = searching && isHit(s);
     const task = taskFor(s);
-    const date = s.out ? "out of stock" : first ? (first.days_left < 0 ? `expired ${short(first.expiry)}` : `exp ${short(first.expiry)}`)
-      : s.batches.length ? "no date" : M.batches.some((b) => b.product === s.product) ? "none here" : "not counted";
+    const words = s.batches.length ? lotWords(s) : { text: s.out ? T("out of stock") : M.batches.some((b) => b.product === s.product) ? T("none here") : T("not counted"), tone: "" };
+    const date = words.text;
     const cls = ["spot", tone(s), hit ? "hit" : "", searching && !hit ? "dim" : "", sel === s.product ? "sel" : "",
                  s.out ? "gap" : "", task ? `has-task task-${task.action}` : "", small ? "small-spot" : ""].filter(Boolean).join(" ");
-    const label = `${pr.name}: ${s.out ? "out of stock" : n ? `${n} left` : "none counted"}${first ? `, first date ${short(first.expiry)}` : ""}`;
+    const label = `${pr.name}: ${s.out ? T("out of stock") : n ? `${T("{n} left", { n })}: ${lotList(s)}` : T("not counted")}`;
     return `<button type="button" class="${cls}" style="--w:${s.width || 1}" data-product="${s.product}" data-i="${s.i ?? ""}"
         aria-label="${esc(label)}" aria-pressed="${sel === s.product}">
-      ${task ? `<span class="spot-task">${esc(DO[task.action].split(":")[0])} ×${task.left}</span>` : ""}
+      ${task ? `<span class="spot-task">${esc(DO[task.action])} ×${task.left}</span>` : ""}
       <span class="spot-img">${pr.photo ? `<img src="/thumb/${pr.photo}.jpg" alt="" loading="lazy" draggable="false">`
         : '<i class="bi bi-box-seam" aria-hidden="true"></i>'}</span>
       <span class="spot-name">${esc(pr.name)}</span>
-      <span class="spot-meta"><b>${s.out ? "0" : `×${n}`}</b> <span>${esc(date)}</span></span>
+      ${strip(s)}
+      <span class="spot-meta"><b>${s.out ? "0" : `×${n}`}</b> · <span class="${words.tone ? `t-${words.tone}` : ""}">${esc(date)}</span></span>
     </button>`;
   }
 
@@ -163,7 +193,7 @@
     const all = slides();
     if (!all.length) {
       stage.innerHTML = `<div class="empty-state"><div class="ico"><i class="bi bi-bookshelf" aria-hidden="true"></i></div>
-        <div class="t">No shelves yet</div><div>Add your first with <b>New shelf</b>: from a photo of it, from your spreadsheet, or empty.</div></div>`;
+        <div class="t">${esc(T("No shelves yet"))}</div><div>${esc(T("Add your first with New shelf: from a photo of it, from your spreadsheet, or empty."))}</div></div>`;
       return;
     }
     const sh = shelf(cur);
@@ -178,18 +208,18 @@
       html += `<div class="shelf k-${kind}${editing ? " editing" : ""}${bare ? " bare" : ""} ${enter}" style="--cols:${cols}">
         ${sh.levels.map((row, li) => `<div class="level" data-level="${li + 1}">
           <span class="level-no" aria-hidden="true">${li + 1}</span>
-          <div class="level-row" data-level="${li + 1}" role="group" aria-label="Level ${li + 1} of ${sh.levels.length}">
+          <div class="level-row" data-level="${li + 1}" role="group" aria-label="${esc(T("level {n} of {m}", { n: li + 1, m: sh.levels.length }))}">
             ${row.map((s) => spotHtml(s)).join("")}
             ${editing ? `<button type="button" class="add-spot${adding === li + 1 ? " on" : ""}" data-add="${li + 1}" aria-label="Add a product to level ${li + 1}">
               <i class="bi bi-plus-lg" aria-hidden="true"></i></button>` : ""}
-            ${!row.length && !editing ? `<span class="level-empty">${bare && li === 0 ? "Nothing placed on its levels yet: <b>Edit this shelf</b>, or <b>New shelf</b> from a photo or a spreadsheet" : "empty"}</span>` : ""}
+            ${!row.length && !editing ? `<span class="level-empty">${esc(bare && li === 0 ? T("Nothing placed on its levels yet: Edit this shelf, or New shelf from a photo or a spreadsheet") : T("empty"))}</span>` : ""}
           </div></div>`).join("")}
       </div>`;
     }
     if (sh.loose.length || !sh.p) {
       html += `<div class="shelf-loose ${!sh.p ? enter : ""}">
-        <div class="loose-title">${sh.p ? "On this shelf, not on a level yet" : "Stock that isn't anywhere yet: tap one to put it on a shelf"}</div>
-        <div class="loose-row">${sh.loose.map((s) => spotHtml(s, true)).join("") || '<span class="muted small">Nothing.</span>'}</div></div>`;
+        <div class="loose-title">${esc(sh.p ? T("On this shelf, not on a level yet") : T("Stock that isn't anywhere yet: tap one to put it on a shelf"))}</div>
+        <div class="loose-row">${sh.loose.map((s) => spotHtml(s, true)).join("") || `<span class="muted small">${esc(T("Nothing."))}</span>`}</div></div>`;
     }
     stage.innerHTML = html;
     enter = "";
@@ -208,7 +238,7 @@
       } else if (p && layer === "dead" && p.sleeping_value) {
         badge = `<b class="sb sb-sleep">${money(p.sleeping_value)}</b>`;
       } else if (p && layer === "stock" && p.out.length) {
-        badge = `<b class="sb sb-bad">${p.out.length} out</b>`;
+        badge = `<b class="sb sb-bad">${p.out.length} ${esc(T("out"))}</b>`;
       }
       const on = id === cur;
       const dim = looking() && !hitsOn(id);
@@ -223,10 +253,11 @@
     const all = slides();
     const i = all.indexOf(cur);
     const p = cur === "none" ? null : place(cur);
-    $("shelf-name").textContent = all.length ? (mode === "edit" && draft ? draft.name : slideName(cur)) : "No shelves yet";
+    $("shelf-name").textContent = all.length ? (mode === "edit" && draft ? draft.name : slideName(cur)) : T("No shelves yet");
     const bits = [];
-    if (p) bits.push(cap(mode === "edit" && draft ? draft.kind : p.kind), `${mode === "edit" && draft ? draft.levels : p.levels} level${(mode === "edit" && draft ? draft.levels : p.levels) === 1 ? "" : "s"}`);
-    if (all.length) bits.push(mode === "walk" ? `stop ${i + 1} of ${all.length}` : `${i + 1} of ${all.length}`);
+    const lv = mode === "edit" && draft ? draft.levels : p ? p.levels : 0;
+    if (p) bits.push(cap(mode === "edit" && draft ? draft.kind : p.kind), T("{n} level|{n} levels", { n: lv }));
+    if (all.length) bits.push(mode === "walk" ? T("stop {i} of {n}", { i: i + 1, n: all.length }) : T("{i} of {n}", { i: i + 1, n: all.length }));
     $("shelf-sub").textContent = bits.join(" · ");
     $("prev").disabled = i <= 0 || mode === "edit";
     $("next").disabled = i < 0 || i >= all.length - 1 || mode === "edit";
@@ -236,21 +267,22 @@
   // --- the panel beside the shelf ------------------------------------------------------------------------
   function row(b, actions = true) {
     const when = b.expiry
-      ? (b.days_left < 0 ? `expired ${short(b.expiry)}` : b.days_left === 0 ? "expires today" : `exp ${short(b.expiry)} · ${b.days_left} d`)
-      : b.estimated ? "no date on it" : "no date";
+      ? (b.days_left < 0 ? T("expired {date}", { date: short(b.expiry) }) : b.days_left === 0 ? T("expires today")
+        : `${T("exp {date}", { date: short(b.expiry) })} · ${T("{n} days", { n: b.days_left })}`)
+      : b.estimated ? T("no date on it") : T("no date");
     const pills = [];
-    if (b.status.includes("expired")) pills.push('<span class="pill action-remove">expired</span>');
-    else if (b.status.includes("expiring")) pills.push('<span class="pill action-front">expires soon</span>');
-    if (b.status.includes("clear")) pills.push('<span class="pill action-clear">won\'t sell in time</span>');
-    if (b.status.includes("sleeping")) pills.push(`<span class="pill sleep-pill">sleeping${b.since_sale != null ? ` · no sale ${b.since_sale} d` : ""}</span>`);
+    if (b.status.includes("expired")) pills.push(`<span class="tag tag-expired">${esc(T("expired"))}</span>`);
+    else if (b.status.includes("expiring")) pills.push(`<span class="tag tag-expiring">${esc(T("expires soon"))}</span>`);
+    if (b.status.includes("clear")) pills.push(`<span class="tag tag-expiring">${esc(T("won't sell in time"))}</span>`);
+    if (b.status.includes("sleeping")) pills.push(`<span class="tag tag-info">${esc(T("sleeping"))}${b.since_sale != null ? ` · ${esc(T("no sale in {n} days", { n: b.since_sale }))}` : ""}</span>`);
     const opts = M.places.map((p) => `<option value="${p.id}" ${p.id === b.place ? "selected" : ""}>${esc(p.name)}</option>`).join("");
     return `<li class="list-group-item map-row" data-batch="${b.batch}">
-        <div class="fw-semibold">×${b.left} <span class="muted fw-normal small">${when}${b.lot ? ` · lot ${esc(b.lot)}` : ""}${b.value ? ` · ${money(b.value)}` : ""}</span></div>
+        <div class="fw-semibold">×${b.left} <span class="muted fw-normal small">${esc(when)}${b.lot ? ` · ${esc(T("lot {lot}", { lot: b.lot }))}` : ""}${b.value ? ` · ${money(b.value)}` : ""}</span></div>
         <div class="d-flex gap-1 flex-wrap mt-1">${pills.join("")}</div>
         ${actions ? `<div class="d-flex gap-1 flex-wrap mt-2">
-          <button type="button" class="btn btn-sm ${b.status.includes("expired") ? "btn-danger" : "btn-outline-danger"}" data-act="off">Taken off</button>
-          <select class="form-select form-select-sm" data-act="move" aria-label="Moved to" style="max-width:10rem">
-            <option value="" ${b.place == null ? "selected" : ""}>No place</option>${opts}</select>
+          <button type="button" class="btn btn-sm ${b.status.includes("expired") ? "btn-danger" : "btn-outline-danger"}" data-act="off">${esc(T("Taken off"))}</button>
+          <select class="form-select form-select-sm" data-act="move" aria-label="${esc(T("Moved to"))}" style="max-width:12rem">
+            <option value="" ${b.place == null ? "selected" : ""}>${esc(T("No place"))}</option>${opts}</select>
         </div>` : ""}
       </li>`;
   }
@@ -258,7 +290,14 @@
   const thumb = (pid) => { const ph = prod(pid).photo; return ph ? `<img src="/thumb/${ph}.jpg" alt="" class="map-thumb">` : '<span class="map-thumb"></span>'; };
 
   function panel() {
-    const box = $("panel");
+    const box = $("panel"), sheet = $("spot-sheet");
+    if (sel != null && mode !== "edit" && phone()) {          // phones: the product in a sheet over the shelf
+      spotPanel($("spot-body"));
+      if (sheet && !sheet.open) { sheet.showModal(); sheet.focus(); }
+      sel = sel;                                             // the list below stays the shelf's (or the walk's)
+      return mode === "walk" ? walkPanel(box) : looking() ? resultsPanel(box) : shelfPanel(box);
+    }
+    if (sheet && sheet.open) sheet.close();
     if (mode === "edit") return editPanel(box);
     if (mode === "walk") return walkPanel(box);
     if (sel != null) return spotPanel(box);
@@ -267,22 +306,24 @@
   }
 
   function shelfPanel(box) {
-    if (!slides().length) { box.innerHTML = '<div class="card-header">Your shelves</div><div class="card-body small muted">None yet.</div>'; return; }
+    if (!slides().length) { box.innerHTML = `<div class="panel-head"><b>${esc(T("Shelves"))}</b></div><div class="panel-empty">${esc(T("No shelves yet"))}</div>`; return; }
     const sh = shelf(cur);
     const p = sh.p;
     const all = [...sh.levels.flat(), ...sh.loose];
-    const sub = p ? `${p.products} product${p.products === 1 ? "" : "s"} · ${p.units} units · ${money(p.value)} at cost`
-      + (p.sleeping_value ? ` · <b>${money(p.sleeping_value)} sleeping</b>` : "")
-      : "Stock not put anywhere yet: tap a product to put its batches on a shelf.";
-    const lines = sh.levels.map((row, li) => row.length ? `<li class="list-group-item small"><span class="muted">${li === 0 && sh.levels.length > 1 ? "Top" : li === sh.levels.length - 1 && sh.levels.length > 1 ? "Bottom" : `Level ${li + 1}`}:</span>
-        ${row.map((s) => `<a href="#" data-pick="${s.product}" class="${s.out ? "text-danger" : ""}">${esc(prod(s.product).name)}</a>`).join(", ")}</li>` : "").join("");
-    const looseLine = sh.loose.length ? `<li class="list-group-item small"><span class="muted">${p ? "Not on a level:" : "Here:"}</span>
-        ${sh.loose.map((s) => `<a href="#" data-pick="${s.product}">${esc(prod(s.product).name)}</a>`).join(", ")}</li>` : "";
-    const tip = p && !p.facings.length ? `<div class="card-body small"><b>Nothing on its levels yet.</b> Tap <b>Edit this shelf</b> and
-        add products with +, or make it again from a photo or your spreadsheet under <b>New shelf</b>.</div>` : "";
-    box.innerHTML = `<div class="card-header">${esc(slideName(cur))}<div class="sub">${sub}</div></div>${tip}
-      <ul class="list-group list-group-flush">${lines}${looseLine}
-        ${!all.length ? '<li class="list-group-item muted small">Nothing here yet.</li>' : ""}</ul>`;
+    const sub = p ? [T("{n} product|{n} products", { n: p.products }), T("{n} unit|{n} units", { n: p.units }), T("{money} at cost", { money: money(p.value) })]
+        .concat(p.sleeping_value ? [T("{money} sleeping", { money: money(p.sleeping_value) })] : []).join(" · ")
+      : T("Stock that isn't anywhere yet: tap one to put it on a shelf");
+    const levelName = (li) => (sh.levels.length === 1 ? "" : li === 0 ? T("Top") : li === sh.levels.length - 1 ? T("Bottom") : T("Level {n}", { n: li + 1 }));
+    const lotChips = (s) => dated(s).map((b) => `<span class="lot lot-${{ bad: "expired", warn: "soon", ok: "ok", none: "undated" }[lotState(b)]}"><b>${b.left}</b> ${b.expiry ? short(b.expiry) : esc(T("no date"))}</span>`).join("");
+    const rowOf = (s) => `<li><button type="button" class="map-row-btn" data-pick="${s.product}">
+        ${thumb(s.product)}
+        <span class="map-row-text"><b>${esc(prod(s.product).name)}</b>
+          <span class="lots">${s.out ? `<span class="tag tag-out">${esc(T("out of stock"))}</span>` : lotChips(s) || `<span class="small muted">${esc(T("none here"))}</span>`}</span></span>
+        <span class="map-row-n">${s.out ? "0" : units(s) || "–"}</span></button></li>`;
+    const body = sh.levels.map((row, li) => row.length ? (levelName(li) ? `<li class="lvl">${esc(levelName(li))}</li>` : "") + row.map(rowOf).join("") : "").join("")
+      + (sh.loose.length ? `<li class="lvl">${esc(p ? T("not on a level yet") : T("Here"))}</li>${sh.loose.map(rowOf).join("")}` : "");
+    box.innerHTML = `<div class="panel-head"><b>${esc(slideName(cur))}</b><span>${esc(sub)}</span></div>
+      ${all.length ? `<ul class="map-list">${body}</ul>` : `<div class="panel-empty">${esc(T("Nothing here yet."))}</div>`}`;
   }
 
   function spotPanel(box) {
@@ -293,16 +334,17 @@
     const list = s.batches.slice().sort(sortByDate);
     const elsewhere = M.batches.filter((b) => b.product === s.product && b.place !== (cur === "none" ? null : cur));
     const places = [...new Set(elsewhere.map((b) => b.place ?? "none"))];
-    box.innerHTML = `<div class="card-header d-flex justify-content-between align-items-start gap-2">
-        <div class="d-flex gap-2 align-items-center">${thumb(s.product)}<div><span class="fw-semibold">${esc(pr.name)}</span>
-          <div class="sub"><i class="bi bi-geo-alt-fill" aria-hidden="true"></i> ${esc(where(cur, s.product))}</div></div></div>
-        <button type="button" class="btn-close" data-act="close" aria-label="Back to the whole shelf"></button></div>
+    box.innerHTML = `<div class="panel-head spot-head">
+        <span class="d-flex gap-3 align-items-center">${thumb(s.product)}<span><b>${esc(pr.name)}</b>
+          <span><i class="bi bi-geo-alt-fill" aria-hidden="true"></i> ${esc(where(cur, s.product))}</span></span></span>
+        ${box.id === "panel" ? `<button type="button" class="btn-close" data-act="close" aria-label="${esc(T("Shelves"))}"></button>` : ""}</div>
       <ul class="list-group list-group-flush">
-        ${s.out ? '<li class="list-group-item"><span class="pill action-remove">out of stock</span> <span class="small muted">a gap on the shelf</span></li>' : ""}
+        ${s.out ? `<li class="list-group-item"><span class="tag tag-out">${esc(T("out of stock"))}</span> <span class="small muted">${esc(T("a gap on the shelf"))}</span></li>` : ""}
         ${list.map((b) => row(b)).join("")}
-        ${!list.length && !s.out ? '<li class="list-group-item small muted">None counted here.</li>' : ""}
-        ${places.length ? `<li class="list-group-item small">Also on ${places.map((id) => `<a href="#" data-goto="${id}" data-pick="${s.product}">${esc(slideName(id === "none" ? "none" : +id))}</a>`).join(", ")}</li>` : ""}
-      </ul>`;
+        ${!list.length && !s.out ? `<li class="list-group-item small muted">${esc(T("None counted here."))}</li>` : ""}
+        ${places.length ? `<li class="list-group-item small">${esc(T("Also on"))} ${places.map((id) => `<a href="#" data-goto="${id}" data-pick="${s.product}">${esc(slideName(id === "none" ? "none" : +id))}</a>`).join(", ")}</li>` : ""}
+      </ul>
+      <div class="p-3"><a class="link-row" href="/catalog/${s.product}"><i class="bi bi-box-seam" aria-hidden="true"></i> ${esc(T("Open the product"))} <i class="bi bi-chevron-right ms-auto" aria-hidden="true"></i></a></div>`;
   }
 
   function resultsPanel(box) {
@@ -312,21 +354,21 @@
       const found = [...sh.levels.flat(), ...sh.loose].filter(isHit);
       if (found.length) groups.push({ id, found });
     }
-    const what = query ? `“${esc(query)}”` : esc((FILTERS.find((f) => f[0] === filter) || FILTERS[0])[1].toLowerCase());
+    const what = query ? `“${esc(query)}”` : esc((FILTERS.find((f) => f[0] === filter) || FILTERS[0])[1]);
     const n = groups.reduce((t, g) => t + g.found.length, 0);
-    box.innerHTML = `<div class="card-header">${what}<div class="sub">${n} spot${n === 1 ? "" : "s"} on ${groups.length} shel${groups.length === 1 ? "f" : "ves"}</div></div>
+    box.innerHTML = `<div class="panel-head"><b>${what}</b><span>${esc(T("{n} spot on {m} shelves|{n} spots on {m} shelves", { n, m: groups.length }))}</span></div>
       <ul class="list-group list-group-flush">
         ${groups.map((g) => g.found.map((s) => {
           const first = firstDate(s);
           const hitB = s.batches.filter(hitBatch);
           return `<li class="list-group-item map-hit${g.id === cur ? " here" : ""}" data-goto="${g.id}" data-pick="${s.product}" role="button" tabindex="0">
             <div class="d-flex gap-2 align-items-center">${thumb(s.product)}<div class="flex-grow-1" style="min-width:0">
-              <div class="fw-semibold">${esc(prod(s.product).name)} <span class="muted fw-normal">${s.out ? "· out" : `×${units(s)}`}</span></div>
+              <div class="fw-semibold">${esc(prod(s.product).name)} <span class="muted fw-normal">${s.out ? `· ${esc(T("out"))}` : `×${units(s)}`}</span></div>
               <div class="small"><i class="bi bi-geo-alt-fill" aria-hidden="true"></i> ${esc(where(g.id, s.product))}</div>
-              <div class="small muted">${hitB.length && hitB.length < s.batches.length ? `${hitB.length} of ${s.batches.length} batches · ` : ""}${first ? `first date ${short(first.expiry)}` : ""}</div>
+              <div class="small muted">${first ? esc(T("first date {date}", { date: short(first.expiry) })) : ""}</div>
             </div></div></li>`;
         }).join("")).join("")}
-        ${!n ? '<li class="list-group-item muted">Nothing here.</li>' : ""}
+        ${!n ? `<li class="list-group-item muted">${esc(T("Nothing here."))}</li>` : ""}
       </ul>`;
   }
 
@@ -340,21 +382,37 @@
   }
   function walkPanel(box) {
     if (!M.walk.length) {
-      box.innerHTML = `<div class="card-header">Today's walk</div><div class="card-body muted">Nothing to do: nothing has expired,
-        and nothing expires in the next ${M.warning_days} days.</div>`;
+      box.innerHTML = `<div class="panel-head"><b>${esc(T("Today's walk"))}</b></div><div class="panel-empty">${esc(T("Nothing to do: nothing has expired, and nothing expires in the next {n} days.", { n: M.warning_days }))}</div>`;
       return;
     }
-    const all = slides();
-    box.innerHTML = `<div class="card-header">Today's walk<div class="sub">Shelf by shelf: what to take off, what to put in front,
-        what won't sell in time. The same list as Shelf check.</div></div>
-      <ol class="list-group list-group-flush list-group-numbered">${M.walk.map((s) => {
-        const id = s.place ?? "none";
+    box.innerHTML = `<div class="panel-head"><b>${esc(T("Today's walk"))}</b><span>${esc(T("Take off what has expired, put what expires soon in front."))}</span></div>
+      <ol class="list-group list-group-flush list-group-numbered">${M.walk.map((st) => {
+        const id = st.place ?? "none";
         return `<li class="list-group-item map-stop${id === cur ? " here" : ""}" data-goto="${id}" role="button" tabindex="0">
           <span class="fw-semibold">${esc(slideName(id))}</span>
-          <ul class="small mb-0 ps-3">${merged(s.tasks).map((t) => `<li><span class="pill action-${t.action}">${DO[t.action].split(":")[0]}</span>
-            ${esc(t.name)} ×${t.left} <span class="muted">${t.expiry ? (t.days_left < 0 ? `expired ${short(t.expiry)}` : `exp ${short(t.expiry)}`) : ""}</span></li>`).join("")}</ul></li>`;
-      }).join("")}</ol>
-      ${all.indexOf(cur) < all.length - 1 ? '<div class="card-body"><button type="button" class="btn btn-dark w-100" data-act="next-stop">Next stop <i class="bi bi-arrow-right" aria-hidden="true"></i></button></div>' : '<div class="card-body small muted">That was the last stop.</div>'}`;
+          <ul class="small mb-0 ps-3">${merged(st.tasks).map((t) => `<li><span class="tag ${t.action === "remove" ? "tag-expired" : "tag-expiring"}">${esc(DO[t.action])}</span>
+            ${esc(t.name)} ×${t.left} <span class="muted">${t.expiry ? (t.days_left < 0 ? esc(T("expired {date}", { date: short(t.expiry) })) : esc(T("exp {date}", { date: short(t.expiry) }))) : ""}</span></li>`).join("")}</ul></li>`;
+      }).join("")}</ol>`;
+  }
+
+  // Today's walk as a card above the shelves: start it, then stop by stop.
+  function walkCard() {
+    const box = $("walk-card");
+    if (!box) return;
+    const stops = M.walk.length;
+    if (!stops || mode === "edit") { box.innerHTML = ""; return; }
+    if (mode !== "walk") {
+      box.innerHTML = `<div class="walk-card"><span class="task-tile tone-warn"><i class="bi bi-signpost-split" aria-hidden="true"></i></span>
+        <span class="row-text"><b>${esc(T("Today's walk"))}</b><span>${esc(T("{n} shelf has something to do|{n} shelves have something to do", { n: stops }))}</span></span>
+        <button type="button" class="btn btn-dark" data-walk="start">${esc(T("Start"))}</button></div>`;
+      return;
+    }
+    const all = slides(), i = all.indexOf(cur);
+    box.innerHTML = `<div class="walk-card on"><span class="task-tile tone-warn"><i class="bi bi-signpost-split" aria-hidden="true"></i></span>
+      <span class="row-text"><b>${esc(T("stop {i} of {n}", { i: i + 1, n: all.length }))}: ${esc(slideName(cur))}</b>
+        <span>${esc(i < all.length - 1 ? T("Take off what has expired, put what expires soon in front.") : T("That was the last stop."))}</span></span>
+      ${i < all.length - 1 ? `<button type="button" class="btn btn-dark" data-walk="next">${esc(T("Next stop"))}</button>` : ""}
+      <button type="button" class="btn btn-outline-dark" data-walk="stop">${esc(T("Stop"))}</button></div>`;
   }
 
   function editPanel(box) {
@@ -438,13 +496,13 @@
   // --- legend and controls ---------------------------------------------------------------------------------
   function legend() {
     const L = {
-      expiry: [["t-bad", "Expired (the date on the pack)"], ["t-warn", `Expires within ${M.warning_days} days, or won't sell in time`],
-               ["t-ok", "Fine"], ["t-out", "Out of stock: a gap"]],
-      dead: [["t-d4", "Most money sleeping"], ["t-d2", "Some"], ["t-d0", "Selling"], ["t-out", "Out of stock"]],
-      stock: [["t-stock", "In stock: how many left"], ["t-out", "Out of stock: a gap"], ["t-empty", "Not counted yet"]],
+      expiry: [["t-bad", T("Expired (the date on the pack)")], ["t-warn", T("Expires within {n} days, or won't sell in time", { n: M.warning_days })],
+               ["t-ok", T("Fine")], ["t-out", T("Out of stock: a gap")]],
+      dead: [["t-d4", T("Most money sleeping")], ["t-d2", T("Some")], ["t-d0", T("Selling")], ["t-out", T("Out of stock")]],
+      stock: [["t-stock", T("In stock: how many left")], ["t-out", T("Out of stock: a gap")], ["t-empty", T("Not counted yet")]],
     }[layer];
-    const note = layer === "dead" ? `Sleeping: no sale in ${M.sleeping_days} days, or months of stock at today's pace; valued at cost.`
-      : "×12: units on this shelf. The date is the first one to expire.";
+    const note = layer === "dead" ? T("Sleeping: no sale in {n} days, or months of stock at today's pace; valued at cost.", { n: M.sleeping_days })
+      : T("×12: units on this shelf. The date is the first one to expire.");
     $("legend").innerHTML = L.map(([cls, text]) => `<span class="leg"><span class="swatch ${cls}"></span>${esc(text)}</span>`).join("")
       + `<span class="small muted">${note}</span>`;
   }
@@ -467,10 +525,7 @@
     $("filters").innerHTML = FILTERS.filter(([k]) => k === "all" || (counts[k] && counts[k] !== "$0.00") || k === filter)
       .map(([k, label]) => `<button type="button" class="chip ${k === filter ? "active" : ""}" data-filter="${k}"
           aria-pressed="${k === filter}">${esc(label)}${counts[k] != null ? ` <b>${counts[k]}</b>` : ""}</button>`).join("");
-    for (const [id, on] of [["btn-walk", mode === "walk"], ["btn-edit", mode === "edit"]]) {
-      $(id).setAttribute("aria-pressed", on);
-      $(id).classList.toggle("active", on);
-    }
+    $("btn-edit").setAttribute("aria-pressed", mode === "edit");
     $("btn-edit").disabled = cur === "none" || !slides().length;
     $("bar").classList.toggle("d-none", mode === "edit");
     $("edit-bar").classList.toggle("d-none", mode !== "edit");
@@ -480,7 +535,7 @@
   function render() {
     const all = slides();
     if (!all.includes(cur)) cur = all.length ? all[0] : null;
-    controls(); drawHead(); drawStrip(); drawStage(); panel(); legend(); remember();
+    controls(); walkCard(); drawHead(); drawStrip(); drawStage(); panel(); legend(); remember();
     for (const fn of listeners) fn();
   }
   function remember() {
@@ -554,7 +609,7 @@
     sel = sel === pid && mode !== "edit" ? null : pid;
     adding = null;
     render();
-    if (sel != null && window.matchMedia("(max-width: 991.98px)").matches) $("panel").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (sel != null && mode === "edit" && phone()) $("panel").scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
   // --- editing a shelf ---------------------------------------------------------------------------------------
@@ -652,17 +707,16 @@
     M = data;
     return data;
   }
-  $("panel").addEventListener("click", async (e) => {
+  async function onPanelClick(e) {
     const t = e.target.closest("[data-act], [data-goto], [data-pick], [data-move], [data-levels], [data-order], [data-put], [data-add-product]");
     if (!t) return;
     e.preventDefault();
     try {
       const act = t.dataset.act;
       if (act === "close") { sel = null; adding = null; render(); return; }
-      if (act === "next-stop") { step(1); return; }
       if (act === "off") {
         const li = t.closest("[data-batch]"), b = M.batches.find((x) => x.batch === +li.dataset.batch);
-        const qty = prompt(`How many ${b.name} were taken off the shelf?`, b.left);
+        const qty = prompt(`${T("How many were taken off the shelf?")} (${b.name})`, b.left);
         if (qty == null) return;
         await call(`/api/map/batches/${b.batch}/remove`, { qty: parseInt(qty, 10) || b.left,
                                                            reason: b.status.includes("expired") ? "expired" : "damaged" });
@@ -726,8 +780,8 @@
         render();
       }
     } catch (err) { alert(err.message); }
-  });
-  $("panel").addEventListener("change", async (e) => {
+  }
+  async function onPanelChange(e) {
     const t = e.target;
     try {
       if (t.dataset.act === "move") {
@@ -740,6 +794,27 @@
         draft.name = t.value; drawHead();
       }
     } catch (err) { alert(err.message); }
+  }
+  for (const box of [$("panel"), $("spot-body")].filter(Boolean)) {
+    box.addEventListener("click", onPanelClick);
+    box.addEventListener("change", onPanelChange);
+  }
+  // Closing the sheet (Close, Escape, a tap outside) lets go of the product.
+  const sheet = $("spot-sheet");
+  if (sheet) {
+    sheet.addEventListener("close", () => { if (sel != null && mode !== "edit") { sel = null; render(); } });
+    sheet.addEventListener("click", (e) => {
+      if (e.target !== sheet) return;
+      const r = sheet.getBoundingClientRect();
+      if (e.clientY < r.top || e.clientY > r.bottom || e.clientX < r.left || e.clientX > r.right) sheet.close();
+    });
+  }
+  $("walk-card").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-walk]");
+    if (!b) return;
+    if (b.dataset.walk === "start") { mode = "walk"; sel = null; if (M.walk.length) cur = M.walk[0].place ?? "none"; render(); }
+    else if (b.dataset.walk === "next") step(1);
+    else { mode = "view"; sel = null; render(); }
   });
   $("panel").addEventListener("keydown", (e) => {
     if ((e.key === "Enter" || e.key === " ") && e.target.matches("[role=button]")) { e.preventDefault(); e.target.click(); }
@@ -766,12 +841,6 @@
     store.set("luydek-map-layer", layer);
     render();
   });
-  $("btn-walk").onclick = () => {
-    mode = mode === "walk" ? "view" : "walk";
-    sel = null;
-    if (mode === "walk" && M.walk.length) cur = M.walk[0].place ?? "none";
-    render();
-  };
 
   // For the new-shelf maker (shelfmaker.js) and the 3D view (shop3d.js): the data, the shelves as this page
   // sees them, the search, and ways to show something.

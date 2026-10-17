@@ -1,94 +1,101 @@
 {% extends "base.html" %}
-{% block title %}Pilot report{% endblock %}
+{% set back = '/more' %}
+{% block title %}{{ _("Pilot report") }}{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1>Pilot report</h1>
-    {% if rep %}
-    <div class="lead-line">Before (weeks 1–{{ rep.baseline_weeks }}, watching only) vs now (the last 2 full weeks) ·
-      day 0 was {{ rep.pilot_start.strftime('%d %B %Y') }}</div>
-    {% endif %}
-  </div>
-  <button class="btn btn-outline-dark no-print" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> Print or save as PDF</button>
-</div>
+{% from "_macros.html" import empty %}
+{#- The measures, in the page's language (report.SERIES has them in English for the charts and Telegram). -#}
+{% set names = {'stockout_critical': _("Empty-shelf days on must-have items"), 'dead_value': _("Dead stock (no sale in 45+ days)"),
+                'follow_rate': _("Order advice followed"), 'taps_per_day': _("Owner taps per day"),
+                'accuracy': _("Camera right without help"), 'stockout_all': _("Empty-shelf days, all products"),
+                'units_sold': _("Units sold"), 'active_days': _("Days the owner checked in")} %}
+{% set better_words = {'lower': _("Lower is better"), 'higher': _("Higher is better")} %}
+
+<header class="page-title">
+  <h1>{{ _("Pilot report") }}</h1>
+  {% if rep %}
+  <div class="sub">{{ _("Before (weeks 1 to {n}, watching only) and now (the last 2 full weeks). Day 0 was {date}.", n=rep.baseline_weeks, date=rep.pilot_start.isoformat()|day) }}</div>
+  {% endif %}
+</header>
 
 {% if not rep %}
-{% from "_macros.html" import empty %}
-<div class="card">{{ empty('graph-up-arrow', 'Nothing to report yet', 'No stock has been recorded. Start with the day-0 count on the Products page.', '/catalog', 'Go to Products') }}</div>
+<div class="row-list">{{ empty('graph-up-arrow', _('Nothing to report yet'), _('No stock has been recorded. Start with the day-0 count on the Products page.'), '/catalog', _('Go to Products')) }}</div>
 {% else %}
 
+<button type="button" class="btn btn-outline-dark no-print mb-3" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> {{ _("Print or save as PDF") }}</button>
+
 {% if rep.simulated %}
-<div class="alert alert-warning fs-6"><b><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Includes simulated history.</b> These weeks come from
-  <code>scripts/simulate_history.py</code>, which keeps ordering "by feeling" throughout — they are <b>not</b> pilot results.</div>
+<div class="next-card tone-warn">
+  <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+  <span class="row-text"><b>{{ _("Includes simulated history.") }}</b>
+    <span>{{ _("These weeks come from scripts/simulate_history.py, which keeps ordering by feeling throughout. They are not pilot results.") }}</span></span>
+</div>
 {% endif %}
 {% if not rep.comparable %}
-<div class="alert alert-info">Before/after needs the {{ rep.baseline_weeks }} watching weeks plus at least 2 full pilot weeks.
-  The charts below fill in as the weeks pass.</div>
+<div class="next-card tone-info">
+  <i class="bi bi-hourglass-split" aria-hidden="true"></i>
+  <span class="row-text"><b>{{ _("Before and after needs {n} watching weeks and at least 2 full pilot weeks.", n=rep.baseline_weeks) }}</b>
+    <span>{{ _("The charts below fill in as the weeks pass.") }}</span></span>
+</div>
 {% endif %}
 
-<div class="row g-3 mb-4">
+<h2 class="list-title mt-4">{{ _("Before and now") }}</h2>
+<div class="kpi-grid mb-4">
   {% for h in rep.headlines %}
-  <div class="col-sm-6 col-xl">
-    <div class="stat {{ 'ok' if h.good else ('bad' if h.good == false else '') }}">
-      <div class="l mt-0">{{ h.label }}</div>
-      <div class="n my-1">{{ fmt(h.now, h.fmt) }}</div>
-      <div class="h">now · was {{ fmt(h.before, h.fmt) }} in weeks 1–{{ rep.baseline_weeks }}</div>
-      {% if h.good is not none %}
-      <div class="delta {{ 'delta-good' if h.good else 'delta-bad' }}">
-        {% if h.good %}<i class="bi bi-check-circle-fill" aria-hidden="true"></i>{% else %}<i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>{% endif %} {{ '▼' if h.now < h.before else '▲' }}
-        {% if h.change is not none %}{{ '%.0f'|format(h.change|abs) }}% {{ 'lower' if h.now < h.before else 'higher' }}{% else %}{{ 'down' if h.now < h.before else 'up' }} from zero{% endif %}
-        <span class="muted">· {{ h.better }} is better</span></div>
-      {% elif h.before is not none and h.now is not none %}
-      <div class="delta">no change</div>
-      {% endif %}
-    </div>
+  <div class="kpi-card {{ 'tone-ok' if h.good else ('tone-bad' if h.good == false else '') }}">
+    <div class="kpi-label">{{ names.get(h.key, h.label) }}</div>
+    <div class="kpi-n">{{ fmt(h.now, h.fmt) }}</div>
+    <div class="kpi-was">{{ _("now, was {value} in weeks 1 to {n}", value=fmt(h.before, h.fmt), n=rep.baseline_weeks) }}</div>
+    {% if h.good is not none %}
+    <div class="kpi-delta">
+      <i class="bi bi-{{ 'check-circle-fill' if h.good else 'exclamation-triangle-fill' }}" aria-hidden="true"></i>
+      {% if h.change is not none %}{{ _("{n}% lower", n='%.0f'|format(h.change|abs)) if h.now < h.before else _("{n}% higher", n='%.0f'|format(h.change|abs)) }}
+      {%- else %}{{ _("down from zero") if h.now < h.before else _("up from zero") }}{% endif %}
+      <span class="muted">· {{ better_words[h.better] }}</span></div>
+    {% elif h.before is not none and h.now is not none %}
+    <div class="kpi-delta">{{ _("no change") }}</div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>
 
-<div class="d-flex align-items-center gap-4 flex-wrap mb-2">
-  <div class="section-title my-0">Week by week</div>
-  <div class="legend">
-    <span><i style="background:#888780"></i>Weeks 1–{{ rep.baseline_weeks }}: watching only (before)</span>
-    <span><i style="background:#534AB7"></i>Pilot weeks: order advice on</span>
-    <span><i style="background:#534AB7;opacity:.45"></i>This week, so far</span>
-  </div>
+<h2 class="list-title">{{ _("Week by week") }}</h2>
+<div class="legend mb-3">
+  <span><i style="background:#888780"></i>{{ _("Weeks 1 to {n}: watching only (before)", n=rep.baseline_weeks) }}</span>
+  <span><i style="background:#37352F"></i>{{ _("Pilot weeks: order advice on") }}</span>
+  <span><i style="background:#37352F;opacity:.45"></i>{{ _("This week, so far") }}</span>
 </div>
-<div class="row g-3" id="charts">
+<div class="chart-grid" id="charts">
   {% for c in charts %}
-  <div class="col-md-6 col-xl-3">
-    <div class="card h-100 chart-card">
-      <div class="card-body pb-2">
-        <div class="fw-semibold">{{ c.title }}</div>
-        <div class="small muted mb-1">{{ c.better|capitalize }} is better</div>
-        {{ c.svg }}
-      </div>
-    </div>
-  </div>
+  <section class="map-panel chart-card" aria-label="{{ names.get(c.key, c.title) }}">
+    <div class="panel-head"><b>{{ names.get(c.key, c.title) }}</b><span>{{ better_words[c.better] }}</span></div>
+    <div class="p-3 pt-2">{{ c.svg }}</div>
+  </section>
   {% endfor %}
 </div>
 <div id="tip" class="chart-tip" role="tooltip" hidden></div>
 
-<details class="card mt-4">
-  <summary class="card-header">Show the numbers</summary>
-  <div class="table-responsive">
-    <table class="table table-sm mb-0">
-      <thead class="table-light"><tr><th>Week of</th><th>Phase</th>
-        {% for c in charts %}<th class="num">{{ c.title }}</th>{% endfor %}</tr></thead>
-      <tbody>
-      {% for w in rep.weeks %}
-      <tr><td class="text-nowrap">{{ w.start.strftime('%d %b') }}{% if w.partial %} <span class="muted small">(so far)</span>{% endif %}</td>
-        <td>{{ 'watching' if w.phase == 'baseline' else 'pilot' }}</td>
-        {% for c in charts %}<td class="num">{{ fmt(w|attr(c.key), c.kind) }}</td>{% endfor %}</tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <div class="card-body small muted">
-    Empty-shelf days: a product that was stocked before, with nothing on the shelf all day and no sale.
-    Dead stock: dollars at cost of products with no sale in {{ cfg.forecast.sleeping_days }}+ days, on the week's last day.
-    Advice followed: order-list lines whose next delivery matched the advice (within one case), or skips that stayed skipped.
-    Camera right without help: auto-accepted plus confirmed-as-guessed, out of all settled camera items.
+<details class="fold-section mt-4">
+  <summary>{{ _("Show the numbers") }}</summary>
+  <div class="fold-body">
+    <div class="table-responsive">
+      <table class="table table-sm mb-0">
+        <thead class="table-light"><tr><th>{{ _("Week of") }}</th><th>{{ _("Phase") }}</th>
+          {% for c in charts %}<th class="num">{{ names.get(c.key, c.title) }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for w in rep.weeks %}
+        <tr><td class="text-nowrap">{{ w.start.isoformat()|day }}{% if w.partial %} <span class="muted small">({{ _("so far") }})</span>{% endif %}</td>
+          <td>{{ _("watching") if w.phase == 'baseline' else _("pilot") }}</td>
+          {% for c in charts %}<td class="num">{{ fmt(w|attr(c.key), c.kind) }}</td>{% endfor %}</tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <dl class="report-terms small muted mt-3 mb-0">
+      <dt>{{ _("Empty-shelf days") }}</dt><dd>{{ _("A product that was stocked before, with nothing on the shelf all day and no sale.") }}</dd>
+      <dt>{{ _("Dead stock") }}</dt><dd>{{ _("Dollars at cost of products with no sale in {n}+ days, on the week's last day.", n=cfg.forecast.sleeping_days) }}</dd>
+      <dt>{{ _("Advice followed") }}</dt><dd>{{ _("Order-list lines whose next delivery matched the advice (within one case), or skips that stayed skipped.") }}</dd>
+      <dt>{{ _("Camera right without help") }}</dt><dd>{{ _("Recorded automatically, plus confirmed as guessed, out of all settled camera items.") }}</dd>
+    </dl>
   </div>
 </details>
 {% endif %}

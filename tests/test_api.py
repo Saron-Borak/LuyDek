@@ -65,7 +65,8 @@ def test_photo_sale_to_review_queue_to_stock(client, conn, cfg):
     check.execute("UPDATE transaction_items SET status = 'pending', tier = 'medium' WHERE id = ?", (item,))
     check.execute("DELETE FROM stock_movements WHERE ref_type = 'transaction_item' AND ref_id = ?", (item,))
     check.commit()
-    page = client.get("/").text
+    assert "Check 1 sale" in client.get("/").text                     # Home: one thing to do
+    page = client.get("/sales").text
     assert "Check 1 item" in page and "All correct (<span data-all-n>1</span>)" in page
     assert page.index('id="check"') < page.index("Sales today")      # waiting items come first
 
@@ -217,8 +218,8 @@ def test_dashboard_names_what_needs_attention(client, conn):
     stock.record(conn, pid(conn, "dumex-400"), -5, "sale")
     conn.commit()
     html = client.get("/").text
-    assert "Out of stock" in html and "Dumex Dugro baby formula 400g" in html
-    assert "Next agent visits" in html
+    assert "Out of stock" in html and "Dumex Dugro baby formula 400g is out" in html
+    assert "Coming up" in html
 
 
 def test_order_lists_page_has_an_anchor_and_copyable_list_per_agent(client, conn):

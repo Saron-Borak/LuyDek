@@ -150,6 +150,32 @@ def places(conn: sqlite3.Connection) -> dict[int, sqlite3.Row]:
     return {r["id"]: r for r in conn.execute("SELECT * FROM locations")}
 
 
+def lots(conn: sqlite3.Connection, within_days: int = 30, today: date | None = None) -> dict[int, list[dict]]:
+    """Each product's stock batch by batch, soonest date first: how many are left, the date printed on
+    them, where they are, and their state: "expired", "soon" (within `within_days`), "ok", or "undated"
+    (no date was given: the shelf life only guesses one). One product often has several at once (a new
+    delivery behind last month's), and each is shown on its own, never as one date for all."""
+    today = today or clock.today()
+    soon = today + timedelta(days=within_days)
+    where = places(conn)
+    out: dict[int, list[dict]] = {}
+    for pid, s in replay(conn).items():
+        rows = []
+        for b in s.open:
+            if b.expiry:
+                exp = date.fromisoformat(b.expiry)
+                state = "expired" if exp < today else "soon" if exp <= soon else "ok"
+                days = (exp - today).days
+            else:
+                state, days = "undated", None
+            loc = where.get(b.location_id) if b.location_id else None
+            rows.append({"batch": b.id, "left": b.left, "expiry": b.expiry, "days_left": days, "state": state,
+                         "lot": b.lot_no, "place_id": loc["id"] if loc else None, "place": loc["name"] if loc else None})
+        if rows:
+            out[pid] = rows
+    return out
+
+
 # --- the shelf check ----------------------------------------------------------------------------
 
 @dataclass

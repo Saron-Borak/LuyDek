@@ -1,91 +1,93 @@
 {% extends "base.html" %}
-{% block title %}Camera log{% endblock %}
+{% set back = '/sales' %}
+{% set help_topic = 'checks' %}
+{% block title %}{{ _("Camera log") }}{% endblock %}
 {% block content %}
 {% from "_macros.html" import pic, empty %}
 {% from "_log_macros.html" import outcome, kind, set_aside_words %}
 {% macro aside_row(i) %}
-<div class="log-item aside" data-kind="aside">
-  {% if i.crop_path %}<a href="/media/{{ i.crop_path }}" target="_blank"><img class="crop-sm" src="/media/{{ i.crop_path }}" alt="what the camera set aside"></a>{% endif %}
-  <div class="flex-grow-1">
-    <div class="fw-semibold">{{ i.created_at[11:16] }} · {{ set_aside_words(i) }}</div>
-    <div class="small muted">{% if i.best_name %}Most like {{ i.best_name }} ({{ '%.0f'|format(i.best_score * 100) }}%) · {% endif %}{{ '%.0f'|format(i.score * 100) }}% sure it wasn't a sale</div>
+<li class="log-item aside" data-kind="aside">
+  {% if i.crop_path %}<a href="/media/{{ i.crop_path }}" target="_blank" rel="noopener" class="flex-none"><img class="crop-sm" src="/media/{{ i.crop_path }}" alt="{{ _('What the camera set aside') }}"></a>{% endif %}
+  <div class="row-text">
+    <b>{{ set_aside_words(i) }}</b>
+    <span>{% if i.best_name %}{{ _("Most like {name} ({n}%)", name=i.best_name, n='%.0f'|format(i.best_score * 100)) }} · {% endif %}{{ _("{n}% sure it wasn't a sale", n='%.0f'|format(i.score * 100)) }}</span>
+    {% if i.fixed_item_id %}<span class="text-success"><i class="bi bi-check2" aria-hidden="true"></i> {{ _("recorded as a sale") }}</span>
+    {% else %}<button class="btn btn-sm btn-outline-dark mt-2 align-self-start" data-fix="ignored" data-id="{{ i.id }}"
+       data-photo="{{ '/media/' ~ i.crop_path if i.crop_path }}" data-said="{{ _('The camera set this aside. If it was a sale, say what it was: the sale is recorded when it happened, and the camera learns.') }}">{{ _("It was a sale") }}</button>{% endif %}
   </div>
-  {% if i.fixed_item_id %}<span class="small text-success"><i class="bi bi-check2" aria-hidden="true"></i> recorded as a sale</span>
-  {% else %}<button class="btn btn-sm btn-outline-primary" data-fix="ignored" data-id="{{ i.id }}"
-     data-photo="{{ '/media/' ~ i.crop_path if i.crop_path }}" data-said="The camera set this aside. If it was a sale, say what it was: the sale is recorded when it happened, and the camera learns.">It was a sale</button>{% endif %}
-</div>
+</li>
 {% endmacro %}
 {% set by_txn = {} %}
-{% for i in set_aside %}{% set _ = by_txn.setdefault(i.txn_id, []).append(i) %}{% endfor %}
+{% for i in set_aside %}{% set _x = by_txn.setdefault(i.txn_id, []).append(i) %}{% endfor %}
 {% set txn_ids = sales|map(attribute='txn')|map(attribute='id')|list %}
 {% set orphans = set_aside|rejectattr('txn_id', 'in', txn_ids)|list %}
-<div class="page-head">
-  <div>
-    <h1><i class="bi bi-journal-text" aria-hidden="true"></i> Camera log · {{ day.strftime('%a %d %b') }}</h1>
-    <div class="lead-line">Every sale the camera saw, what it decided, and what it set aside. Anything wrong can be fixed here:
-      stock and the camera are both corrected.</div>
-  </div>
-  <form class="d-flex gap-2 align-items-center" method="get">
-    <a class="btn btn-outline-dark" href="/log?day={{ prev.isoformat() }}" aria-label="the day before"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
-    <input type="date" name="day" value="{{ day.isoformat() }}" class="form-control" onchange="this.form.submit()" aria-label="day">
-    {% if next %}<a class="btn btn-outline-dark" href="/log?day={{ next.isoformat() }}" aria-label="the day after"><i class="bi bi-chevron-right" aria-hidden="true"></i></a>{% endif %}
-  </form>
+
+<header class="page-title">
+  <h1>{{ _("Camera log") }}</h1>
+  <div class="sub">{{ _("Every sale the camera saw. Anything wrong can be fixed here: the stock and the camera are both corrected.") }}</div>
+</header>
+
+<!-- one day at a time -->
+<form class="day-nav mb-3" method="get">
+  <a class="nav-btn" href="/log?day={{ prev.isoformat() }}" aria-label="{{ _('The day before') }}"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
+  <label class="day-pick">
+    <b>{{ weekday(day) }}</b><span>{{ day.isoformat()|day }}</span>
+    <input type="date" name="day" value="{{ day.isoformat() }}" class="form-control" onchange="this.form.submit()" aria-label="{{ _('Day') }}">
+  </label>
+  {% if next %}<a class="nav-btn" href="/log?day={{ next.isoformat() }}" aria-label="{{ _('The day after') }}"><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+  {% else %}<span class="nav-btn disabled" aria-hidden="true"><i class="bi bi-chevron-right"></i></span>{% endif %}
+</form>
+
+<div class="filter-strip" id="log-filters" role="group" aria-label="{{ _('Camera log') }}">
+  <button type="button" class="chip active" data-filter="all" aria-pressed="true">{{ _("All") }} <b>{{ counts['items'] + counts.set_aside }}</b></button>
+  <button type="button" class="chip" data-filter="auto" aria-pressed="false">{{ _("Recorded automatically") }} <b>{{ counts.auto }}</b></button>
+  <button type="button" class="chip" data-filter="checked" aria-pressed="false">{{ _("Checked") }} <b>{{ counts.checked }}</b></button>
+  <button type="button" class="chip" data-filter="waiting" aria-pressed="false">{{ _("Waiting") }} <b>{{ counts.waiting }}</b></button>
+  <button type="button" class="chip" data-filter="aside" aria-pressed="false">{{ _("Set aside") }} <b>{{ counts.set_aside }}</b></button>
 </div>
+<div class="small muted mb-2">{{ _("{n} sale|{n} sales", n=counts.sales) }}</div>
 
-<div class="card mb-3">
-  <div class="card-header d-flex flex-wrap gap-2 align-items-center">
-    <div class="chips" id="log-filters">
-      <button class="chip active" data-filter="all">All {{ counts['items'] + counts.set_aside }}</button>
-      <button class="chip" data-filter="auto">Recorded automatically {{ counts.auto }}</button>
-      <button class="chip" data-filter="checked">Checked {{ counts.checked }}</button>
-      <button class="chip" data-filter="waiting">Waiting {{ counts.waiting }}</button>
-      <button class="chip" data-filter="aside">Set aside {{ counts.set_aside }}</button>
-    </div>
-    <span class="small muted ms-auto">{{ counts.sales }} sale{{ 's' if counts.sales != 1 }}</span>
-  </div>
+{% if not sales and not set_aside %}
+<div class="row-list">{{ empty('camera-video', _('Nothing on this day'), _('Sales appear here as the counter camera records them.'), '/counter', _('Open the counter camera')) }}</div>
+{% endif %}
 
-  {% if not sales and not set_aside %}
-  {{ empty('camera-video', 'Nothing on this day', 'Sales appear here as the counter camera records them.', '/counter', 'Open the counter camera') }}
-  {% endif %}
-
-  {% for s in sales %}
-  <div class="log-sale">
-    <div class="log-when"><div class="fw-semibold">{{ s.txn.started_at[11:16] }}</div>
-      <div class="small muted">{{ 'uploaded photo' if s.txn.source == 'upload' else 'camera' }}</div></div>
-    <div class="flex-grow-1">
-      {% for it in s['items'] %}
-      {% set name = pack_label(it, 'en') if it.pack_id else 'Unknown item' %}
-      <div class="log-item" data-kind="{{ kind(it) }}">
-        {% if it.crop_path %}<a href="/media/{{ it.crop_path }}" target="_blank"><img class="crop-sm" src="/media/{{ it.crop_path }}" alt="what the camera saw"></a>{% endif %}
-        <div class="flex-grow-1">
-          <div class="fw-semibold">{% if it.pack_id %}{{ pic(photos.pack.get(it.pack_id) or photos.product.get(it.product_id), 24) }} {% endif %}{{ name }}{% if it.count > 1 %} ×{{ it.count }}{% endif %}
-            {% if it.method == 'tray' %}<span class="pill tier-medium">loose</span>{% endif %}</div>
-          <div class="small {{ 'text-danger' if it.status == 'removed' else 'muted' }}">{{ outcome(it, it.name_en) }} · {{ '%.0f'|format(it.confidence * 100) }}% sure</div>
-        </div>
-        {% if it.status in fixable %}
-        <button class="btn btn-sm btn-outline-dark" data-fix="item" data-id="{{ it.id }}" data-count="{{ it.count }}"
-                data-photo="{{ '/media/' ~ it.crop_path if it.crop_path }}" data-said="Recorded as {{ name }}{{ ' ×' ~ it.count if it.count > 1 }}.">Fix</button>
-        {% elif it.status in ('pending', 'unknown') %}
-        <a class="btn btn-sm btn-outline-primary" href="/#check">Answer</a>
-        {% endif %}
+{% for s in sales %}
+<section class="log-sale">
+  <div class="log-when"><b class="mono">{{ s.txn.started_at[11:16] }}</b>
+    <span>{{ _("uploaded photo") if s.txn.source == 'upload' else _("camera") }}</span></div>
+  <ul class="log-items">
+    {% for it in s['items'] %}
+    {% set name = pack_label(it, lang_code) if it.pack_id else _('Unknown item') %}
+    <li class="log-item" data-kind="{{ kind(it) }}">
+      {% if it.crop_path %}<a href="/media/{{ it.crop_path }}" target="_blank" rel="noopener" class="flex-none"><img class="crop-sm" src="/media/{{ it.crop_path }}" alt="{{ _('What the camera saw') }}"></a>{% endif %}
+      <div class="row-text">
+        <b>{{ name }}{% if it.count > 1 %} ×{{ it.count }}{% endif %}
+          {% if it.method == 'tray' %}<span class="pill tier-medium">{{ _("loose") }}</span>{% endif %}</b>
+        <span class="{{ 'text-danger' if it.status == 'removed' }}">{{ outcome(it, it.name_en) }} · {{ _("{n}% sure", n='%.0f'|format(it.confidence * 100)) }}</span>
       </div>
-      {% endfor %}
-      {% for i in by_txn.get(s.txn.id, []) %}{{ aside_row(i) }}{% endfor %}
-    </div>
-  </div>
-  {% endfor %}
+      {% if it.status in fixable %}
+      <button class="btn btn-outline-dark" data-fix="item" data-id="{{ it.id }}" data-count="{{ it.count }}"
+              data-photo="{{ '/media/' ~ it.crop_path if it.crop_path }}" data-said="{{ _('Recorded as {name}.', name=name ~ (' ×' ~ it.count if it.count > 1 else '')) }}">{{ _("Fix") }}</button>
+      {% elif it.status in ('pending', 'unknown') %}
+      <a class="btn btn-dark" href="/sales#check">{{ _("Answer") }}</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+    {% for i in by_txn.get(s.txn.id, []) %}{{ aside_row(i) }}{% endfor %}
+  </ul>
+</section>
+{% endfor %}
 
-  {% if orphans %}
-  <div class="log-sale">
-    <div class="log-when"><div class="fw-semibold">—</div><div class="small muted">nothing sold</div></div>
-    <div class="flex-grow-1">{% for i in orphans %}{{ aside_row(i) }}{% endfor %}</div>
-  </div>
-  {% endif %}
-</div>
-
+{% if orphans %}
+<section class="log-sale">
+  <div class="log-when"><b>-</b><span>{{ _("nothing sold") }}</span></div>
+  <ul class="log-items">{% for i in orphans %}{{ aside_row(i) }}{% endfor %}</ul>
+</section>
+{% endif %}
 
 {% include "_fix_modal.html" %}
 <script type="application/json" id="picker-data">{{ picker|tojson }}</script>
+<script>window.FIX_WORDS = {{ phrases(["Saving…", "Couldn't save it:", "Fix this sale", "It was a sale: what was it?"])|tojson }};</script>
 {% endblock %}
 {% block scripts %}
 <script src="{{ asset('picker.js') }}"></script>
@@ -95,7 +97,7 @@
   // Filter the log by what happened; a sale with nothing left to show is hidden too.
   const chips = document.querySelectorAll("#log-filters .chip");
   chips.forEach((c) => c.addEventListener("click", () => {
-    chips.forEach((x) => x.classList.toggle("active", x === c));
+    chips.forEach((x) => { x.classList.toggle("active", x === c); x.setAttribute("aria-pressed", String(x === c)); });
     const f = c.dataset.filter;
     document.querySelectorAll(".log-item").forEach((el) => el.classList.toggle("d-none", f !== "all" && el.dataset.kind !== f));
     document.querySelectorAll(".log-sale").forEach((s) => s.classList.toggle("d-none", !s.querySelector(".log-item:not(.d-none)")));

@@ -3,5 +3,5 @@
   {% if bulk_form %}<input type="checkbox" class="form-check-input pick" name="gid" value="{{ g.id }}" form="{{ bulk_form }}" aria-label="Select this photo">{% endif %}
   <img src="/media/{{ g.crop_path }}" alt="product photo" loading="lazy">
   <button type="button" class="del" title="Delete this photo" aria-label="Delete this photo"><i class="bi bi-trash3" aria-hidden="true"></i></button>
-  <div class="tag">{{ {'correction': 'owner correction', 'confirmed': 'from a sale'}.get(g.source, g.created_at[5:16]) }}</div>
+  <div class="tag">{{ {'correction': 'owner correction', 'confirmed': 'from a sale'}.get(g.source, g.created_at|when(True)) }}</div>
 </div>

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% set back = '/' %}
+{% set help_topic = 'howto' %}
+{% block title %}{{ _("Count a shelf") }}{% endblock %}
+{% block content %}
+<header class="page-title">
+  <h1>{{ _("Count a shelf") }}</h1>
+  <div class="sub">{{ _("Count one product at a time. Save, then the next.") }}</div>
+</header>
+
+{% if product %}
+<section class="count-card">
+  <div class="count-who">
+    <span class="prow-pic">{% if photos.product.get(product.id) %}<img src="/thumb/{{ photos.product.get(product.id) }}.jpg" alt="" width="56" height="56">{% else %}<i class="bi bi-image" aria-hidden="true"></i>{% endif %}</span>
+    <span class="prow-text"><b>{{ pname(product) }}</b>
+      <span class="why">{{ _("Now") }}: {{ level if level is not none and level >= 0 else '–' }} {{ (product.unit|plural(2))|unit }}</span></span>
+    <a class="btn btn-sm btn-outline-dark ms-auto" href="/count">{{ _("Change") }}</a>
+  </div>
+  <form method="post" action="/catalog/{{ product.id }}/stock" data-busy="{{ _('Saving…') }}">
+    <input type="hidden" name="next" value="/count">
+    <label class="flow-label" for="counted">{{ _("How many are there now?") }}</label>
+    <div class="stepper big">
+      <button type="button" data-step="-1" aria-label="−1">−</button>
+      <input id="counted" type="number" name="counted" value="{{ level if level is not none and level >= 0 else 0 }}" min="0" inputmode="numeric" autocomplete="off" required>
+      <button type="button" data-step="1" aria-label="+1">+</button>
+    </div>
+    <button class="btn btn-dark btn-lg w-100 mt-3">{{ _("Save the count") }}</button>
+  </form>
+</section>
+{% else %}
+<section class="flow-step">
+  <div id="count-picker"></div>
+</section>
+<script type="application/json" id="picker-data">{{ picker|tojson }}</script>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if not product %}
+<script src="{{ asset('picker.js') }}"></script>
+<script>
+// Pick the product to count; its page opens with the number ready to change.
+(() => {
+  const items = JSON.parse(document.getElementById("picker-data").textContent);
+  const picker = LuyDek.picker(document.getElementById("count-picker"), items, {
+    baseOnly: true, top: 8,
+    onPick(i) { location.href = "/count?product=" + i.product; },
+  });
+  picker.focus();
+})();
+</script>
+{% endif %}
+{% endblock %}

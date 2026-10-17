@@ -132,7 +132,7 @@ def test_the_shelf_page_and_its_actions(cfg, conn, stub_encoder, monkeypatch):
         vit = pid(conn, "vitc-1000")
         c.post("/shelf/homes", data={f"home_{vit}": shelf_b})
         product = c.get(f"/catalog/{vit}").text
-        assert "On the shelf, by batch" in product and 'selected>Shelf B' in product
+        assert "Deliveries on the shelf" in product and 'selected>Shelf B' in product
     assert stock.on_hand(db.connect(cfg.db_path))[pid(conn, "dutchlady-choc")] == 0
 
 

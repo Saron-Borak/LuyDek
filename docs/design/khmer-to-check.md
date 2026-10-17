@@ -1,0 +1,851 @@
+# Khmer phrases to check
+
+Every Khmer phrase on the web pages (717 of them). Please have a native speaker read them before shops use
+LuyDek: fix the Khmer column in `luydek/web/words.py` (the English is only the key). Placeholders such as
+`{n}`, `{name}`, `{date}` must stay as they are. In a key, `|` separates the English for one and for many;
+Khmer needs only one form. Made by a script from `words.py`, so run it again after changes.
+
+## The shell
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Home | ទំព័រដើម | |
+| Stock | ស្តុក | |
+| Orders | បញ្ជាទិញ | |
+| More | ច្រើនទៀត | |
+| Search | ស្វែងរក | |
+| Help | ជំនួយ | |
+| Back | ថយក្រោយ | |
+| Skip to the page | រំលងទៅទំព័រ | |
+| Language | ភាសា | |
+| Practice data: some sales are simulated. | ទិន្នន័យសាកល្បង៖ ការលក់ខ្លះជាការក្លែងធ្វើ។ | |
+| Close | បិទ | |
+| Cancel | បោះបង់ | |
+| Save | រក្សាទុក | |
+| Saving… | កំពុងរក្សាទុក… | |
+| Done | រួចរាល់ | |
+| See all | មើលទាំងអស់ | |
+| Show {n} more | បង្ហាញ {n} ទៀត | |
+| Change | ប្តូរ | |
+
+## What happened?
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| What happened? | មានអ្វីកើតឡើង? | |
+| Pick one. You can undo it. | ជ្រើសរើសមួយ។ អាចត្រឡប់វិញបាន។ | |
+| Stock came in | ទំនិញចូល | |
+| Photo of the invoice | ថតវិក្កយបត្រ | |
+| Sold or used | លក់ ឬប្រើ | |
+| On credit, family, damaged | ជំពាក់ គ្រួសារប្រើ ខូច | |
+| Count a shelf | រាប់ធ្នើ | |
+| Set the right number | កែចំនួនឲ្យត្រូវ | |
+| New product | ទំនិញថ្មី | |
+| Name, price, photos | ឈ្មោះ តម្លៃ រូបថត | |
+| Count with the camera | រាប់ដោយកាមេរ៉ា | |
+| Put items on the mat | ដាក់ទំនិញលើកម្រាល | |
+
+## Home
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Good morning | អរុណសួស្តី | |
+| Good afternoon | ទិវាសួស្តី | |
+| Good evening | សាយណ្ហសួស្តី | |
+| Stock on your shelves | ស្តុកនៅលើធ្នើ | |
+| at cost | តាមតម្លៃដើម | |
+| Sold today | លក់ថ្ងៃនេះ | |
+| Out of stock | អស់ស្តុក | |
+| Past their date | ផុតកំណត់ | |
+| To do now | ត្រូវធ្វើឥឡូវ | |
+| Nothing to do | គ្មានអ្វីត្រូវធ្វើ | |
+| The shelves are in order. Nothing past its date, nothing running out. | ធ្នើរៀបរយល្អ។ គ្មានទំនិញផុតកំណត់ ឬជិតអស់ទេ។ | |
+| Check {n} sale\|Check {n} sales | ពិនិត្យការលក់ {n} | |
+| The camera wasn't sure what was sold. | កាមេរ៉ាមិនប្រាកដថាលក់អ្វីទេ។ | |
+| Take {n} {name} off the shelf | យក {name} {n} ចេញពីធ្នើ | |
+| Expired {date} | ផុតកំណត់ {date} | |
+| {name} is out | {name} អស់ហើយ | |
+| Must-have | ត្រូវតែមាន | |
+| Agent comes {day} | ភ្នាក់ងារមក {day} | |
+| No agent visit set | មិនទាន់កំណត់ថ្ងៃភ្នាក់ងារមក | |
+| Order from {agent} | បញ្ជាទិញពី {agent} | |
+| Comes today | មកថ្ងៃនេះ | |
+| Comes tomorrow | មកថ្ងៃស្អែក | |
+| {n} item\|{n} items | {n} មុខ | |
+| Put {n} {name} in front | ដាក់ {name} {n} នៅខាងមុខ | |
+| Expires {date}, in {d} day\|Expires {date}, in {d} days | ផុតកំណត់ {date} ក្នុង {d} ថ្ងៃទៀត | |
+| Expires today | ផុតកំណត់ថ្ងៃនេះ | |
+| Sell {n} {name} soon | លក់ {name} {n} ឲ្យឆាប់ | |
+| Won't sell before {date}. Discount it or send it back. | លក់មិនទាន់មុន {date}។ បញ្ចុះតម្លៃ ឬប្រគល់ត្រឡប់វិញ។ | |
+| {name} is running low | {name} ជិតអស់ | |
+| {n} left, about {d} day\|{n} left, about {d} days | នៅសល់ {n} ប្រហែល {d} ថ្ងៃ | |
+| Put away {n} {name} | ដាក់ទុក {name} {n} | |
+| It came in with no place yet. | វាចូលមកដោយមិនទាន់មានកន្លែងដាក់។ | |
+| Give {n} new product a supplier\|Give {n} new products a supplier | កំណត់អ្នកផ្គត់ផ្គង់ឲ្យទំនិញថ្មី {n} | |
+| Until then no order list includes them. | បើមិនទាន់ទេ បញ្ជីបញ្ជាទិញនឹងមិនមានវាទេ។ | |
+| Finish setting up: {done} of {total} | បញ្ចប់ការរៀបចំ៖ {done} នៃ {total} | |
+| A few steps so LuyDek knows your shop. | ជំហានខ្លះៗ ដើម្បីឲ្យ LuyDek ស្គាល់ហាងរបស់អ្នក។ | |
+| Coming up | នឹងមកដល់ | |
+| Agents' next visits | ភ្នាក់ងារនឹងមកលើកក្រោយ | |
+| Today | ថ្ងៃនេះ | |
+| Tomorrow | ថ្ងៃស្អែក | |
+| Nothing to order | គ្មានអ្វីត្រូវបញ្ជាទិញ | |
+| Order {n} item\|Order {n} items | បញ្ជាទិញ {n} មុខ | |
+| Money sleeping on the shelf | លុយដេកលើធ្នើ | |
+| {n} product hardly sells\|{n} products hardly sell | ទំនិញ {n} មុខស្ទើរតែលក់មិនចេញ | |
+| Sales today | ការលក់ថ្ងៃនេះ | |
+| {n} sale\|{n} sales | {n} ដង | |
+
+## Stock
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| {n} product\|{n} products | ទំនិញ {n} មុខ | |
+| Search a product… | ស្វែងរកទំនិញ… | |
+| Needs you | ត្រូវការអ្នក | |
+| All | ទាំងអស់ | |
+| Out | អស់ | |
+| Expiring | ជិតផុត | |
+| top level | ជាន់លើ | |
+| bottom level | ជាន់ក្រោម | |
+| level {n} | ជាន់ទី {n} | |
+| Nothing matches. | រកមិនឃើញ។ | |
+| Try another name, or look in All. | សាកឈ្មោះផ្សេង ឬមើលក្នុង «ទាំងអស់»។ | |
+| OUT | អស់ | |
+| LOW | ជិតអស់ | |
+| PAST ITS DATE | ផុតកំណត់ | |
+| EXPIRES SOON | ជិតផុតកំណត់ | |
+| NOT COUNTED | មិនទាន់រាប់ | |
+| OK | ល្អ | |
+| MUST-HAVE | ត្រូវតែមាន | |
+| {n} of {total} past its date\|{n} of {total} past their date | {n} នៃ {total} ផុតកំណត់ | |
+| First date {date} | កាលបរិច្ឆេទដំបូង {date} | |
+| About {d} day left\|About {d} days left | នៅសល់ប្រហែល {d} ថ្ងៃ | |
+| Never counted | មិនដែលរាប់ | |
+| {n} sold | លក់ {n} | |
+| No dates yet | មិនទាន់មានកាលបរិច្ឆេទ | |
+| Count or edit in Excel | រាប់ ឬកែក្នុង Excel | |
+
+## A product
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| on the shelf | នៅលើធ្នើ | |
+| Count | រាប់ | |
+| How many are there now? | ឥឡូវមានប៉ុន្មាន? | |
+| Save the count | រក្សាទុកការរាប់ | |
+| Each delivery keeps its own date. Sales take the one that expires first. | ទំនិញចូលម្តងៗមានកាលបរិច្ឆេទរៀងៗខ្លួន។ ការលក់យកមួយដែលផុតកំណត់មុន។ | |
+| Deliveries on the shelf | ទំនិញនៅលើធ្នើ | |
+| expired {d} day ago\|expired {d} days ago | ផុតកំណត់ {d} ថ្ងៃមុន | |
+| in {d} day\|in {d} days | ក្នុង {d} ថ្ងៃទៀត | |
+| no date on the pack | គ្មានកាលបរិច្ឆេទលើកញ្ចប់ | |
+| Take off | យកចេញ | |
+| Change the date | ប្តូរកាលបរិច្ឆេទ | |
+| Where | នៅឯណា | |
+| Expires | ផុតកំណត់ | |
+| Left | នៅសល់ | |
+| No place yet | មិនទាន់មានកន្លែង | |
+| Came in | ចូលនៅ | |
+| Lot | ឡូត៍ | |
+| New deliveries go on | ទំនិញចូលថ្មីដាក់នៅ | |
+| Sales, last 4 weeks | ការលក់ ៤ សប្តាហ៍ចុងក្រោយ | |
+| Photos for the camera | រូបថតសម្រាប់កាមេរ៉ា | |
+| Details | ព័ត៌មានលម្អិត | |
+| Other names | ឈ្មោះផ្សេងទៀត | |
+| Full history | ប្រវត្តិទាំងមូល | |
+| Remove product | លុបទំនិញ | |
+
+## Sold or used / count
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Why? | ហេតុអ្វី? | |
+| Which product? | ទំនិញណា? | |
+| How many? | ប៉ុន្មាន? | |
+| Pick a product first. | ជ្រើសរើសទំនិញសិន។ | |
+| For stock that left without passing the camera. | សម្រាប់ទំនិញដែលចេញដោយមិនឆ្លងកាត់កាមេរ៉ា។ | |
+| Count one product at a time. Save, then the next. | រាប់ទំនិញម្តងមួយ។ រក្សាទុក ហើយបន្តមួយទៀត។ | |
+| Now | ឥឡូវ | |
+| Type a product name… | វាយឈ្មោះទំនិញ… | |
+| Nothing found. Try another spelling. | រកមិនឃើញ។ សាកសរសេរម្យ៉ាងទៀត។ | |
+| Sold most in the last 2 weeks | លក់ច្រើនជាងគេក្នុង ២ សប្តាហ៍ចុងក្រោយ | |
+| Your products | ទំនិញរបស់អ្នក | |
+| Type to find the other {n}, and multipacks. | វាយដើម្បីរក {n} ទៀត និងកញ្ចប់ធំ។ | |
+| Next product | ទំនិញបន្ទាប់ | |
+
+## Orders
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| What to buy from each agent before they come. | អ្វីត្រូវទិញពីភ្នាក់ងារម្នាក់ៗ មុនពេលគេមក។ | |
+| Buy | ទិញ | |
+| Don't buy this time | កុំទិញលើកនេះ | |
+| Have a look | មើលសិន | |
+| Copy for the agent | ចម្លងឲ្យភ្នាក់ងារ | |
+| Copied | បានចម្លង | |
+
+## Sales
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Sales | ការលក់ | |
+| Sales and the camera | ការលក់ និងកាមេរ៉ា | |
+| Busy hours | ម៉ោងមមាញឹក | |
+
+## More
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Every day | រាល់ថ្ងៃ | |
+| Your shop | ហាងរបស់អ្នក | |
+| Setting up | ការរៀបចំ | |
+| For the install team | សម្រាប់ក្រុមដំឡើង | |
+| Shelf check | ពិនិត្យធ្នើ | |
+| Walk the shop: what to take off or put in front | ដើរពិនិត្យហាង៖ អ្វីត្រូវយកចេញ ឬដាក់ខាងមុខ | |
+| Stock map | ផែនទីស្តុក | |
+| Every shelf, what is on it and its dates | ធ្នើនីមួយៗ អ្វីនៅលើវា និងកាលបរិច្ឆេទ | |
+| Deliveries | ទំនិញចូល | |
+| Invoices and what came in | វិក្កយបត្រ និងអ្វីដែលបានចូល | |
+| Stock in Excel | ស្តុកក្នុង Excel | |
+| Count or edit everything in one file | រាប់ ឬកែទាំងអស់ក្នុងឯកសារតែមួយ | |
+| Checks, sales today, busy hours | ការពិនិត្យ ការលក់ថ្ងៃនេះ ម៉ោងមមាញឹក | |
+| Counter camera | កាមេរ៉ាតុលក់ | |
+| The camera over the counter | កាមេរ៉ាលើតុលក់ | |
+| Camera log | កំណត់ត្រាកាមេរ៉ា | |
+| Every sale the camera saw | ការលក់ទាំងអស់ដែលកាមេរ៉ាបានឃើញ | |
+| Products and suppliers | ទំនិញ និងអ្នកផ្គត់ផ្គង់ | |
+| Names, prices, photos, agents' visit days | ឈ្មោះ តម្លៃ រូបថត ថ្ងៃភ្នាក់ងារមក | |
+| Setup | ការរៀបចំ | |
+| The steps to start | ជំហានដើម្បីចាប់ផ្តើម | |
+| How LuyDek works, and what the words mean | របៀបដែល LuyDek ដំណើរការ និងអត្ថន័យពាក្យ | |
+| Pilot report | របាយការណ៍សាកល្បង | |
+| Before and after, week by week | មុន និងក្រោយ សប្តាហ៍ម្តងៗ | |
+| Accuracy test | តេស្តភាពត្រឹមត្រូវ | |
+| How often the camera is right | កាមេរ៉ាត្រូវញឹកញាប់ប៉ុណ្ណា | |
+
+## Help
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| How to | របៀប | |
+| What the words mean | អត្ថន័យពាក្យ | |
+| Record a delivery | កត់ត្រាទំនិញចូល | |
+| Tap +, then Stock came in. Take a photo of the paper invoice. Check the lines and tap Add to stock. | ចុច + រួច «ទំនិញចូល»។ ថតវិក្កយបត្រក្រដាស។ ពិនិត្យបន្ទាត់ ហើយចុច «បញ្ចូលស្តុក»។ | |
+| Fix a number | កែចំនួន | |
+| Tap +, then Count a shelf. Find the product, set how many are there, tap Save. | ចុច + រួច «រាប់ធ្នើ»។ រកទំនិញ កំណត់ចំនួនដែលមាន ហើយចុច «រក្សាទុក»។ | |
+| Something left without a sale | ទំនិញចេញដោយមិនបានលក់ | |
+| Tap +, then Sold or used. Pick why, the product and how many. | ចុច + រួច «លក់ ឬប្រើ»។ ជ្រើសហេតុផល ទំនិញ និងចំនួន។ | |
+| Get ready for an agent | ត្រៀមសម្រាប់ភ្នាក់ងារ | |
+| Open Orders. Each agent has a list of what to buy, what to skip and why. Tap Copy for the agent. | បើក «បញ្ជាទិញ»។ ភ្នាក់ងារម្នាក់ៗមានបញ្ជីអ្វីត្រូវទិញ អ្វីមិនត្រូវទិញ និងហេតុផល។ ចុច «ចម្លងឲ្យភ្នាក់ងារ»។ | |
+| Check what the camera wasn't sure about | ពិនិត្យអ្វីដែលកាមេរ៉ាមិនប្រាកដ | |
+| Home shows Check sales. Tap Yes when the guess is right, or pick the right product. | ទំព័រដើមបង្ហាញ «ពិនិត្យការលក់»។ ចុច «បាទ/ចាស» បើការទាយត្រូវ ឬជ្រើសទំនិញត្រឹមត្រូវ។ | |
+| Walk the shelves once a week | ដើរពិនិត្យធ្នើម្តងក្នុងមួយសប្តាហ៍ | |
+| Open More, then Shelf check. Take off what has expired, put what expires soon in front. | បើក «ច្រើនទៀត» រួច «ពិនិត្យធ្នើ»។ យកអ្វីដែលផុតកំណត់ចេញ ដាក់អ្វីដែលជិតផុតកំណត់នៅខាងមុខ។ | |
+| A delivery | ទំនិញចូលមួយលើក | |
+| Everything that came in together, with its own expiry date and place. A product often has a few at once. | ទំនិញដែលចូលមកជាមួយគ្នា មានកាលបរិច្ឆេទផុតកំណត់ និងកន្លែងរៀងខ្លួន។ ទំនិញមួយច្រើនតែមានច្រើនលើកក្នុងពេលតែមួយ។ | |
+| Past its date | ផុតកំណត់ | |
+| The date printed on the pack has passed. Take it off the shelf. | កាលបរិច្ឆេទលើកញ្ចប់បានកន្លងផុត។ យកវាចេញពីធ្នើ។ | |
+| Expires soon | ជិតផុតកំណត់ | |
+| The date is within 30 days. Put it in front so it sells first. | កាលបរិច្ឆេទនៅក្នុង ៣០ ថ្ងៃ។ ដាក់វានៅខាងមុខ ដើម្បីឲ្យលក់មុន។ | |
+| Won't sell in time | លក់មិនទាន់ | |
+| At the speed it sells, some will still be there on its date. Discount it, sell it in a bundle, or give it back to the agent. | តាមល្បឿនលក់ ខ្លះនឹងនៅសល់នៅថ្ងៃផុតកំណត់។ បញ្ចុះតម្លៃ លក់ជាកញ្ចប់ ឬប្រគល់ឲ្យភ្នាក់ងារវិញ។ | |
+| Running low | ជិតអស់ | |
+| At the speed it sells, it runs out in about 3 days. | តាមល្បឿនលក់ វានឹងអស់ក្នុងប្រហែល ៣ ថ្ងៃ។ | |
+| Sleeping money | លុយដេក | |
+| Money in stock that hardly sells. Don't buy more; try to sell it or return it. | លុយនៅក្នុងទំនិញដែលស្ទើរតែលក់មិនចេញ។ កុំទិញបន្ថែម សាកលក់ ឬប្រគល់វិញ។ | |
+| Must-have item | ទំនិញត្រូវតែមាន | |
+| Something the shop must never run out of, like baby formula. Orders keep extra. | ទំនិញដែលហាងមិនត្រូវឲ្យអស់ ដូចជាទឹកដោះគោកូនក្មេង។ ការបញ្ជាទិញទុកបន្ថែម។ | |
+| Agent | ភ្នាក់ងារ | |
+| The supplier's person who visits on a set day to take your order. | បុគ្គលិកអ្នកផ្គត់ផ្គង់ដែលមកតាមថ្ងៃកំណត់ដើម្បីទទួលការបញ្ជាទិញ។ | |
+| Practice data | ទិន្នន័យសាកល្បង | |
+| Some sales were made up to show how LuyDek works. Order lists built from them are examples. | ការលក់ខ្លះត្រូវបានបង្កើតឡើងដើម្បីបង្ហាញពីរបៀបដែល LuyDek ដំណើរការ។ បញ្ជីបញ្ជាទិញពីវាគ្រាន់តែជាឧទាហរណ៍។ | |
+
+## The stock map
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Every shelf, what is on it and its dates. | ធ្នើនីមួយៗ អ្វីនៅលើវា និងកាលបរិច្ឆេទ។ | |
+| Shelves | ធ្នើ | |
+| 3D shop | ហាងជា 3D | |
+| Find a product or a lot… | រកទំនិញ ឬលេខឡូត៍… | |
+| Previous shelf | ធ្នើមុន | |
+| Next shelf | ធ្នើបន្ទាប់ | |
+| What the colours show | ពណ៌មានន័យអ្វី | |
+| Dates | កាលបរិច្ឆេទ | |
+| Stock left | ស្តុកនៅសល់ | |
+| Shelf tools | ឧបករណ៍ធ្នើ | |
+| Edit this shelf | កែធ្នើនេះ | |
+| New shelf | ធ្នើថ្មី | |
+| Shelves as a spreadsheet | ធ្នើជាឯកសារ Excel | |
+| Save this shelf | រក្សាទុកធ្នើនេះ | |
+| Drag a product to move it, or tap it for more. + adds one to a level. | អូសទំនិញដើម្បីផ្លាស់ទី ឬចុចលើវាដើម្បីមើលបន្ថែម។ + បន្ថែមទំនិញលើជាន់។ | |
+| Colour by | បង្ហាញពណ៌តាម | |
+| Photos | រូបថត | |
+| Suggested move | ការផ្លាស់ប្តូរដែលណែនាំ | |
+| Arrange the shop | រៀបចំប្លង់ហាង | |
+| Drag to turn, pinch to zoom. | អូសដើម្បីបង្វិល ចាប់ពង្រីកដើម្បីពង្រីក។ | |
+| Everything | ទាំងអស់ | |
+| Expires within {n} days | ផុតកំណត់ក្នុង {n} ថ្ងៃ | |
+| Expired (the date on the pack) | ផុតកំណត់ (កាលបរិច្ឆេទលើកញ្ចប់) | |
+| Expires within {n} days, or won't sell in time | ផុតកំណត់ក្នុង {n} ថ្ងៃ ឬលក់មិនទាន់ | |
+| Fine | ល្អ | |
+| Out of stock: a gap | អស់ស្តុក៖ មានចន្លោះទទេ | |
+| Most money sleeping | លុយដេកច្រើនបំផុត | |
+| Some | ខ្លះ | |
+| Selling | លក់ចេញ | |
+| In stock: how many left | មានស្តុក៖ នៅសល់ប៉ុន្មាន | |
+| Not counted yet | មិនទាន់រាប់ | |
+| Sleeping: no sale in {n} days, or months of stock at today's pace; valued at cost. | លុយដេក៖ មិនបានលក់ក្នុង {n} ថ្ងៃ ឬមានស្តុកច្រើនខែតាមល្បឿនលក់សព្វថ្ងៃ គិតតាមតម្លៃដើម។ | |
+| ×12: units on this shelf. The date is the first one to expire. | ×12៖ ចំនួននៅលើធ្នើនេះ។ កាលបរិច្ឆេទ គឺមួយដែលផុតកំណត់មុនគេ។ | |
+| Shelf | ធ្នើ | |
+| Fridge | ទូទឹកកក | |
+| Counter | តុលក់ | |
+| Storage | ឃ្លាំង | |
+| Pallet | ក្តារ | |
+| {n} level\|{n} levels | {n} ជាន់ | |
+| {i} of {n} | {i} នៃ {n} | |
+| stop {i} of {n} | ចំណត {i} នៃ {n} | |
+| No shelves yet | មិនទាន់មានធ្នើ | |
+| Add your first with New shelf: from a photo of it, from your spreadsheet, or empty. | បន្ថែមធ្នើដំបូងដោយ «ធ្នើថ្មី»៖ ពីរូបថត ពីឯកសារ Excel ឬទទេ។ | |
+| empty | ទទេ | |
+| Nothing placed on its levels yet: Edit this shelf, or New shelf from a photo or a spreadsheet | មិនទាន់មានអ្វីដាក់លើជាន់ទេ៖ «កែធ្នើនេះ» ឬ «ធ្នើថ្មី» ពីរូបថត ឬឯកសារ Excel | |
+| On this shelf, not on a level yet | នៅលើធ្នើនេះ តែមិនទាន់នៅលើជាន់ណាមួយ | |
+| Stock that isn't anywhere yet: tap one to put it on a shelf | ស្តុកដែលមិនទាន់មានកន្លែង៖ ចុចមួយដើម្បីដាក់លើធ្នើ | |
+| Nothing. | គ្មាន។ | |
+| not on a level yet | មិនទាន់នៅលើជាន់ | |
+| level {n} of {m} | ជាន់ទី {n} នៃ {m} | |
+| {n} from the left | ទី {n} ពីឆ្វេង | |
+| Top | ជាន់លើ | |
+| Bottom | ជាន់ក្រោម | |
+| Level {n} | ជាន់ទី {n} | |
+| Here | នៅទីនេះ | |
+| Nothing here yet. | មិនទាន់មានអ្វីនៅទីនេះទេ។ | |
+| {n} unit\|{n} units | {n} ឯកតា | |
+| {money} at cost | {money} តាមតម្លៃដើម | |
+| {money} sleeping | {money} ដេក | |
+| {n} expired | ផុតកំណត់ {n} | |
+| exp {date} | ផុត {date} | |
+| no date | គ្មានកាលបរិច្ឆេទ | |
+| out of stock | អស់ស្តុក | |
+| none here | គ្មាននៅទីនេះ | |
+| not counted | មិនទាន់រាប់ | |
+| {n} left | នៅសល់ {n} | |
+| out | អស់ | |
+| Put in front | ដាក់ខាងមុខ | |
+| a gap on the shelf | ចន្លោះទទេលើធ្នើ | |
+| None counted here. | មិនទាន់រាប់នៅទីនេះ។ | |
+| Also on | មាននៅ | |
+| expired {date} | ផុតកំណត់ {date} | |
+| expires today | ផុតកំណត់ថ្ងៃនេះ | |
+| {n} days | {n} ថ្ងៃ | |
+| no date on it | គ្មានកាលបរិច្ឆេទលើវា | |
+| lot {lot} | ឡូត៍ {lot} | |
+| expired | ផុតកំណត់ | |
+| expires soon | ជិតផុតកំណត់ | |
+| won't sell in time | លក់មិនទាន់ | |
+| sleeping | ដេក | |
+| no sale in {n} days | មិនបានលក់ {n} ថ្ងៃ | |
+| Taken off | បានយកចេញ | |
+| Moved to | ផ្លាស់ទៅ | |
+| No place | គ្មានកន្លែង | |
+| How many were taken off the shelf? | តើយកចេញពីធ្នើប៉ុន្មាន? | |
+| Open the product | បើកទំនិញ | |
+| {n} spot on {m} shelves\|{n} spots on {m} shelves | {n} កន្លែង លើធ្នើ {m} | |
+| Nothing here. | គ្មានអ្វីនៅទីនេះទេ។ | |
+| first date {date} | កាលបរិច្ឆេទដំបូង {date} | |
+| Today's walk | ការដើរពិនិត្យថ្ងៃនេះ | |
+| {n} shelf has something to do\|{n} shelves have something to do | ធ្នើ {n} មានការងារត្រូវធ្វើ | |
+| Take off what has expired, put what expires soon in front. | យកអ្វីដែលផុតកំណត់ចេញ ដាក់អ្វីដែលជិតផុតកំណត់នៅខាងមុខ។ | |
+| Start | ចាប់ផ្តើម | |
+| Stop | ឈប់ | |
+| Next stop | ចំណតបន្ទាប់ | |
+| That was the last stop. | នោះជាចំណតចុងក្រោយ។ | |
+| Nothing to do: nothing has expired, and nothing expires in the next {n} days. | គ្មានអ្វីត្រូវធ្វើ៖ គ្មានអ្វីផុតកំណត់ ហើយគ្មានអ្វីផុតកំណត់ក្នុង {n} ថ្ងៃខាងមុខទេ។ | |
+| Open the counter camera | បើកកាមេរ៉ាតុលក់ | |
+| Leave it open on the counter computer | ទុកវាបើកនៅលើកុំព្យូទ័រតុលក់ | |
+
+## The counter camera
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Leave it open on the counter computer. Just sell: what stays still on the mat is recorded. | ទុកវាបើកនៅលើកុំព្យូទ័រតុលក់។ លក់ធម្មតា៖ អ្វីដែលនៅស្ងៀមលើកម្រាលត្រូវបានកត់ត្រា។ | |
+| starting… | កំពុងចាប់ផ្តើម… | |
+| Sound on | បើកសំឡេង | |
+| Sound off | បិទសំឡេង | |
+| Tap to turn sound on | ចុចដើម្បីបើកសំឡេង | |
+| Camera setup | រៀបចំកាមេរ៉ា | |
+| A high beep: it knows the item. A low double beep: it will ask you about it. The sale closes when the mat is empty again. | សំឡេងខ្ពស់៖ វាស្គាល់ទំនិញ។ សំឡេងទាបពីរដង៖ វានឹងសួរអ្នក។ ការលក់បិទពេលកម្រាលទទេម្តងទៀត។ | |
+| Last photo | រូបថតចុងក្រោយ | |
+| Sale | ការលក់ | |
+| Nothing on the mat yet | មិនទាន់មានអ្វីលើកម្រាល | |
+| Sales just recorded | ការលក់ទើបកត់ត្រា | |
+| Wrong? Fix it in the camera log | ខុស? កែក្នុងកំណត់ត្រាកាមេរ៉ា | |
+| none yet | មិនទាន់មាន | |
+| Counter empty | តុលក់ទទេ | |
+| Items arriving… | ទំនិញកំពុងមក… | |
+| Still: captured | នៅស្ងៀម៖ បានថត | |
+| Calibrate first | ក្រិតតាមខ្នាតសិន | |
+| Recalibrate | ក្រិតម្តងទៀត | |
+
+## Deliveries
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Photograph the paper invoice. It is read for you, and you check it before anything goes into stock. | ថតវិក្កយបត្រក្រដាស។ វាត្រូវបានអានឲ្យអ្នក ហើយអ្នកពិនិត្យមុនពេលអ្វីៗចូលស្តុក។ | |
+| Reading photos needs an ANTHROPIC_API_KEY in .env. Until then, type the invoice in. | ការអានរូបថតត្រូវការ ANTHROPIC_API_KEY ក្នុង .env។ មុននោះ សូមវាយវិក្កយបត្របញ្ចូល។ | |
+| Reading photos needs an ANTHROPIC_API_KEY in .env. | ការអានរូបថតត្រូវការ ANTHROPIC_API_KEY ក្នុង .env។ | |
+| Reading the invoice… (up to a minute) | កំពុងអានវិក្កយបត្រ… (រហូតដល់មួយនាទី) | |
+| Take a photo of the invoice | ថតរូបវិក្កយបត្រ | |
+| Khmer or English, printed or handwritten | ខ្មែរ ឬអង់គ្លេស បោះពុម្ព ឬសរសេរដៃ | |
+| The invoice photo | រូបថតវិក្កយបត្រ | |
+| Read the invoice | អានវិក្កយបត្រ | |
+| Takes up to a minute. Nothing goes into stock until you tap Add to stock. | ចំណាយពេលរហូតដល់មួយនាទី។ គ្មានអ្វីចូលស្តុកទេ រហូតដល់អ្នកចុច «បញ្ចូលស្តុក»។ | |
+| Waiting for your OK | រង់ចាំអ្នកយល់ព្រម | |
+| Earlier deliveries | ទំនិញចូលមុនៗ | |
+| No deliveries yet | មិនទាន់មានទំនិញចូល | |
+| Photograph the next invoice when the agent comes. The lines are read for you. | ថតវិក្កយបត្របន្ទាប់ពេលភ្នាក់ងារមក។ បន្ទាត់នីមួយៗត្រូវបានអានឲ្យអ្នក។ | |
+| Type an invoice in | វាយវិក្កយបត្របញ្ចូល | |
+| One row for each line on the invoice. You check it on the next page. | មួយជួរសម្រាប់បន្ទាត់នីមួយៗលើវិក្កយបត្រ។ អ្នកពិនិត្យវានៅទំព័របន្ទាប់។ | |
+| From | ពី | |
+| Line {n} | បន្ទាត់ទី {n} | |
+| Product | ទំនិញ | |
+| Pick… | ជ្រើសរើស… | |
+| How many | ចំនួន | |
+| of | ជា | |
+| cases | កេស | |
+| packs | កញ្ចប់ | |
+| single | រាយ | |
+| Cost each $ | តម្លៃមួយ $ | |
+| optional | មិនចាំបាច់ | |
+| Free (a bonus) | ឥតគិតថ្លៃ (ថែម) | |
+| Add a line | បន្ថែមបន្ទាត់ | |
+| Continue to check | បន្តទៅពិនិត្យ | |
+| Setting up the shop? | កំពុងរៀបចំហាង? | |
+| Photograph a few recent invoices, one at a time. Each line that isn't one of your products yet becomes one in a tap, with its name, case size, price and supplier. Then choose Only add the products, so no stock is added twice. | ថតវិក្កយបត្រថ្មីៗពីរបីសន្លឹក ម្តងមួយ។ បន្ទាត់ដែលមិនទាន់ជាទំនិញរបស់អ្នក ក្លាយជាទំនិញថ្មីដោយចុចតែម្តង ជាមួយឈ្មោះ ចំនួនក្នុងមួយកេស តម្លៃ និងអ្នកផ្គត់ផ្គង់។ បន្ទាប់មកជ្រើស «បញ្ចូលតែទំនិញ» ដើម្បីកុំឲ្យស្តុកចូលពីរដង។ | |
+| Unknown supplier | អ្នកផ្គត់ផ្គង់មិនស្គាល់ | |
+| {n} line\|{n} lines | {n} បន្ទាត់ | |
+| In stock | ចូលស្តុករួច | |
+| Waiting for internet | រង់ចាំអ៊ីនធឺណិត | |
+| Couldn't read it | អានមិនបាន | |
+| Discarded | បានបោះបង់ | |
+| Products added | បានបន្ថែមទំនិញ | |
+
+## A delivery
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Delivery | ទំនិញចូល | |
+| Delivery from {name} | ទំនិញចូលពី {name} | |
+| Delivery from an unknown supplier | ទំនិញចូលពីអ្នកផ្គត់ផ្គង់មិនស្គាល់ | |
+| Received {when} | ទទួល {when} | |
+| read from a photo | អានពីរូបថត | |
+| typed in | វាយបញ្ចូល | |
+| sent by the distributor | ផ្ញើដោយអ្នកចែកចាយ | |
+| invoice dated {date} | វិក្កយបត្រចុះថ្ងៃ {date} | |
+| Added +{n} to stock {when}. | បានបញ្ចូល +{n} ទៅស្តុក {when}។ | |
+| Where to put it | ដាក់នៅឯណា | |
+| What expires first goes in front, so it sells first. | អ្វីដែលផុតកំណត់មុន ដាក់នៅខាងមុខ ដើម្បីឲ្យលក់មុន។ | |
+| its shelf | ធ្នើរបស់វា | |
+| in front of the {n} already there (they expire later) | នៅខាងមុខ {n} ដែលមានស្រាប់ (វាផុតកំណត់ក្រោយ) | |
+| behind the {n} already there | នៅខាងក្រោយ {n} ដែលមានស្រាប់ | |
+| they expire {date} | វាផុតកំណត់ {date} | |
+| Expires {date} | ផុតកំណត់ {date} | |
+| Expiry date | កាលបរិច្ឆេទផុតកំណត់ | |
+| Save the date | រក្សាទុកកាលបរិច្ឆេទ | |
+| Photo of the date | ថតកាលបរិច្ឆេទ | |
+| The products on this old invoice are in your product list, with their prices. | ទំនិញលើវិក្កយបត្រចាស់នេះ មាននៅក្នុងបញ្ជីទំនិញរបស់អ្នកហើយ ជាមួយតម្លៃ។ | |
+| No stock was added. | មិនបានបញ្ចូលស្តុកទេ។ | |
+| See them | មើលវា | |
+| This delivery was discarded. Nothing was added to stock. | ទំនិញចូលនេះត្រូវបានបោះបង់។ គ្មានអ្វីបញ្ចូលស្តុកទេ។ | |
+| This photo couldn't be read. | រូបថតនេះអានមិនបាន។ | |
+| Type the invoice in instead | វាយវិក្កយបត្របញ្ចូលជំនួសវិញ | |
+| No internet when this was photographed. | គ្មានអ៊ីនធឺណិតពេលថតរូបនេះ។ | |
+| It will be read by itself when the connection is back. | វានឹងត្រូវបានអានដោយខ្លួនឯង ពេលមានអ៊ីនធឺណិតវិញ។ | |
+| {n} line isn't in your products yet\|{n} lines aren't in your products yet | បន្ទាត់ {n} មិនទាន់ជាទំនិញរបស់អ្នក | |
+| Add it as new, pick the product, or skip it. Then add the delivery to stock.\|Add them as new, pick the product, or skip. Then add the delivery to stock. | បន្ថែមជាទំនិញថ្មី ជ្រើសទំនិញ ឬរំលង។ បន្ទាប់មកបញ្ចូលទំនិញចូលទៅស្តុក។ | |
+| Adding products… | កំពុងបន្ថែមទំនិញ… | |
+| Add all {n} as new products | បន្ថែមទាំង {n} ជាទំនិញថ្មី | |
+| Every line is matched. | បន្ទាត់ទាំងអស់ផ្គូផ្គងរួច។ | |
+| Check the numbers against the paper, then add it to stock. | ផ្ទៀងផ្ទាត់ចំនួនជាមួយក្រដាស រួចបញ្ចូលស្តុក។ | |
+| Adding to stock… | កំពុងបញ្ចូលស្តុក… | |
+| Add +{n} to stock | បញ្ចូល +{n} ទៅស្តុក | |
+| Which supplier? | អ្នកផ្គត់ផ្គង់ណា? | |
+| A new supplier? | អ្នកផ្គត់ផ្គង់ថ្មី? | |
+| Their agent comes on | ភ្នាក់ងាររបស់គេមកថ្ងៃ | |
+| Add supplier | បន្ថែមអ្នកផ្គត់ផ្គង់ | |
+| Lines on the invoice | បន្ទាត់លើវិក្កយបត្រ | |
+| as written | ដូចដែលបានសរសេរ | |
+| {n} case\|{n} cases | {n} កេស | |
+| {n} pack\|{n} packs | {n} កញ្ចប់ | |
+| {n} single | {n} រាយ | |
+| ${money} each | ${money} មួយ | |
+| expires {date} | ផុតកំណត់ {date} | |
+| free | ឥតគិតថ្លៃ | |
+| skipped | បានរំលង | |
+| into stock | ចូលស្តុក | |
+| Is it one you have? | តើវាជាទំនិញដែលអ្នកមានហើយឬ? | |
+| Not in your products yet? Add it | មិនទាន់ជាទំនិញរបស់អ្នក? បន្ថែមវា | |
+| Name | ឈ្មោះ | |
+| How many in one {unit}? | មួយ{unit}មានប៉ុន្មាន? | |
+| {n} in one {unit} | {n} ក្នុងមួយ{unit} | |
+| from {name} | ពី {name} | |
+| Add as new | បន្ថែមជាទំនិញថ្មី | |
+| Another product | ទំនិញផ្សេង | |
+| Something else… | អ្វីផ្សេងទៀត… | |
+| Skip this line | រំលងបន្ទាត់នេះ | |
+| known from earlier deliveries | ស្គាល់ពីទំនិញចូលមុនៗ | |
+| matched when reading | ផ្គូផ្គងពេលអាន | |
+| you chose it | អ្នកបានជ្រើស | |
+| No lines yet. | មិនទាន់មានបន្ទាត់។ | |
+| Correct: add +{n} to stock | ត្រឹមត្រូវ៖ បញ្ចូល +{n} ទៅស្តុក | |
+| Add, pick or skip the open line first.\|Add, pick or skip the {n} open lines first. | បន្ថែម ជ្រើស ឬរំលងបន្ទាត់ {n} ដែលនៅសល់សិន។ | |
+| Discard this delivery? Nothing will be added to stock. | បោះបង់ទំនិញចូលនេះ? គ្មានអ្វីនឹងបញ្ចូលស្តុកទេ។ | |
+| Discard | បោះបង់ | |
+| Saving the products… | កំពុងរក្សាទុកទំនិញ… | |
+| Old invoices add their products, prices and supplier without adding stock. | វិក្កយបត្រចាស់បន្ថែមទំនិញ តម្លៃ និងអ្នកផ្គត់ផ្គង់ ដោយមិនបញ្ចូលស្តុក។ | |
+| Only add the products: this is an old invoice | បញ្ចូលតែទំនិញ៖ នេះជាវិក្កយបត្រចាស់ | |
+| Free stock that isn't on the invoice | ស្តុកឥតគិតថ្លៃដែលមិនមានលើវិក្កយបត្រ | |
+| "Buy 10, get 1 free" bonuses still belong in stock. | ទំនិញថែម «ទិញ ១០ ថែម ១» ក៏ត្រូវចូលស្តុកដែរ។ | |
+| Add free stock | បន្ថែមស្តុកឥតគិតថ្លៃ | |
+| Tap it to see it full size. | ចុចលើវាដើម្បីមើលទំហំពេញ។ | |
+| Typed in, no photo. | វាយបញ្ចូល គ្មានរូបថត។ | |
+| What the owner sees in Telegram | អ្វីដែលម្ចាស់ហាងឃើញក្នុង Telegram | |
+
+## The shelf check
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Walk the shop once, place by place. Telegram sends this list every week too. | ដើរពិនិត្យហាងម្តង តាមកន្លែងនីមួយៗ។ Telegram ក៏ផ្ញើបញ្ជីនេះរៀងរាល់សប្តាហ៍ដែរ។ | |
+| to take off | ត្រូវយកចេញ | |
+| to put in front | ត្រូវដាក់ខាងមុខ | |
+| expires within {n} days | ផុតកំណត់ក្នុង {n} ថ្ងៃ | |
+| discount, bundle or return | បញ្ចុះតម្លៃ លក់ជាកញ្ចប់ ឬប្រគល់វិញ | |
+| Walk it on the stock map | ដើរពិនិត្យតាមផែនទីស្តុក | |
+| Nothing expires in the next {n} days | គ្មានអ្វីផុតកំណត់ក្នុង {n} ថ្ងៃខាងមុខ | |
+| {n} product has expiry dates on record.\|{n} products have expiry dates on record. | ទំនិញ {n} មុខមានកាលបរិច្ឆេទផុតកំណត់ក្នុងកំណត់ត្រា។ | |
+| No expiry dates yet | មិនទាន់មានកាលបរិច្ឆេទផុតកំណត់ | |
+| They come from invoices, from a photo of the date when stock comes in, or typed on a product page. | វាមកពីវិក្កយបត្រ ពីរូបថតកាលបរិច្ឆេទពេលទំនិញចូល ឬវាយលើទំព័រទំនិញ។ | |
+| Stock in with dates | បញ្ចូលស្តុកជាមួយកាលបរិច្ឆេទ | |
+| No place set | មិនទាន់កំណត់កន្លែង | |
+| {n} day ago\|{n} days ago | {n} ថ្ងៃមុន | |
+| in {n} day\|in {n} days | ក្នុង {n} ថ្ងៃទៀត | |
+| Expired: take it off | ផុតកំណត់៖ យកចេញ | |
+| Put it in front | ដាក់នៅខាងមុខ | |
+| At the speed it sells, it won't be gone by then: discount it, sell it in a bundle, or send it back with the agent. | តាមល្បឿនលក់ វានឹងមិនអស់ទាន់ទេ៖ បញ្ចុះតម្លៃ លក់ជាកញ្ចប់ ឬប្រគល់ឲ្យភ្នាក់ងារវិញ។ | |
+| Moved, or the date is wrong? | បានផ្លាស់ទី ឬកាលបរិច្ឆេទខុស? | |
+| Moved | បានផ្លាស់ទី | |
+| Fix the date | កែកាលបរិច្ឆេទ | |
+| Where did it come from? | វាមកពីណា? | |
+| Stock that no delivery or invoice brought in: a delivery without paperwork, a market run, or goods from somewhere else. Copies of a brand can look exactly like the real thing, so the paperwork is the check. | ស្តុកដែលគ្មានទំនិញចូល ឬវិក្កយបត្រណាមួយនាំមក៖ ទំនិញចូលគ្មានឯកសារ ការទិញពីផ្សារ ឬទំនិញពីកន្លែងផ្សេង។ ទំនិញក្លែងក្លាយអាចមើលទៅដូចទំនិញពិតទាំងស្រុង ដូច្នេះឯកសារគឺជាការពិនិត្យ។ | |
+| Sold {n} in the last 4 weeks that no delivery brought in | បានលក់ {n} ក្នុង ៤ សប្តាហ៍ចុងក្រោយ ដែលគ្មានទំនិញចូលណាមួយនាំមក | |
+| a count later found {n} on the shelf | ការរាប់ក្រោយមកឃើញ {n} នៅលើធ្នើ | |
+| {n} still not covered by any stock | {n} នៅតែគ្មានស្តុកណាមួយគ្រប | |
+| The pack says lot {found}, but the invoice says {expected}. Ask the supplier whether they sent that lot. | កញ្ចប់សរសេរឡូត៍ {found} តែវិក្កយបត្រសរសេរ {expected}។ សួរអ្នកផ្គត់ផ្គង់ថាតើគេបានផ្ញើឡូត៍នោះឬទេ។ | |
+| See the invoice | មើលវិក្កយបត្រ | |
+| Checked: it's fine | បានពិនិត្យ៖ មិនអីទេ | |
+| Places in the shop | កន្លែងក្នុងហាង | |
+| Your places | កន្លែងរបស់អ្នក | |
+| In walking order. New stock goes where its product lives. | តាមលំដាប់ដើរ។ ស្តុកថ្មីដាក់នៅកន្លែងរបស់ទំនិញនោះ។ | |
+| Place name | ឈ្មោះកន្លែង | |
+| Rename | ប្តូរឈ្មោះ | |
+| Remove {name}? Products that live there will have no place. | លុប {name}? ទំនិញដែលនៅទីនោះនឹងគ្មានកន្លែង។ | |
+| Remove {name} | លុប {name} | |
+| Fridge, Shelf A, Drawer 4… | ទូទឹកកក ធ្នើ A ថត ៤… | |
+| New place | កន្លែងថ្មី | |
+| Add | បន្ថែម | |
+| Add the usual places: {names} | បន្ថែមកន្លែងធម្មតា៖ {names} | |
+| Where each product lives | ទំនិញនីមួយៗនៅឯណា | |
+| Products without a place are at the top. | ទំនិញដែលគ្មានកន្លែង នៅខាងលើគេ។ | |
+| Name your places first | ដាក់ឈ្មោះកន្លែងសិន | |
+| Then pick where each product lives. | បន្ទាប់មកជ្រើសកន្លែងសម្រាប់ទំនិញនីមួយៗ។ | |
+
+## Sales and the checks
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| What the counter camera saw, and what it wasn't sure about. | អ្វីដែលកាមេរ៉ាតុលក់បានឃើញ និងអ្វីដែលវាមិនប្រាកដ។ | |
+| The camera set aside {n} thing today as clutter or background.\|The camera set aside {n} things today as clutter or background. | ថ្ងៃនេះកាមេរ៉ាបានទុកមួយឡែក {n} ដោយគិតថាជារបស់រាយប៉ាយ ឬផ្ទៃខាងក្រោយ។ | |
+| Nothing is lost: if one was a sale, say so in the camera log. | គ្មានអ្វីបាត់ទេ៖ បើមួយណាជាការលក់ ប្រាប់ក្នុងកំណត់ត្រាកាមេរ៉ា។ | |
+| No sales yet today | ថ្ងៃនេះមិនទាន់មានការលក់ | |
+| {n}% automatic | {n}% ដោយស្វ័យប្រវត្តិ | |
+| This week {n} sold | សប្តាហ៍នេះលក់ {n} | |
+| vs last week | ធៀបនឹងសប្តាហ៍មុន | |
+| Sales per hour on a usual day, last 4 weeks | ការលក់ក្នុងមួយម៉ោង នៅថ្ងៃធម្មតា ៤ សប្តាហ៍ចុងក្រោយ | |
+| Busiest around {hour}. Restock and plan breaks before then. | មមាញឹកបំផុតប្រហែល {hour}។ បំពេញស្តុក និងគ្រោងសម្រាកមុនពេលនោះ។ | |
+| Not enough sales yet | មិនទាន់មានការលក់គ្រប់គ្រាន់ | |
+| The busy hours show once the camera has recorded a few days of sales. | ម៉ោងមមាញឹកនឹងបង្ហាញ ពេលកាមេរ៉ាកត់ត្រាការលក់បានពីរបីថ្ងៃ។ | |
+| Latest sales | ការលក់ចុងក្រោយ | |
+| No camera sales yet | មិនទាន់មានការលក់ពីកាមេរ៉ា | |
+| Sales appear here as the counter camera records them. | ការលក់បង្ហាញនៅទីនេះ ពេលកាមេរ៉ាតុលក់កត់ត្រាវា។ | |
+| automatic | ស្វ័យប្រវត្តិ | |
+| waiting for a check | រង់ចាំការពិនិត្យ | |
+| checked | បានពិនិត្យ | |
+| best guess | ការទាយល្អបំផុត | |
+| every sale, and fix any | ការលក់ទាំងអស់ និងកែបាន | |
+| How the camera is doing | កាមេរ៉ាដំណើរការយ៉ាងណា | |
+| Right without help | ត្រូវដោយមិនបាច់ជួយ | |
+| last 7 days | ៧ ថ្ងៃចុងក្រោយ | |
+| Your taps a day | ចំនួនចុចរបស់អ្នកក្នុងមួយថ្ងៃ | |
+| keep under 10 | ឲ្យតិចជាង ១០ | |
+| Order advice followed | បានធ្វើតាមការណែនាំបញ្ជាទិញ | |
+| In this photo (tap one to take it off): | ក្នុងរូបថតនេះ (ចុចមួយដើម្បីដកចេញ)៖ | |
+| Record them | កត់ត្រាវា | |
+| Check {n} item\|Check {n} items | ពិនិត្យ {n} មុខ | |
+| The camera wasn't sure. The same questions go to Telegram: answer in either place. | កាមេរ៉ាមិនប្រាកដ។ សំណួរដូចគ្នាក៏ផ្ញើទៅ Telegram ដែរ៖ ឆ្លើយនៅកន្លែងណាក៏បាន។ | |
+| All correct | ត្រូវទាំងអស់ | |
+| {n} need you to pick below | {n} ត្រូវការឲ្យអ្នកជ្រើសខាងក្រោម | |
+| this item | ទំនិញនេះ | |
+| The item on the counter | ទំនិញនៅលើតុលក់ | |
+| Sale at {time} | លក់ម៉ោង {time} | |
+| which medicine? | ថ្នាំអ្វី? | |
+| count to check | រាប់ដើម្បីពិនិត្យ | |
+| check both | ពិនិត្យទាំងពីរ | |
+| fairly sure | ប្រាកដល្មម | |
+| not sure | មិនប្រាកដ | |
+| One fewer | ដកមួយ | |
+| One more | បន្ថែមមួយ | |
+| The label reads “{text}”, not clear enough to decide alone | ស្លាកសរសេរថា “{text}” មិនច្បាស់គ្រប់គ្រាន់ដើម្បីសម្រេចដោយខ្លួនឯង | |
+| Sold loose: | លក់រាយ៖ | |
+| loose tablets: which medicine? | គ្រាប់ថ្នាំរាយ៖ ថ្នាំអ្វី? | |
+| Left: the box beside the tray. Right: the tablets on it. | ឆ្វេង៖ ប្រអប់នៅក្បែរថាស។ ស្តាំ៖ គ្រាប់ថ្នាំនៅលើវា។ | |
+| No box was put beside the tray, so the camera can't tell which medicine. | គ្មានប្រអប់ដាក់ក្បែរថាសទេ ដូច្នេះកាមេរ៉ាមិនដឹងថាជាថ្នាំអ្វី។ | |
+| Is this | តើនេះជា | |
+| What is this item? | តើនេះជាទំនិញអ្វី? | |
+| It looked like clutter to the camera. If it's a product, say which: the camera learns from your answer either way. | កាមេរ៉ាគិតថាវាជារបស់រាយប៉ាយ។ បើវាជាទំនិញ ប្រាប់ថាមួយណា៖ កាមេរ៉ារៀនពីចម្លើយរបស់អ្នកទោះយ៉ាងណាក៏ដោយ។ | |
+| It looks a lot like the mat itself (a shadow, a paper that moved?). If so, tap Not a sale. | វាមើលទៅដូចកម្រាលខ្លាំងណាស់ (ស្រមោល ឬក្រដាសដែលរំកិល?)។ បើដូច្នោះ ចុច «មិនមែនការលក់»។ | |
+| It looks like this, but it isn't the size this product usually is on the mat. Another size of it? | វាមើលទៅដូចទំនិញនេះ តែទំហំមិនដូចធម្មតានៅលើកម្រាលទេ។ ទំហំផ្សេងរបស់វាឬ? | |
+| The camera mixes this up with a look-alike. Check the label: your answer teaches it the difference. | កាមេរ៉ាច្រឡំវាជាមួយទំនិញស្រដៀងគ្នា។ ពិនិត្យស្លាក៖ ចម្លើយរបស់អ្នកបង្រៀនវាពីភាពខុសគ្នា។ | |
+| The package reads | កញ្ចប់សរសេរថា | |
+| not in your products yet | មិនទាន់ជាទំនិញរបស់អ្នក | |
+| Add {name} | បន្ថែម {name} | |
+| Yes | បាទ/ចាស | |
+| No, it's {name} | ទេ វាជា {name} | |
+| It's {name} | វាជា {name} | |
+| Not a sale | មិនមែនការលក់ | |
+| Several items | ទំនិញច្រើនមុខ | |
+| Not in the list | មិនមានក្នុងបញ្ជី | |
+| Not in your products yet? Name it: brand, product and size | មិនទាន់ជាទំនិញរបស់អ្នក? ដាក់ឈ្មោះ៖ ម៉ាក ទំនិញ និងទំហំ | |
+| e.g. Oishi green tea honey lemon 380ml | ឧ. Oishi តែបៃតង ទឹកឃ្មុំក្រូចឆ្មា 380ml | |
+| Add it | បន្ថែមវា | |
+| The sale is recorded and the camera learns it from this photo. Supplier and price can wait. | ការលក់ត្រូវបានកត់ត្រា ហើយកាមេរ៉ារៀនវាពីរូបថតនេះ។ អ្នកផ្គត់ផ្គង់ និងតម្លៃ អាចធ្វើពេលក្រោយ។ | |
+| Not now, ask me later | មិនមែនឥឡូវ សួរខ្ញុំពេលក្រោយ | |
+| Nothing to check. Items the camera is sure about are recorded by themselves. | គ្មានអ្វីត្រូវពិនិត្យ។ ទំនិញដែលកាមេរ៉ាប្រាកដ ត្រូវបានកត់ត្រាដោយខ្លួនឯង។ | |
+| New products to name | ទំនិញថ្មីត្រូវដាក់ឈ្មោះ | |
+| Sold, but not in your products yet. Name each one when you have a minute: the camera learns it, and its sales so far are kept. | បានលក់ តែមិនទាន់ជាទំនិញរបស់អ្នក។ ដាក់ឈ្មោះម្តងមួយពេលទំនេរ៖ កាមេរ៉ារៀនវា ហើយការលក់កន្លងមករបស់វាត្រូវបានរក្សាទុក។ | |
+| The item sold {when} | ទំនិញដែលលក់ {when} | |
+| Sold {when} | លក់ {when} | |
+| Its name and size | ឈ្មោះ និងទំហំរបស់វា | |
+| Product name | ឈ្មោះទំនិញ | |
+| It's one I have | វាជាទំនិញដែលខ្ញុំមាន | |
+| waiting above | កំពុងរង់ចាំខាងលើ | |
+| all caught up | រួចរាល់ទាំងអស់ | |
+| New product: {name} | ទំនិញថ្មី៖ {name} | |
+| Saved to name later | រក្សាទុកដើម្បីដាក់ឈ្មោះពេលក្រោយ | |
+| {n} item recorded as guessed\|{n} items recorded as guessed | បានកត់ត្រា {n} មុខតាមការទាយ | |
+| Couldn't change the number. Check the Wi-Fi. | មិនអាចប្តូរចំនួនបានទេ។ ពិនិត្យ Wi-Fi។ | |
+| Record {n} item\|Record {n} items | កត់ត្រា {n} មុខ | |
+| What's in this photo? Pick each one | មានអ្វីខ្លះក្នុងរូបថតនេះ? ជ្រើសម្តងមួយ | |
+| {n} items from one photo | {n} មុខពីរូបថតតែមួយ | |
+| Changed | បានប្តូរ | |
+
+## Products
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Add product | បន្ថែមទំនិញ | |
+| Count everything | រាប់ទាំងអស់ | |
+| Edit in Excel | កែក្នុង Excel | |
+| {n} product needs photos\|{n} products need photos | ទំនិញ {n} មុខត្រូវការរូបថត | |
+| The counter camera recognises a product after {n} photos of it. | កាមេរ៉ាតុលក់ស្គាល់ទំនិញមួយ ពេលមានរូបថតវា {n}។ | |
+| Count what's on the shelf | រាប់អ្វីដែលនៅលើធ្នើ | |
+| Type the number you count. Leave a box empty to keep its number. | វាយចំនួនដែលអ្នករាប់។ ទុកប្រអប់ទទេ ដើម្បីរក្សាចំនួនដដែល។ | |
+| Saving the counts… | កំពុងរក្សាទុកការរាប់… | |
+| now {n} | ឥឡូវ {n} | |
+| not counted yet | មិនទាន់រាប់ | |
+| Save counts | រក្សាទុកការរាប់ | |
+| Needs photos | ត្រូវការរូបថត | |
+| New from sales and invoices | ថ្មីពីការលក់ និងវិក្កយបត្រ | |
+| Supplier | អ្នកផ្គត់ផ្គង់ | |
+| All suppliers | អ្នកផ្គត់ផ្គង់ទាំងអស់ | |
+| No products yet | មិនទាន់មានទំនិញ | |
+| Fastest: photograph a few supplier invoices on Deliveries. Every line becomes a product in one tap. | លឿនបំផុត៖ ថតវិក្កយបត្រអ្នកផ្គត់ផ្គង់ពីរបីសន្លឹកនៅ «ទំនិញចូល»។ បន្ទាត់នីមួយៗក្លាយជាទំនិញដោយចុចតែម្តង។ | |
+| Add your first product | បន្ថែមទំនិញដំបូងរបស់អ្នក | |
+| from a sale | ពីការលក់ | |
+| from an invoice | ពីវិក្កយបត្រ | |
+| from stock in | ពីការបញ្ចូលស្តុក | |
+| from a spreadsheet | ពីឯកសារ Excel | |
+| from a shelf | ពីធ្នើ | |
+| added | បានបន្ថែម | |
+| Phone | ទូរស័ព្ទ | |
+| Cash | លុយ | |
+| Calculator | ម៉ាស៊ីនគិតលេខ | |
+| Plastic bag | ថង់ប្លាស្ទិក | |
+| Hand | ដៃ | |
+| Something else | អ្វីផ្សេងទៀត | |
+| no supplier | គ្មានអ្នកផ្គត់ផ្គង់ | |
+| {box} of {n} {unit} | {box} {n} {unit} | |
+| ${money} per {unit} | ${money} ក្នុងមួយ{unit} | |
+| case of {n} | មួយកេស {n} | |
+| {n} photos | រូបថត {n} | |
+| {n} of {m} photos: add more | រូបថត {n} នៃ {m}៖ ថតបន្ថែម | |
+| recount | រាប់ឡើងវិញ | |
+| Look-alikes the camera mixes up | ទំនិញស្រដៀងគ្នាដែលកាមេរ៉ាច្រឡំ | |
+| When it sees one of these it asks you, unless it is clearly sure. To teach it the difference, take a few photos of the side where they differ: the size, flavour or strength printed on the pack. | ពេលវាឃើញទំនិញមួយក្នុងចំណោមនេះ វាសួរអ្នក លុះត្រាតែវាប្រាកដច្បាស់។ ដើម្បីបង្រៀនវាពីភាពខុសគ្នា ថតរូបពីរបីសន្លឹកនៃផ្នែកដែលខុសគ្នា៖ ទំហំ រសជាតិ ឬកម្រិតថ្នាំដែលបោះពុម្ពលើកញ្ចប់។ | |
+| and | និង | |
+| {n} photo mixed up\|{n} photos mixed up | រូបថត {n} ច្រឡំ | |
+| Test them | តេស្តវា | |
+| Suppliers and their visit days | អ្នកផ្គត់ផ្គង់ និងថ្ងៃមករបស់គេ | |
+| Order lists are sent the evening before each visit. | បញ្ជីបញ្ជាទិញត្រូវបានផ្ញើនៅល្ងាចមុនថ្ងៃមកនីមួយៗ។ | |
+| Supplier name | ឈ្មោះអ្នកផ្គត់ផ្គង់ | |
+| Visit day | ថ្ងៃមក | |
+| min $ | អប្បបរមា $ | |
+| Smallest order, in dollars | ការបញ្ជាទិញតិចបំផុត ជាដុល្លារ | |
+| New supplier, e.g. the bread agent… | អ្នកផ្គត់ផ្គង់ថ្មី ឧ. ភ្នាក់ងារនំបុ័ង… | |
+| New supplier name | ឈ្មោះអ្នកផ្គត់ផ្គង់ថ្មី | |
+| Things the camera should ignore | របស់ដែលកាមេរ៉ាមិនត្រូវរាប់ | |
+| Take a few photos of each, so they never count as sales. | ថតរូបនីមួយៗពីរបីសន្លឹក ដើម្បីកុំឲ្យវារាប់ជាការលក់។ | |
+| Monday | ថ្ងៃច័ន្ទ | |
+| Tuesday | ថ្ងៃអង្គារ | |
+| Wednesday | ថ្ងៃពុធ | |
+| Thursday | ថ្ងៃព្រហស្បតិ៍ | |
+| Friday | ថ្ងៃសុក្រ | |
+| Saturday | ថ្ងៃសៅរ៍ | |
+| Sunday | ថ្ងៃអាទិត្យ | |
+
+## The pilot report
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Empty-shelf days on must-have items | ថ្ងៃធ្នើទទេ សម្រាប់ទំនិញត្រូវតែមាន | |
+| Dead stock (no sale in 45+ days) | ស្តុកជាប់គាំង (មិនបានលក់ ៤៥ ថ្ងៃ ឡើងទៅ) | |
+| Owner taps per day | ម្ចាស់ហាងចុចក្នុងមួយថ្ងៃ | |
+| Camera right without help | កាមេរ៉ាត្រូវដោយមិនបាច់ជួយ | |
+| Empty-shelf days, all products | ថ្ងៃធ្នើទទេ ទំនិញទាំងអស់ | |
+| Units sold | ចំនួនលក់ | |
+| Days the owner checked in | ថ្ងៃដែលម្ចាស់ហាងបានចូលមើល | |
+| Lower is better | កាន់តែទាប កាន់តែល្អ | |
+| Higher is better | កាន់តែខ្ពស់ កាន់តែល្អ | |
+| Before (weeks 1 to {n}, watching only) and now (the last 2 full weeks). Day 0 was {date}. | មុន (សប្តាហ៍ទី 1 ដល់ {n} គ្រាន់តែមើល) និងឥឡូវ (2 សប្តាហ៍ពេញចុងក្រោយ)។ ថ្ងៃទី 0 គឺ {date}។ | |
+| Nothing to report yet | មិនទាន់មានអ្វីរាយការណ៍ | |
+| No stock has been recorded. Start with the day-0 count on the Products page. | មិនទាន់មានស្តុកកត់ត្រាទេ។ ចាប់ផ្តើមដោយការរាប់ថ្ងៃទី ០ នៅទំព័រទំនិញ។ | |
+| Go to Products | ទៅទំព័រទំនិញ | |
+| Print or save as PDF | បោះពុម្ព ឬរក្សាទុកជា PDF | |
+| Includes simulated history. | រួមបញ្ចូលប្រវត្តិក្លែងធ្វើ។ | |
+| These weeks come from scripts/simulate_history.py, which keeps ordering by feeling throughout. They are not pilot results. | សប្តាហ៍ទាំងនេះមកពី scripts/simulate_history.py ដែលបញ្ជាទិញតាមអារម្មណ៍ជានិច្ច។ វាមិនមែនជាលទ្ធផលសាកល្បងទេ។ | |
+| Before and after needs {n} watching weeks and at least 2 full pilot weeks. | ការប្រៀបធៀបមុន និងក្រោយ ត្រូវការ {n} សប្តាហ៍មើល និងយ៉ាងហោចណាស់ 2 សប្តាហ៍សាកល្បងពេញ។ | |
+| The charts below fill in as the weeks pass. | តារាងខាងក្រោមនឹងបំពេញ ពេលសប្តាហ៍កន្លងទៅ។ | |
+| Before and now | មុន និងឥឡូវ | |
+| now, was {value} in weeks 1 to {n} | ឥឡូវ មុននេះ {value} ក្នុងសប្តាហ៍ទី 1 ដល់ {n} | |
+| {n}% lower | ទាបជាង {n}% | |
+| {n}% higher | ខ្ពស់ជាង {n}% | |
+| down from zero | ធ្លាក់ពីសូន្យ | |
+| up from zero | ឡើងពីសូន្យ | |
+| no change | គ្មានការប្រែប្រួល | |
+| Week by week | សប្តាហ៍ម្តងៗ | |
+| Weeks 1 to {n}: watching only (before) | សប្តាហ៍ទី 1 ដល់ {n}៖ គ្រាន់តែមើល (មុន) | |
+| Pilot weeks: order advice on | សប្តាហ៍សាកល្បង៖ បើកការណែនាំបញ្ជាទិញ | |
+| This week, so far | សប្តាហ៍នេះ រហូតមកដល់ពេលនេះ | |
+| Show the numbers | បង្ហាញលេខ | |
+| Week of | សប្តាហ៍ចាប់ពី | |
+| Phase | ដំណាក់កាល | |
+| so far | រហូតមកដល់ពេលនេះ | |
+| watching | មើល | |
+| pilot | សាកល្បង | |
+| Empty-shelf days | ថ្ងៃធ្នើទទេ | |
+| A product that was stocked before, with nothing on the shelf all day and no sale. | ទំនិញដែលធ្លាប់មានស្តុក តែគ្មាននៅលើធ្នើពេញមួយថ្ងៃ ហើយគ្មានការលក់។ | |
+| Dead stock | ស្តុកជាប់គាំង | |
+| Dollars at cost of products with no sale in {n}+ days, on the week's last day. | ដុល្លារតាមតម្លៃដើម នៃទំនិញដែលមិនបានលក់ {n} ថ្ងៃ ឡើងទៅ នៅថ្ងៃចុងក្រោយនៃសប្តាហ៍។ | |
+| Advice followed | ធ្វើតាមការណែនាំ | |
+| Order-list lines whose next delivery matched the advice (within one case), or skips that stayed skipped. | បន្ទាត់បញ្ជីបញ្ជាទិញ ដែលទំនិញចូលបន្ទាប់ត្រូវនឹងការណែនាំ (ខុសមិនលើសមួយកេស) ឬទំនិញដែលណែនាំកុំទិញ ហើយមិនបានទិញមែន។ | |
+| Recorded automatically, plus confirmed as guessed, out of all settled camera items. | កត់ត្រាដោយស្វ័យប្រវត្តិ បូកនឹងបានបញ្ជាក់តាមការទាយ ក្នុងចំណោមទំនិញកាមេរ៉ាដែលបានសម្រេចទាំងអស់។ | |
+
+## The camera log
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Every sale the camera saw. Anything wrong can be fixed here: the stock and the camera are both corrected. | ការលក់ទាំងអស់ដែលកាមេរ៉ាបានឃើញ។ អ្វីដែលខុសអាចកែនៅទីនេះ៖ ស្តុក និងកាមេរ៉ា ត្រូវបានកែទាំងពីរ។ | |
+| The day before | ថ្ងៃមុន | |
+| The day after | ថ្ងៃបន្ទាប់ | |
+| Day | ថ្ងៃ | |
+| Recorded automatically | កត់ត្រាដោយស្វ័យប្រវត្តិ | |
+| Checked | បានពិនិត្យ | |
+| Waiting | កំពុងរង់ចាំ | |
+| Set aside | ទុកមួយឡែក | |
+| Nothing on this day | គ្មានអ្វីនៅថ្ងៃនេះ | |
+| uploaded photo | រូបថតដែលបានផ្ទុកឡើង | |
+| camera | កាមេរ៉ា | |
+| Unknown item | ទំនិញមិនស្គាល់ | |
+| What the camera saw | អ្វីដែលកាមេរ៉ាបានឃើញ | |
+| loose | រាយ | |
+| {n}% sure | ប្រាកដ {n}% | |
+| Recorded as {name}. | បានកត់ត្រាជា {name}។ | |
+| Fix | កែ | |
+| Answer | ឆ្លើយ | |
+| nothing sold | គ្មានការលក់ | |
+| What the camera set aside | អ្វីដែលកាមេរ៉ាបានទុកមួយឡែក | |
+| Most like {name} ({n}%) | ស្រដៀង {name} ជាងគេ ({n}%) | |
+| {n}% sure it wasn't a sale | ប្រាកដ {n}% ថាមិនមែនការលក់ | |
+| recorded as a sale | បានកត់ត្រាជាការលក់ | |
+| The camera set this aside. If it was a sale, say what it was: the sale is recorded when it happened, and the camera learns. | កាមេរ៉ាបានទុករបស់នេះមួយឡែក។ បើវាជាការលក់ ប្រាប់ថាវាជាអ្វី៖ ការលក់ត្រូវបានកត់ត្រានៅពេលដែលវាកើតឡើង ហើយកាមេរ៉ារៀន។ | |
+| It was a sale | វាជាការលក់ | |
+| Recorded automatically: the label was read | កត់ត្រាដោយស្វ័យប្រវត្តិ៖ បានអានស្លាក | |
+| Recorded automatically: barcode | កត់ត្រាដោយស្វ័យប្រវត្តិ៖ បាកូដ | |
+| Checked: the camera was right | បានពិនិត្យ៖ កាមេរ៉ាត្រូវ | |
+| Corrected | បានកែ | |
+| the camera said {name} | កាមេរ៉ាថា {name} | |
+| the camera didn't know it | កាមេរ៉ាមិនស្គាល់វា | |
+| Nobody checked: recorded as the camera's guess at the end of the day | គ្មាននរណាពិនិត្យ៖ កត់ត្រាតាមការទាយរបស់កាមេរ៉ានៅចុងថ្ងៃ | |
+| Not in your products yet: waiting for a name | មិនទាន់ជាទំនិញរបស់អ្នក៖ រង់ចាំឈ្មោះ | |
+| Waiting for your check | រង់ចាំការពិនិត្យរបស់អ្នក | |
+| phone | ទូរស័ព្ទ | |
+| cash | លុយ | |
+| calculator | ម៉ាស៊ីនគិតលេខ | |
+| plastic bag | ថង់ប្លាស្ទិក | |
+| hand | ដៃ | |
+| thing that isn't for sale | របស់ដែលមិនមែនសម្រាប់លក់ | |
+| Set aside: looks like a patch of mat you already said wasn't a sale | ទុកមួយឡែក៖ មើលទៅដូចផ្នែកនៃកម្រាល ដែលអ្នកធ្លាប់ថាមិនមែនការលក់ | |
+| Set aside: looks like a {thing} | ទុកមួយឡែក៖ មើលទៅដូច{thing} | |
+| What was it? | តើវាជាអ្វី? | |
+| It was: | វាជា៖ | |
+| Or a product that isn't in your list yet | ឬទំនិញដែលមិនទាន់មានក្នុងបញ្ជីរបស់អ្នក | |
+| Couldn't save it: | មិនអាចរក្សាទុកបាន៖ | |
+| Fix this sale | កែការលក់នេះ | |
+| It was a sale: what was it? | វាជាការលក់៖ តើវាជាអ្វី? | |
+
+## Page titles reached from More
+
+| English (key) | Khmer | OK? |
+|---|---|---|
+| Products | ទំនិញ | |
+| Stock in | ទំនិញចូល | |
+| Order lists | បញ្ជីបញ្ជាទិញ | |
+| Page not found | រកមិនឃើញទំព័រ | |
+| There's no page here | គ្មានទំព័រនៅទីនេះទេ | |
+
+## Units
+
+| English | Khmer | OK? |
+|---|---|---|
+| can | កំប៉ុង | |
+| bottle | ដប | |
+| box | ប្រអប់ | |
+| boxes | ប្រអប់ | |
+| pack | កញ្ចប់ | |
+| tin | កំប៉ុង | |
+| tube | បំពង់ | |
+| sachet | កញ្ចប់តូច | |
+| tablet | គ្រាប់ | |
+| capsule | គ្រាប់ | |
+| piece | ដុំ | |
+| bag | ថង់ | |
+| case | កេស | |
+| bar | ដុំ | |
+| cup | កែវ | |
+| jar | ពាង | |
+| unit | ឯកតា | |
+
+## Months and days
+
+មករា · កុម្ភៈ · មីនា · មេសា · ឧសភា · មិថុនា · កក្កដា · សីហា · កញ្ញា · តុលា · វិច្ឆិកា · ធ្នូ
+
+ច័ន្ទ · អង្គារ · ពុធ · ព្រហស្បតិ៍ · សុក្រ · សៅរ៍ · អាទិត្យ

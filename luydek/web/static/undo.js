@@ -74,7 +74,7 @@ window.LuyDek = window.LuyDek || {};
       document.body.appendChild(banner);
     }
     banner.querySelector("span").textContent =
-      `No connection — ${n} answer${n === 1 ? "" : "s"} saved on this phone, sent when the Wi-Fi is back`;
+      `No connection: ${n} answer${n === 1 ? "" : "s"} saved on this phone, sent when the Wi-Fi is back`;
     banner.classList.toggle("d-none", n === 0);
   }
 
@@ -138,7 +138,7 @@ window.LuyDek = window.LuyDek || {};
     catch (e) {
       console.error(e);
       if (a.failed) a.failed(e);
-      LuyDek.note("That couldn't be saved — it may have been answered already.");
+      LuyDek.note("That couldn't be saved. It may have been answered already.");
     }
   }
 

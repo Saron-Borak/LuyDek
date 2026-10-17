@@ -8,6 +8,8 @@ shop:
   # A Telegram user becomes a verifier by sending: /start 2468
   pin: "2468"
   default_lang: "km"
+  # the web pages, until a phone picks its own language
+  web_lang: km
   # Demo and install-team tools: send-now buttons, photo upload, pilot report, Telegram previews.
   # Turn off for a real pilot so the owner sees only what they need.
   team_tools: true

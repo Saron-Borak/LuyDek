@@ -21,6 +21,8 @@ class ShopCfg(BaseModel):
     currency: str = "USD"
     pin: str = "2468"
     default_lang: str = "km"
+    # The web pages' language until a phone picks its own (km or en). Shops set km in their config.
+    web_lang: str = "en"
     # Tools for the install team and demos: "send now" buttons, the photo upload box, the
     # pilot report and the Telegram previews. Owners see a calmer app without them.
     team_tools: bool = False

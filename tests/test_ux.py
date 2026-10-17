@@ -39,7 +39,7 @@ def test_all_correct_confirms_every_guess_and_leaves_the_rest(client, conn):
     pending(conn, "coke-330")
     pending(conn, "sprite-1500")
     pending(conn, "dumex-400", tier="low", guess=False)
-    page = client.get("/").text
+    page = client.get("/sales").text
     assert "All correct (<span data-all-n>2</span>)" in page and "1 need you to pick below" in page
     r = client.post("/items/confirm-all", follow_redirects=False)
     assert r.status_code == 303 and "Confirmed%202%20items" in r.headers["location"]
@@ -48,7 +48,7 @@ def test_all_correct_confirms_every_guess_and_leaves_the_rest(client, conn):
 
 
 def test_nothing_waiting_shows_all_clear(client):
-    page = client.get("/").text
+    page = client.get("/sales").text
     # Both are in the page so answering in place can switch between them; only one shows.
     assert 'class="all-clear mb-3 "' in page and 'class="card check-card mb-3 d-none"' in page
 
@@ -91,7 +91,7 @@ def test_pickers_list_best_sellers_first(client, conn):
     stock.record(conn, pid(conn, "coke-330"), -3, "sale")
     conn.commit()
     data = json.loads(re.search(r'<script type="application/json" id="picker-data">(.*?)</script>',
-                                client.get("/").text, re.S).group(1))
+                                client.get("/adjust").text, re.S).group(1))
     assert [i["label"] for i in data[:2]] == ["Sprite bottle 1.5L", "Coca-Cola can 330ml"]
     coke = [i for i in data if i["product"] == pid(conn, "coke-330")]
     assert [i["base"] for i in coke] == [True, False]              # the can, then the 6-pack

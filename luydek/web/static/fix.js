@@ -9,18 +9,19 @@
   const modal = bootstrap.Modal.getOrCreateInstance(sheet);
   const items = JSON.parse($("#picker-data").textContent);
   let target = null;
+  const T = (key) => (window.FIX_WORDS || {})[key] || key;   // the page's words, in its language
 
   async function send(fields) {
     const url = target.kind === "item" ? `/items/${target.id}/fix` : `/ignored/${target.id}/sale`;
     const data = new FormData();
     Object.entries(fields).forEach(([k, v]) => data.set(k, v));
     const status = $("#fix-status");
-    status.textContent = "Saving…";
+    status.textContent = T("Saving…");
     try {
       await LuyDek.post(url, data);
       location.reload();
     } catch (e) {
-      status.textContent = "Couldn't save it: " + e.message;
+      status.textContent = T("Couldn't save it:") + " " + e.message;
     }
   }
 
@@ -33,7 +34,7 @@
     const b = e.target.closest("[data-fix]");
     if (!b) return;
     target = { kind: b.dataset.fix, id: b.dataset.id };
-    $("#fix-title").textContent = target.kind === "item" ? "Fix this sale" : "It was a sale: what was it?";
+    $("#fix-title").textContent = target.kind === "item" ? T("Fix this sale") : T("It was a sale: what was it?");
     $("#fix-photo").src = b.dataset.photo || "";
     $("#fix-photo").classList.toggle("d-none", !b.dataset.photo);
     $("#fix-said").textContent = b.dataset.said || "";

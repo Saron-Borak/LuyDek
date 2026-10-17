@@ -54,17 +54,20 @@ def test_the_look_never_needs_the_internet(client):
     font = re.search(r'url\("(?:\./)?fonts/(bootstrap-icons\.woff2)', css).group(1)
     assert (WEB / "static/vendor/bootstrap-icons/fonts" / font).exists()
     app_css = (WEB / "static/app.css").read_text(encoding="utf-8")
-    fonts = re.findall(r'url\("([^"]+\.woff2)"\)', app_css)       # relative to /static/app.css
-    assert len(fonts) == 3                                          # Inter (2 ranges) and Kantumruy Pro for Khmer
+    fonts = re.findall(r'url\("([^"]+\.woff2?)"\)', app_css)      # relative to /static/app.css
+    assert len(fonts) == 4                                          # Geist, JetBrains Mono (2), Kantumruy Pro
     for woff in fonts:
         assert client.get(f"/static/{woff}").status_code == 200, woff
 
 
 def test_one_navigation_for_laptops_and_phones(client):
     page = client.get("/orders").text
-    assert page.count('href="/orders"') >= 3            # sidebar, phone menu, bottom bar
-    assert 'class="side-link active" href="/orders"' in page
-    assert 'aria-current="page"' in page
+    assert page.count('href="/orders"') == 2            # the laptop rail and the phone's tab bar: the same places
+    assert 'class="rail-link active" href="/orders"' in page and 'class="on" aria-current="page"' in page
+    for href in ('href="/"', 'href="/stock"'):
+        assert page.count(href) >= 2, href
+    assert 'href="/more"' in page                     # phones: More; laptops list its pages in the rail
+    assert 'data-open-sheet="what"' in page and '<dialog class="sheet" id="what"' in page   # the + asks what happened
 
 
 # --- clean product photos ------------------------------------------------------------------------
@@ -129,11 +132,11 @@ def test_today_shows_two_weeks_at_a_glance(client, conn):
     for day in (1, 2, 5):
         stock.record(conn, coke, -3, "sale", at=NOW - timedelta(days=day))
     conn.commit()
-    page = client.get("/").text
-    assert 'class="stat hero"' in page and "<polyline" in page          # the shop's line in the Sales tile
-    assert "Sold per day, last 14 days: 9 in all" in page               # coke's strip in the stock table
-    assert "Sold · 14 days" in page and "tips.js" in page
+    page = client.get("/sales").text
+    assert 'class="stat sales h-100"' in page and "<polyline" in page   # the shop's line in the Sales tile
+    assert "Units sold per day, last 14 days: 9" in page and "tips.js" in page
     assert "Not enough sales yet" in page                               # no camera sales: no busy hours yet
+    assert "9 sold" in client.get(f"/catalog/{coke}").text              # and each product's own chart
 
 
 def test_busy_hours_appear_after_a_few_sales(client, conn):
@@ -142,7 +145,7 @@ def test_busy_hours_appear_after_a_few_sales(client, conn):
         conn.execute("INSERT INTO transactions (started_at, source, status) VALUES (?, 'camera', 'auto')",
                      (clock.stamp(at),))
     conn.commit()
-    page = client.get("/").text
+    page = client.get("/sales").text
     assert "Sales by hour of day" in page and "Busiest around" in page
 
 
@@ -160,7 +163,7 @@ def test_slow_forms_show_what_is_happening(client):
 def test_empty_lists_invite_the_next_step(client):
     page = client.get("/invoices").text
     assert 'class="empty-state"' in page and "No deliveries yet" in page
-    page = client.get("/").text
+    page = client.get("/sales").text
     assert "No camera sales yet" in page and 'href="/counter" class="btn' in page
 
 

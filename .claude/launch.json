@@ -4,14 +4,39 @@
     {
       "name": "luydek",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "luydek", "--port", "8000"],
+      "runtimeArgs": [
+        "-m",
+        "luydek",
+        "--port",
+        "8000"
+      ],
       "port": 8000
     },
     {
       "name": "synthetic-shop",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "luydek", "--port", "8010", "--config", "configs/synthetic.yaml"],
+      "runtimeArgs": [
+        "-m",
+        "luydek",
+        "--port",
+        "8010",
+        "--config",
+        "configs/synthetic.yaml"
+      ],
       "port": 8010
+    },
+    {
+      "name": "demo-shop",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "luydek",
+        "--port",
+        "8030",
+        "--config",
+        "configs/demo.yaml"
+      ],
+      "port": 8030
     }
   ]
 }

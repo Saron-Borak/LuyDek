@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% set help_topic = 'words' %}
+{% block title %}{{ _("Stock") }}{% endblock %}
+{% block content %}
+{% set tags = {'out': "OUT", 'low': "LOW", 'expired': "PAST ITS DATE", 'expiring': "EXPIRES SOON", 'new': "NOT COUNTED", 'ok': "OK"} %}
+<header class="page-title">
+  <h1>{{ _("Stock") }}</h1>
+  <div class="sub">{{ _("{n} product|{n} products", n=counts.all) }} · ${{ '{:,.0f}'.format(totals.value) }} {{ _("at cost") }}</div>
+</header>
+
+<div class="search-box">
+  <i class="bi bi-search" aria-hidden="true"></i>
+  <input type="search" id="stock-search" placeholder="{{ _('Search a product…') }}" aria-label="{{ _('Search a product…') }}" autocomplete="off" enterkeyhint="search">
+</div>
+
+<div class="segmented" id="stock-filters" role="group" aria-label="{{ _('Stock') }}" data-default="{{ 'needs' if counts.needs else 'all' }}">
+  <button type="button" data-filter="needs">{{ _("Needs you") }} <span class="seg-n">{{ counts.needs }}</span></button>
+  <button type="button" data-filter="all">{{ _("All") }}</button>
+  <button type="button" data-filter="out">{{ _("Out") }}</button>
+  <button type="button" data-filter="expiring">{{ _("Expiring") }}</button>
+</div>
+
+<ul class="product-list" id="stock-list">
+{% for r in table %}
+  {% set st = r.shown %}
+  {% set expired_n = r.lots|selectattr('state', 'equalto', 'expired')|map(attribute='left')|sum %}
+  {% set dated = r.lots|selectattr('expiry')|list %}
+  <li data-name="{{ (r.name_en ~ ' ' ~ r.name_km)|lower }}" data-attention="{{ 1 if r.attention else 0 }}" data-shown="{{ st }}">
+    <a class="prow" href="/catalog/{{ r.id }}">
+      <span class="prow-pic">{% if photos.product.get(r.id) %}<img src="/thumb/{{ photos.product.get(r.id) }}.jpg" alt="" width="56" height="56" loading="lazy">{% else %}<i class="bi bi-image" aria-hidden="true"></i>{% endif %}</span>
+      <span class="prow-text">
+        <b class="row-link">{{ pname(r) }}</b>
+        {% set other = r.name_en if pname(r) != r.name_en else (r.name_km if r.name_km != r.name_en else '') %}
+        {% if other %}<span class="alt">{{ other }}</span>{% endif %}
+        <span class="tags"><span class="tag tag-{{ st }}">{{ _(tags[st]) }}</span>{% if r.is_critical %}<span class="tag tag-must">{{ _("MUST-HAVE") }}</span>{% endif %}</span>
+        <span class="why">
+          {%- if st == 'expired' -%}{{ _("{n} of {total} past its date|{n} of {total} past their date", n=expired_n, total=r.on_hand) }}
+          {%- elif st == 'low' and r.days_cover -%}{{ _("About {d} day left|About {d} days left", d='%.0f'|format(r.days_cover), count=r.days_cover|round|int) }}
+          {%- elif st == 'new' -%}{{ _("Never counted") }}{% if r.sold_uncounted is defined and r.sold_uncounted %} · {{ _("{n} sold", n=r.sold_uncounted) }}{% endif %}
+          {%- elif dated -%}{{ _("First date {date}", date=dated[0].expiry|day(True)) }}
+          {%- elif r.on_hand > 0 -%}{{ _("No dates yet") }}{%- endif -%}
+        </span>
+      </span>
+      <span class="prow-n">
+        <b>{% if not r.tracked %}–{% elif r.on_hand < 0 %}0{% else %}{{ r.on_hand }}{% endif %}</b>
+        <span>{{ (r.unit|plural(r.on_hand if r.on_hand > 0 else 2))|unit }}</span>
+      </span>
+    </a>
+  </li>
+{% endfor %}
+</ul>
+<div class="empty-state d-none" id="stock-empty">
+  <div class="ico"><i class="bi bi-search" aria-hidden="true"></i></div>
+  <div class="t">{{ _("Nothing matches.") }}</div>
+  <div class="small">{{ _("Try another name, or look in All.") }}</div>
+</div>
+
+<a class="link-row mt-4" href="/spreadsheet"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> {{ _("Count or edit in Excel") }} <i class="bi bi-chevron-right ms-auto" aria-hidden="true"></i></a>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Stock: search and four filters. The filter lives in the address (?show=…&q=…), so a list can be
+// bookmarked, shared or reloaded; ?focus=1 (the search icon in the top bar) puts the cursor in the box.
+(() => {
+  const rows = [...document.querySelectorAll("#stock-list > li")];
+  const search = document.getElementById("stock-search"), box = document.getElementById("stock-filters");
+  const DEFAULT = box.dataset.default;
+  let filter = DEFAULT;
+  const keep = {
+    needs: (r) => r.dataset.attention === "1",
+    all: () => true,
+    out: (r) => r.dataset.shown === "out",
+    expiring: (r) => r.dataset.shown === "expired" || r.dataset.shown === "expiring",
+  };
+  function apply() {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    for (const r of rows) {
+      // A search looks through every product, whatever filter is on.
+      const ok = q ? r.dataset.name.includes(q) : keep[filter](r);
+      r.classList.toggle("d-none", !ok);
+      shown += ok;
+    }
+    document.getElementById("stock-empty").classList.toggle("d-none", shown > 0);
+    const u = new URL(location.href);
+    for (const [k, v] of [["show", filter === DEFAULT ? "" : filter], ["q", search.value.trim()]]) {
+      if (v) u.searchParams.set(k, v); else u.searchParams.delete(k);
+    }
+    u.searchParams.delete("focus");
+    history.replaceState(null, "", u);
+  }
+  function setFilter(f) {
+    filter = keep[f] ? f : DEFAULT;
+    box.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.filter === filter)));
+    apply();
+  }
+  box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => setFilter(b.dataset.filter)));
+  search.addEventListener("input", apply);
+  const params = new URLSearchParams(location.search);
+  if (params.get("q")) search.value = params.get("q");
+  setFilter(params.get("show") || DEFAULT);
+  if (params.get("focus")) search.focus();
+})();
+</script>
+{% endblock %}

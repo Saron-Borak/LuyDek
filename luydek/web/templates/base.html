@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ lang_code }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#26215C">
+  <meta name="theme-color" content="#FFFFFF">
   <title>{% block title %}LuyDek{% endblock %} · {{ cfg.shop.name }}</title>
   <link rel="icon" href="{{ asset('brand/favicon.svg') }}" type="image/svg+xml">
   <link rel="alternate icon" href="/favicon.ico" sizes="any">
@@ -14,34 +14,29 @@
   <link rel="stylesheet" href="{{ asset('vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
   <link rel="stylesheet" href="{{ asset('app.css') }}">
 </head>
-<body>
-{% set nav = [
-  ('/', 'house', 'Today', ('dashboard',)),
-  ('/orders', 'cart3', 'Order lists', ('orders',)),
-  ('/map', 'map', 'Stock map', ('map',)),
+<body class="lang-{{ lang_code }}">
+<a class="skip-link" href="#main">{{ _("Skip to the page") }}</a>
+{#- Four places and one button. Home: what to do now. Stock: every product. Orders: what to buy from
+    each agent. More: everything else. The + asks "What happened?" and leads to the right form. -#}
+{% set stock_pages = ('stock', 'product', 'count', 'adjust', 'history') %}
+{% set tab = 'home' if active == 'dashboard' else ('stock' if active in stock_pages else ('orders' if active == 'orders' else 'more')) %}
+{% set more_links = [
+  ('/counter', 'webcam', 'Counter camera', ('counter',)),
   ('/shelf', 'calendar2-check', 'Shelf check', ('shelf',)),
-  ('/stock-in', 'box-arrow-in-down', 'Stock in', ('stock_in',)),
-  ('/invoices', 'truck', 'Deliveries', ('invoices', 'invoice')),
-  ('/catalog', 'box-seam', 'Products', ('catalog', 'enroll', 'product', 'product_new')),
-  ('/counter', 'camera-video', 'Counter camera', ('counter',)),
-  ('/log', 'journal-text', 'Camera log', ('log',)),
+  ('/map', 'map', 'Stock map', ('map',)),
+  ('/invoices', 'truck', 'Deliveries', ('invoices', 'invoice', 'stock_in')),
+  ('/spreadsheet', 'file-earmark-spreadsheet', 'Stock in Excel', ('spreadsheet',)),
+  ('/sales', 'receipt', 'Sales', ('sales', 'log')),
+  ('/catalog', 'tags', 'Products', ('catalog', 'enroll', 'product_new')),
   ('/setup', 'gear', 'Setup', ('setup',)),
-] + ([('/report', 'graph-up-arrow', 'Pilot report', ('report',)),
-       ('/accuracy', 'bullseye', 'Accuracy test', ('accuracy',))] if team else []) %}
-
-{% macro links() %}
-  {% for href, icon, label, keys in nav %}
-  <a class="side-link {{ 'active' if active in keys }}" href="{{ href }}"{% if active in keys %} aria-current="page"{% endif %}>
-    <i class="bi bi-{{ icon }}" aria-hidden="true"></i><span>{{ label }}</span>
-    {% if href == '/' %}<span class="badge rounded-pill text-bg-warning {{ 'd-none' if not pending_count }}" data-pending-badge>{{ pending_count }}</span>{% endif %}
-  </a>
-  {% endfor %}
-{% endmacro %}
+  ('/help', 'question-circle', 'Help', ('help',))] + ([
+  ('/report', 'graph-up-arrow', 'Pilot report', ('report',)),
+  ('/accuracy', 'bullseye', 'Accuracy test', ('accuracy',))] if team else []) %}
 
 {% macro demo_menu(up=False) %}
   {% if team %}
   <div class="dropdown {{ 'dropup' if up }}">
-    <button class="btn btn-sm btn-outline-light dropdown-toggle w-100" data-bs-toggle="dropdown"><i class="bi bi-play-circle" aria-hidden="true"></i> Demo</button>
+    <button type="button" class="btn btn-sm btn-outline-dark dropdown-toggle w-100" data-bs-toggle="dropdown"><i class="bi bi-play-circle" aria-hidden="true"></i> Demo</button>
     <div class="dropdown-menu p-2" style="min-width:17rem">
       {% if not bot %}<div class="small muted px-2 pb-2">Telegram bot is off: add <code>TELEGRAM_BOT_TOKEN</code> to <code>.env</code> and restart.</div>{% endif %}
       <form method="post" action="/actions/digest"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}><i class="bi bi-send" aria-hidden="true"></i> Send the check digest now</button></form>
@@ -62,51 +57,88 @@
   <span>{% if bot %}<span class="dot dot-on"></span>Telegram on{% else %}<span class="dot dot-off"></span>Telegram off{% endif %} · {{ cfg.shop.name }}</span>
 {% endmacro %}
 
-<div class="shell">
-  <!-- laptops: the sidebar -->
-  <aside class="sidebar d-none d-lg-flex" aria-label="Main">
-    <a class="brand" href="/"><img src="{{ asset('brand/logo.svg') }}" alt="" width="32" height="32">LuyDek <span class="km">លុយដេក</span></a>
-    {{ links() }}
-    <div class="side-foot">
+{% macro lang_switch() %}
+  <span class="lang-switch" role="group" aria-label="{{ _('Language') }}">
+    <a href="/lang/km?next={{ path|urlencode }}" class="{{ 'on' if lang_code == 'km' }}" lang="km" {% if lang_code == 'km' %}aria-current="true"{% endif %}>ខ្មែរ</a>
+    <a href="/lang/en?next={{ path|urlencode }}" class="{{ 'on' if lang_code == 'en' }}" lang="en" {% if lang_code == 'en' %}aria-current="true"{% endif %}>EN</a>
+  </span>
+{% endmacro %}
+
+<div class="app">
+  <!-- laptops: the same places as the phone's tabs, down the side -->
+  <aside class="rail d-none d-lg-flex" aria-label="Main">
+    <a class="brand" href="/"><img src="{{ asset('brand/logo.svg') }}" alt="" width="30" height="30">LuyDek <span class="km">លុយដេក</span></a>
+    <button type="button" class="btn btn-dark rail-what" data-open-sheet="what" aria-haspopup="dialog"><i class="bi bi-plus-lg" aria-hidden="true"></i> {{ _("What happened?") }}</button>
+    <nav class="rail-nav">
+      <a class="rail-link {{ 'active' if tab == 'home' }}" href="/" {% if tab == 'home' %}aria-current="page"{% endif %}><i class="bi bi-house" aria-hidden="true"></i><span>{{ _("Home") }}</span>
+        <span class="badge rounded-pill text-bg-warning ms-auto {{ 'd-none' if not pending_count }}" data-pending-badge>{{ pending_count }}</span></a>
+      <a class="rail-link {{ 'active' if tab == 'stock' }}" href="/stock" {% if tab == 'stock' %}aria-current="page"{% endif %}><i class="bi bi-box-seam" aria-hidden="true"></i><span>{{ _("Stock") }}</span></a>
+      <a class="rail-link {{ 'active' if tab == 'orders' }}" href="/orders" {% if tab == 'orders' %}aria-current="page"{% endif %}><i class="bi bi-cart3" aria-hidden="true"></i><span>{{ _("Orders") }}</span></a>
+      <div class="rail-group">{{ _("More") }}</div>
+      {% for href, icon, label, keys in more_links %}
+      <a class="rail-link small-link {{ 'active' if active in keys }}" href="{{ href }}" {% if active in keys %}aria-current="page"{% endif %}><i class="bi bi-{{ icon }}" aria-hidden="true"></i><span>{{ _(label) }}</span></a>
+      {% endfor %}
+    </nav>
+    <div class="rail-foot">
+      {{ lang_switch() }}
       {{ demo_menu(up=True) }}
       {{ status_line() }}
     </div>
   </aside>
 
-  <div class="main">
-    <!-- phones and tablets: a slim top bar, its menu folds out -->
-    <header class="topbar d-lg-none" id="top">
-      <div class="d-flex align-items-center justify-content-between">
-        <a class="brand" href="/"><img src="{{ asset('brand/logo.svg') }}" alt="" width="28" height="28">LuyDek <span class="km">លុយដេក</span></a>
-        <button class="navbar-toggler text-white" type="button" data-bs-toggle="collapse" data-bs-target="#nav" aria-controls="nav"
-                aria-expanded="false" aria-label="Menu"><i class="bi bi-list fs-4" aria-hidden="true"></i></button>
-      </div>
-      <nav class="collapse" id="nav" aria-label="Main">
-        <div class="top-links">{{ links() }}</div>
-        <div class="d-grid gap-2 pb-2 small" style="color:rgba(255,255,255,.65)">{{ demo_menu() }}{{ status_line() }}</div>
-      </nav>
+  <div class="app-main">
+    <header class="appbar">
+      {% if back is defined %}
+      <a class="appbar-back" href="{{ back }}" aria-label="{{ _('Back') }}"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
+      {% else %}
+      <a class="brand d-lg-none" href="/"><img src="{{ asset('brand/logo.svg') }}" alt="" width="28" height="28">LuyDek</a>
+      {% endif %}
+      <span class="appbar-gap"></span>
+      <span class="d-lg-none">{{ lang_switch() }}</span>
+      <a class="appbar-icon" href="/stock?focus=1" aria-label="{{ _('Search') }}"><i class="bi bi-search" aria-hidden="true"></i></a>
+      <a class="appbar-icon" href="/help{{ '#' ~ help_topic if help_topic is defined }}" aria-label="{{ _('Help') }}"><i class="bi bi-question-circle" aria-hidden="true"></i></a>
     </header>
-
     {% if simulated %}
-    <div class="sim-banner"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Includes <b>simulated</b> sales history — order lists are partly built from it.</div>
+    <a class="sim-note" href="/help#practice"><i class="bi bi-info-circle" aria-hidden="true"></i> {{ _("Practice data: some sales are simulated.") }}</a>
     {% endif %}
-    <main class="content">
+    <main class="content" id="main" tabindex="-1">
       {% if msg %}
-      <div class="alert alert-info alert-dismissible py-2 mb-3">{{ msg }}
-        <button type="button" class="btn-close py-2" data-bs-dismiss="alert" aria-label="Close"></button></div>
+      <div class="alert alert-info alert-dismissible py-2 mb-3" role="status">{{ msg }}
+        <button type="button" class="btn-close py-2" data-bs-dismiss="alert" aria-label="{{ _('Close') }}"></button></div>
       {% endif %}
       {% block content %}{% endblock %}
     </main>
   </div>
 </div>
 
-<!-- phones: the four places an owner goes, always one thumb away -->
-<nav class="bottom-bar d-md-none" aria-label="Quick">
-  <a href="/" class="{{ 'on' if active == 'dashboard' }}"><i class="i bi bi-house" aria-hidden="true"></i>Today</a>
-  <a href="/#check"><i class="i bi bi-check2-square" aria-hidden="true"></i>Check<span class="badge text-bg-warning {{ 'd-none' if not pending_count }}" data-pending-badge>{{ pending_count }}</span></a>
-  <a href="/orders" class="{{ 'on' if active == 'orders' }}"><i class="i bi bi-cart3" aria-hidden="true"></i>Orders</a>
-  <a href="#top" data-bs-toggle="collapse" data-bs-target="#nav" onclick="window.scrollTo({top: 0, behavior: 'instant'})"><i class="i bi bi-list" aria-hidden="true"></i>More</a>
+<!-- phones: four places and the + -->
+<nav class="tabbar d-lg-none" aria-label="Main">
+  <a href="/" class="{{ 'on' if tab == 'home' }}" {% if tab == 'home' %}aria-current="page"{% endif %}><i class="i bi bi-house{{ '-fill' if tab == 'home' }}" aria-hidden="true"></i>{{ _("Home") }}<span class="badge text-bg-warning {{ 'd-none' if not pending_count }}" data-pending-badge>{{ pending_count }}</span></a>
+  <a href="/stock" class="{{ 'on' if tab == 'stock' }}" {% if tab == 'stock' %}aria-current="page"{% endif %}><i class="i bi bi-box-seam{{ '-fill' if tab == 'stock' }}" aria-hidden="true"></i>{{ _("Stock") }}</a>
+  <button type="button" class="tab-plus" data-open-sheet="what" aria-haspopup="dialog" aria-label="{{ _('What happened?') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+  <a href="/orders" class="{{ 'on' if tab == 'orders' }}" {% if tab == 'orders' %}aria-current="page"{% endif %}><i class="i bi bi-cart3" aria-hidden="true"></i>{{ _("Orders") }}</a>
+  <a href="/more" class="{{ 'on' if tab == 'more' }}" {% if tab == 'more' %}aria-current="page"{% endif %}><i class="i bi bi-grid{{ '-fill' if tab == 'more' }}" aria-hidden="true"></i>{{ _("More") }}</a>
 </nav>
+
+<!-- What happened? Every change to the stock starts here -->
+<dialog class="sheet" id="what" aria-labelledby="what-title" tabindex="-1" autofocus>
+  <div class="sheet-grip" aria-hidden="true"></div>
+  <h2 class="sheet-title" id="what-title">{{ _("What happened?") }}</h2>
+  <p class="sheet-hint">{{ _("Pick one. You can undo it.") }}</p>
+  <div class="choice-grid">
+    <a class="choice" href="/invoices"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i><b>{{ _("Stock came in") }}</b><span>{{ _("Photo of the invoice") }}</span></a>
+    <a class="choice" href="/adjust"><i class="bi bi-bag-dash" aria-hidden="true"></i><b>{{ _("Sold or used") }}</b><span>{{ _("On credit, family, damaged") }}</span></a>
+    <a class="choice" href="/count"><i class="bi bi-clipboard-check" aria-hidden="true"></i><b>{{ _("Count a shelf") }}</b><span>{{ _("Set the right number") }}</span></a>
+    <a class="choice" href="/catalog/new"><i class="bi bi-plus-square" aria-hidden="true"></i><b>{{ _("New product") }}</b><span>{{ _("Name, price, photos") }}</span></a>
+  </div>
+  <a class="choice-row" href="/stock-in?mode=count"><i class="bi bi-camera" aria-hidden="true"></i>
+    <span><b>{{ _("Count with the camera") }}</b><span>{{ _("Put items on the mat") }}</span></span><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+  <form method="dialog"><button class="sheet-close">{{ _("Close") }}</button></form>
+</dialog>
+
+<script>window.LD_WORDS = {{ {'find': _("Type a product name…"), 'none': _("Nothing found. Try another spelling."),
+  'best': _("Sold most in the last 2 weeks"), 'yours': _("Your products"), 'others': _("Type to find the other {n}, and multipacks.", n='{n}'),
+  'saving': _("Saving…")}|tojson }};</script>
 <script src="{{ asset('vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
 <script src="{{ asset('undo.js') }}"></script>
 <script src="{{ asset('ui.js') }}"></script>

@@ -184,7 +184,7 @@ def test_today_offers_new_product_and_a_name_later_list(client, conn, cfg):
     item_id = unknown_sale(conn, cfg, "h.jpg")
     conn.execute("UPDATE transaction_items SET name_guess = 'Oishi honey lemon 380ml' WHERE id = ?", (item_id,))
     conn.commit()
-    page = client.get("/").text
+    page = client.get("/sales").text
     assert f'action="/items/{item_id}/new-product"' in page and "Add Oishi honey lemon 380ml" in page
     assert "New product" in page and "Not now, ask me later" in page
 
@@ -196,8 +196,8 @@ def test_today_offers_new_product_and_a_name_later_list(client, conn, cfg):
                     headers={"Accept": "application/json"})
     assert r.status_code == 200 and r.json()["created"] and r.json()["status"] == "corrected"
     page = client.get("/").text
-    assert "has no supplier yet" in page and 'href="/catalog#learned"' in page
-    assert "not counted · 1 sold" in page
+    assert "Give 1 new product a supplier" in page and 'href="/catalog#learned"' in page
+    assert "Never counted · 1 sold" in client.get("/stock").text
     assert "from a sale" in client.get("/catalog").text
 
 

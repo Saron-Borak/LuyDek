@@ -19,13 +19,13 @@ from html import escape
 from markupsafe import Markup
 
 # Checked together with the dataviz palette validator: 3:1+ on white, CVD-distinct from the gray.
-ACCENT = "#534AB7"      # violet 600: pilot weeks, sales
-MUTED = "#888780"       # neutral 500: observation weeks
-AMBER = "#EF9F27"       # amber 400: on the dark violet hero tile
-GRID = "#E7E4DB"        # neutral 100, the page's own hairline
-EMPTY = "#ECEBE6"       # a day that started with an empty shelf
-TEXT = "#5F5E5A"
-INK = "#2C2C2A"
+ACCENT = "#37352F"      # ink: pilot weeks, sales
+MUTED = "#B9B7B1"       # warm gray 400: observation weeks
+AMBER = "#956400"       # the pale-yellow family's text colour: the line on the stock tile
+GRID = "#EAEAEA"        # the page's own hairline
+EMPTY = "#F1F1EF"       # a day that started with an empty shelf
+TEXT = "#787774"
+INK = "#2F3437"
 
 W, H = 360, 150
 LEFT, RIGHT, TOP, BOTTOM = 36, 6, 18, 24

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set back = '/catalog' %}
 {% block title %}Take photos{% endblock %}
 {% block content %}
 {% if pk %}
@@ -72,7 +73,7 @@
   <div class="col-lg-5">
     <div class="card" id="photos">
       <div class="card-header">Photos so far <span class="badge rounded-pill text-bg-secondary" id="count">{{ photos|length }}</span>
-        <div class="sub">A blurry or wrong one? Tap <i class="bi bi-trash3" aria-hidden="true"></i> to delete it — you can undo.</div></div>
+        <div class="sub">A blurry or wrong one? Tap <i class="bi bi-trash3" aria-hidden="true"></i> to delete it. You can undo.</div></div>
       <div class="card-body">
         <div class="photo-grid" id="gallery">
           {% for g in photos %}{% with bulk_form = none %}{% include "_photo_tile.html" %}{% endwith %}{% endfor %}
@@ -100,7 +101,7 @@
     const n = document.querySelectorAll("#gallery .photo-tile:not(.d-none)").length;
     document.getElementById("count").textContent = n;
     document.getElementById("prog-bar").style.width = Math.min(100, n / MIN * 100) + "%";
-    document.getElementById("prog-text").textContent = n >= MIN ? `✓ ${n} photos — enough` : `${n} of ${MIN} photos`;
+    document.getElementById("prog-text").textContent = n >= MIN ? `✓ ${n} photos, enough` : `${n} of ${MIN} photos`;
     document.getElementById("done").classList.toggle("d-none", n < MIN);
     document.getElementById("gallery-empty").classList.toggle("d-none", n > 0);
     $("last-n").textContent = n;

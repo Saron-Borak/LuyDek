@@ -9,6 +9,12 @@
   const $ = (s, el = document) => el.querySelector(s);
   const items = JSON.parse($("#picker-data").textContent);
   const answered = new Set();  // answered here, waiting out their undo time
+  // The page's words, in its language (sales.html sets CHECK_WORDS). T("Check {n} item|Check {n} items", {n: 2}).
+  const T = (key, vars = {}) => {
+    let s = (window.CHECK_WORDS || {})[key] || key;
+    if (s.includes("|")) { const [one, many] = s.split("|"); s = vars.n === 1 ? one : many; }
+    return s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+  };
 
   const root = () => $("#check");
   const cards = () => [...document.querySelectorAll("#check .check-item")];
@@ -18,13 +24,13 @@
   function counts() {
     const left = open(), n = left.length, guessed = left.filter((c) => c.dataset.guess === "1").length;
     const title = $("[data-check-title]");
-    if (title) title.textContent = `Check ${n} item${n === 1 ? "" : "s"}`;
+    if (title) title.textContent = T("Check {n} item|Check {n} items", { n });
     const all = $("#check form[data-act=all]");
     if (all) {
       all.classList.toggle("d-none", !guessed);
       $("[data-all-n]", all).textContent = guessed;
       const note = $("[data-pick-note]", all);
-      note.textContent = `${n - guessed} need you to pick below`;
+      note.textContent = T("{n} need you to pick below", { n: n - guessed });
       note.classList.toggle("d-none", n === guessed);
     }
     $("#check .check-card").classList.toggle("d-none", n === 0);
@@ -39,7 +45,7 @@
       tile.textContent = n;
       tile.closest(".stat").classList.toggle("warn", n > 0);
       tile.closest(".stat").classList.toggle("ok", n === 0);
-      $("[data-stat-check-sub]").textContent = n ? "waiting above" : "all caught up ✓";
+      $("[data-stat-check-sub]").textContent = n ? T("waiting above") : T("all caught up");
     }
   }
 
@@ -73,13 +79,13 @@
   function wording(act, c, form, submitter) {
     const name = c.dataset.name;
     if (act === "yes") return ["check-circle-fill", name];
-    if (act === "pick") return ["pencil-fill", form.dataset.label || submitter?.textContent.trim() || "Changed"];
-    if (act === "remove") return ["x-circle", "Not a sale"];
+    if (act === "pick") return ["pencil-fill", form.dataset.label || submitter?.textContent.trim() || T("Changed")];
+    if (act === "remove") return ["x-circle", T("Not a sale")];
     if (act === "new" || act === "name") {
       const typed = form.querySelector('[name="name"]')?.value.trim();
-      return ["plus-circle-fill", `New product: ${form.dataset.label || typed}`];
+      return ["plus-circle-fill", T("New product: {name}", { name: form.dataset.label || typed })];
     }
-    return ["clock", "Saved to name later"];
+    return ["clock", T("Saved to name later")];
   }
 
   document.addEventListener("submit", async (e) => {
@@ -97,7 +103,7 @@
       targets.forEach(hide);
       counts();
       LuyDek.later({
-        icon: "check2-all", text: `${targets.length} item${targets.length === 1 ? "" : "s"} recorded as guessed`,
+        icon: "check2-all", text: T("{n} item recorded as guessed|{n} items recorded as guessed", { n: targets.length }),
         commit: () => LuyDek.send("/items/confirm-all", data, "all correct"),
         undo: () => { targets.forEach(unhide); counts(); },
         failed: () => { targets.forEach(unhide); counts(); },
@@ -109,7 +115,7 @@
       try {
         const r = await LuyDek.post(`/items/${id}/resolve`, data);
         if (r.count != null) c.querySelectorAll("[data-count]").forEach((el) => (el.textContent = r.count));
-      } catch { LuyDek.note("Couldn't change the number — check the Wi-Fi."); }
+      } catch { LuyDek.note(T("Couldn't change the number. Check the Wi-Fi.")); }
       return;
     }
     if (act === "new" || act === "name") {
@@ -138,7 +144,7 @@
     }));
     const n = several.reduce((t, s) => t + s.n, 0);
     save.disabled = !n;
-    save.textContent = n ? `Record ${n} item${n === 1 ? "" : "s"}` : "Record them";
+    save.textContent = n ? T("Record {n} item|Record {n} items", { n }) : T("Record them");
   }
   list.addEventListener("click", (e) => {
     const chip = e.target.closest("[data-k]");
@@ -151,7 +157,7 @@
     data.set("picks", several.map((s) => `${s.pack}:${s.n}`).join(","));
     const n = several.reduce((t, s) => t + s.n, 0);
     modal.hide();
-    answer(pickFor, data, ["grid-3x3-gap", `${n} items from one photo`], `/items/${pickFor}/several`);
+    answer(pickFor, data, ["grid-3x3-gap", T("{n} items from one photo", { n })], `/items/${pickFor}/several`);
   });
   const picker = LuyDek.picker($("#pick-picker"), items, {
     onPick(i) {
@@ -180,7 +186,7 @@
     pickFor = b.dataset.openPicker || b.dataset.several;
     several = b.dataset.several ? [] : null;
     bar.classList.toggle("d-none", !several);
-    title.textContent = several ? "What's in this photo? Pick each one" : plainTitle;
+    title.textContent = several ? T("What's in this photo? Pick each one") : plainTitle;
     if (several) drawSeveral();
     picker.reset();
     modal.show();

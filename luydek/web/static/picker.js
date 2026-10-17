@@ -5,9 +5,13 @@
 window.LuyDek = window.LuyDek || {};
 LuyDek.picker = (root, items, { onPick, baseOnly = false, top = 8 } = {}) => {
   const list = baseOnly ? items.filter((i) => i.base) : items;
+  // The words come from the page (window.LD_WORDS, in its language); English if it has none.
+  const W = Object.assign({ find: "Type a product name…", none: "Nothing found. Try another spelling.",
+    best: "Sold most in the last 2 weeks", yours: "Your products", others: "Type to find the other {n}, and multipacks." },
+  window.LD_WORDS || {});
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   root.innerHTML = `
-    <input type="search" class="form-control form-control-lg" placeholder="Type a name — English or ខ្មែរ" aria-label="find a product" autocomplete="off">
+    <input type="search" class="form-control form-control-lg" placeholder="${esc(W.find)}" aria-label="find a product" autocomplete="off">
     <div class="picker-head small muted mt-2 mb-1"></div>
     <div class="picker-list"></div>`;
   const input = root.querySelector("input"), head = root.querySelector(".picker-head"), box = root.querySelector(".picker-list");
@@ -18,8 +22,8 @@ LuyDek.picker = (root, items, { onPick, baseOnly = false, top = 8 } = {}) => {
     // Before any typing: one line per product (its single unit). Typing also finds the 6-packs and boxes.
     const products = list.filter((i) => i.base);
     shown = words.length ? list.filter((i) => words.every((w) => i.find.includes(w))).slice(0, 30) : products.slice(0, top);
-    if (words.length) head.textContent = shown.length ? "" : "Nothing found — try another spelling";
-    else head.textContent = list.some((i) => i.sold > 0) ? "Sold most in the last 2 weeks" : "Your products";
+    if (words.length) head.textContent = shown.length ? "" : W.none;
+    else head.textContent = list.some((i) => i.sold > 0) ? W.best : W.yours;
     box.innerHTML = shown.map((i, n) => `
       <button type="button" class="picker-item" data-n="${n}">
         ${i.img ? `<img class="pic" src="${esc(i.img)}" width="44" height="44" alt="" loading="lazy">`
@@ -27,7 +31,7 @@ LuyDek.picker = (root, items, { onPick, baseOnly = false, top = 8 } = {}) => {
         <span><span class="name d-block">${esc(i.label)}</span>${i.km && i.km !== i.label ? `<span class="km small muted">${esc(i.km)}</span>` : ""}</span>
       </button>`).join("");
     if (!words.length && products.length > top) {
-      box.insertAdjacentHTML("beforeend", `<div class="small muted mt-1">Type to find the other ${products.length - top}, and multipacks.</div>`);
+      box.insertAdjacentHTML("beforeend", `<div class="small muted mt-1">${esc(W.others.replace("{n}", products.length - top))}</div>`);
     }
   }
 

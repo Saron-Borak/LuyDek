@@ -17,6 +17,26 @@ Hackathon MVP for the *Dead Stock, Empty Shelf* challenge. It runs all four demo
 | + The 60-day proof | `/report`: before (watching weeks) vs now, per pilot metric |
 | + The shelf by batch | `/shelf`, `/stock-in`, Telegram: expiry, places, put-away, quick counts, where stock came from |
 
+## Using it on a phone
+
+The web app is built for the owner's phone first, in Khmer (one tap switches to English; each phone
+keeps its choice). Four places and one button:
+
+| | |
+|---|---|
+| **Home** (`/`) | What the stock is worth, and **To do now**: one row per thing to do, most urgent first: sales to check, stock past its date to take off, what is out, agents coming today or tomorrow, what to put in front or sell soon, what is running low. Each row opens the place to do it. |
+| **Stock** (`/stock`) | Search first, then *Needs you* / *All* / *Out* / *Expiring*. Each product shows how many are left, its status and its first date; tap it for the product: the count, **Count** and **Sold or used**, every delivery on the shelf with its own date, and (folded) sales, the camera's photos and the details. |
+| **+** | *What happened?* **Stock came in** (photo of the invoice), **Sold or used** (credit, family, damaged…), **Count a shelf** (one product at a time, then the next), **New product**, or **Count with the camera**. |
+| **Orders** (`/orders`) | The agents in the order they come, each with what to buy, what to skip and why. |
+| **More** (`/more`) | Shelf check, sales and the camera, deliveries, the stock map, products and suppliers, Stock in Excel, setup, help, language. |
+
+**Help** (`/help`, or the **?** on every page) explains the jobs in a few steps and what the words
+mean (past its date, won't sell in time, sleeping money…). On a laptop the same places sit in a rail
+on the left. The look and its rules are in [`docs/design/DESIGN.md`](docs/design/DESIGN.md), with the
+three concept screens it was built from; every Khmer phrase is listed in
+[`docs/design/khmer-to-check.md`](docs/design/khmer-to-check.md) for a native speaker to check. A shop's
+default language is `shop.web_lang` in its config (`km` or `en`).
+
 ---
 
 ## Setup (Windows, ~2 minutes; CLIP weights come from the local HuggingFace cache)
@@ -159,6 +179,37 @@ with the loose-sold medicines as buttons.
    SKIP, Ichitan 💤 $37.95 sleeping, Dumex ORDER "⚠️ was out 4 days, customers went across the
    street". **Say that the history is simulated.** The page and the messages say it too.
 
+**The demo shop: Sokha Mini-Mart.** `scripts/demo_shop.py` builds a whole shop as it would look after eight
+weeks on LuyDek, with every feature in use. It is made up: real products, simulated history, and the app
+says so. Start it with `python -m luydek --config configs/demo.yaml --port 8030` (or `demo-shop` in
+`.claude/launch.json`).
+
+- **The shop:** 45 real products sold in Phnom Penh mini-marts (Angkor and Cambodia beer, Vital water, Sting,
+  Coca-Cola, Dutch Lady, Milo, Lay's, Oreo, Mama, Nescafé, Colgate, paracetamol by the tablet, Dumex…) with
+  their real barcodes where known. They come from six supplier agents and stand on eight places: two
+  fridges, three shelves, a medicine cabinet, the counter and the back room, arranged on the floor for the
+  3D view.
+- **Eight weeks of life:** onboarding from the owner's spreadsheet (every shelf, level by level, and an
+  opening count with dates). Then a confirmed invoice at every agent's visit, with lots, expiry dates and
+  bonus cases, and one new product added from an invoice and not put away yet. Daily sales, a credit sale,
+  breakage, family use, quick counts, and expired Choco Pie taken off at the shelf check.
+- **The stories:**
+  - Dumex out after a forgotten order: an alert and a gap.
+  - A dead green tea and other sleeping money.
+  - Strawberry milk past its date still on the shelf.
+  - Milo UHT to put in front.
+  - Pocari Sweat over-ordered that won't sell in time.
+  - Sting at the bottom of the fridge: the suggested move.
+  - A lot that doesn't match its invoice.
+- **The last two days at the counter:** the counter photos are product photos laid on the real counter
+  mat, and they go through the real camera pipeline. What the camera was sure of and what it asked about
+  is what it really did with them. The owners answered most questions on Telegram, the end of the day
+  turned the rest into best guesses, and this morning's are still waiting. Mama noodles were learned
+  while selling.
+
+It needs `data/demo/assets` (not in git): `photos/<sku>.jpg` from Open Food Facts and Wikimedia Commons
+(CC BY-SA; see `credits.json`), `cut/` (product cut-outs for the counter photos) and `mat.jpg`.
+
 **Backups.**
 - `scripts/synthetic_demo.py` builds a separate synthetic shop (painted look-alike products already
   enrolled, calibrated mat with a marked tablet tray, history). Run it with
@@ -237,10 +288,32 @@ everything else, and green/red only ever mean OK/problem. The colour tokens sit 
 
 **Owner mode.** `shop.team_tools` in `configs/config.yaml` (on for the demo) shows the tools for the
 install team and judges: the Demo menu of send-now buttons, the photo upload box, the pilot report
-and the Telegram previews on Order lists. Switch it off for a real pilot so the owner sees only:
-**Today** (items to check first, with one **All correct** button; then stock alerts and agent visits),
-**Order lists**, **Deliveries**, **Products**, **Counter camera** and **Setup**. On a phone, a bottom
-bar keeps Today · Check · Orders · More one thumb away.
+and the Telegram previews on Order lists. Switch it off for a real pilot so the owner sees only the
+stock pages (**Today**, **Stock map**, **Shelf check**, **Stock in**, **Deliveries**, **Order lists**,
+**Products**), then **Counter camera** and **Camera log** under *Selling*, and **Setup**. On a phone, a
+bottom bar keeps Today · Stock map · Orders · More one thumb away.
+
+**Today** leads with the stock:
+- **Four numbers:** what it is worth at cost, what is out or running low, how many units are past
+  their date (and how many expire within 30 days), and the money sleeping.
+- **What to do with the stock,** batch by batch, each with its own date and place. For example,
+  *Dutch Lady strawberry: 25 of the 77, expired 05/10, Drinks fridge, level 3* means take those 25
+  off, not all 77. Also listed: what to put in front, what won't sell in time, what to order, what is
+  running low and what isn't put away yet. Each line opens the shelf it is on.
+- **Next agent visits** and the **money sleeping**.
+- **The stock table,** with every date on the shelf as its own chip (*25 · 05/10*, *4 · 10/01/27*,
+  *48 · 10/02/27*) and where it is.
+
+The counter camera's questions come after the stock, under *From the counter camera*; a slim bar at
+the top says when some are waiting.
+
+**One product, several dates.** Each delivery or count is its own batch, with its own date, lot and
+place. Sales take the one that expires first. The shelf check, Today, the stock map and the 3D shop
+show each batch on its own, never one date for all of a product:
+- **Stock map:** a spot shows a strip split by batch and the part that needs doing (*×77 · 25
+  expired*).
+- **3D shop:** coloured by *What to do* or *Days to expiry*, a product's box is split by batch.
+- **Panels and tooltips:** they list every date.
 
 ### When the camera isn't sure: nothing is lost
 
@@ -333,8 +406,9 @@ walk checks that this is true.
 ### The stock map (`/map`)
 
 Each shelf face on, the way the owner sees it in the shop: its levels top to bottom, each product in
-its spot left to right (as wide as its facings), with how many are left and the first date to
-expire. One shelf at a time, like slides: the arrows, the strip of shelf names, the arrow keys, or a
+its spot left to right (as wide as its facings). Each spot shows how many are left and a strip of its
+batches (red past its date, amber expiring soon, green fine, grey no date), with the part that needs
+doing in words. The panel beside the shelf is a small stock table with every date on it. One shelf at a time, like slides: the arrows, the strip of shelf names, the arrow keys, or a
 swipe on a phone. Fridges, the counter and the back room are drawn as what they are.
 
 - **Find anything:** type a product or a lot number. Its spots light up, the map goes to the first
@@ -424,6 +498,34 @@ After an invoice is confirmed in Telegram, each product that came with no date a
 isn't known gets one question: reply with a photo of the date, or tap how long it keeps
 (3 months / 6 months / a year / doesn't expire); it isn't asked again. The confirmed invoice page has
 a date field and a **Photo of the date** button for every undated batch.
+
+### Stock in Excel (`/spreadsheet`)
+
+The whole stock in one Excel file, to look at, count on paper or on a laptop, and send back.
+**Download** gives `luydek-stock-<date>.xlsx` with four sheets:
+
+- **Summary:** what the stock is worth at cost, what is out, low, past its date or sleeping, by place
+  and by supplier.
+- **Stock:** a row per product: on hand, worth, status, sales over 7 days and 4 weeks, days of stock
+  left, and every date on the shelf. The yellow columns (name, supplier, unit, case size, cost,
+  barcode, must-have, how long it keeps) can be edited; a row with no ID at the bottom adds a product.
+- **Count:** a row per batch (product, place, level, lot, expiry, what the books say) with an empty
+  yellow **Counted** column. Write what you find: empty means *not counted, keep it*, **0** means
+  *none were there*. Fix a batch's place, lot or date on its row; add rows at the bottom for stock
+  LuyDek doesn't know about (product, place, expiry, how many).
+- **How to use:** the same rules, in the file.
+
+**Upload** it back on the same page. Nothing is saved until you have seen the list of what it
+changes: each count (before, after, the dates that will be left), each corrected batch, each product
+detail old → new, each new product. Rows it can't read (a word in **Counted**, an unknown place or
+product) are listed with their sheet and row, and nothing is saved until they are fixed. Counts work
+like a count with the camera: per product and place, batch by batch with their dates, so a shelf
+counted in Excel leaves the back room alone. Products sold since the file was downloaded are pointed
+out (a count made before those sales would put them back), batches that came in after the download
+are left as they are, and a file can be used only once.
+
+The file is written and read without Excel or any extra library (`services/xlsx.py`); it was checked
+by opening, editing and saving it in Excel itself.
 
 ### How sure is the camera?
 
@@ -560,21 +662,23 @@ luydek/
   services/     catalog · stock (ledger) · batches (expiry, put-away, shelf check) · locations · alerts
                 (out of stock, quick counts) · stockin · sources (where stock came from) · accuracy ·
                 transactions · invoices (Claude) · learn (new products from sales) · forecast · metrics · report
+                · stockmap + shop3d (the stock map, face on and in 3D) · shelfsheet (shelves from a sheet)
+                · workbook + xlsx (Stock in Excel: the workbook out and back in)
   recognition/  segment · detector (YOLOE-26) · barcode · encoder (CLIP) · matcher (gallery + tiers) · labels
                 (Claude: labels, new-product names, expiry dates) · tray · cutout (clean product photos) · pipeline
   bot/          app (jobs) · handlers · digest (outgoing messages) · keyboards
   web/          server (FastAPI; the bot runs in its event loop) · charts (inline SVG) · templates · static
   i18n.py       Khmer/English strings    render.py  owner-facing message text
-scripts/        seed_demo · simulate_history · calibrate · synthetic_demo · sale_from_photo · counter_test
+scripts/        seed_demo · simulate_history · calibrate · synthetic_demo · demo_shop · sale_from_photo · counter_test
                 · build_detector_kit + detector_kit/ (training scenes and the Colab notebook)
                 · make_brand (logo and icons)
-configs/        config.yaml (thresholds, digest times, forecast rules) · synthetic.yaml
+configs/        config.yaml (thresholds, digest times, forecast rules) · synthetic.yaml · demo.yaml
 ```
 
 `.venv/Scripts/python.exe -m pytest` runs the tests: the ledger, batches (expiry order, put-away, the
 shelf check), forecast math, recognition (size on the mat, look-alike pairs, shadows, the detector's
 outlines with a fake detector), touching-item splitting, the tablet tray, the label, date and invoice
-readers (mocked Claude), stock in, the source checks, training scenes, the pilot report, transactions,
+readers (mocked Claude), stock in, Stock in Excel (out, edited, back in, used once), the source checks, training scenes, the pilot report, transactions,
 bot flows (fake Telegram) including the day's summary, quick counts and expiry questions, and the web
 app, including its look (offline assets, cut-out photos, charts). The tests use a colour-histogram
 encoder and no detector, so they need neither CLIP nor the YOLO weights.

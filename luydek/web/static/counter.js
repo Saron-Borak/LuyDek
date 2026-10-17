@@ -35,10 +35,11 @@
     state = s;
     const el = $("state");
     el.className = "state-pill state-" + s;
-    el.textContent = text || {
-      EMPTY: "Counter empty", ACTIVE: "Items arriving…", STILL: "Still — captured",
+    const W = (k) => (window.CAM_WORDS || {})[k] || k;     // the page's words, in its language
+    el.textContent = text || W({
+      EMPTY: "Counter empty", ACTIVE: "Items arriving…", STILL: "Still: captured",
       NOREF: "Calibrate first", SCENE: "Recalibrate",
-    }[s];
+    }[s]);
   }
 
   // --- feedback: a beep for each item it sees, and the sale shown when it is recorded ------------
@@ -86,7 +87,7 @@
       b.setAttribute("aria-pressed", String(on));
       b.className = "btn btn-sm " + (locked ? "btn-warning" : "btn-outline-secondary");
       b.innerHTML = `<i class="bi bi-volume-${on ? "up" : "mute"}" aria-hidden="true"></i> `
-        + `<span>${locked ? "Tap to turn sound on" : on ? "Sound on" : "Sound off"}</span>`;
+        + `<span>${((k) => (window.CAM_WORDS || {})[k] || k)(locked ? "Tap to turn sound on" : on ? "Sound on" : "Sound off")}</span>`;
     }
     return {
       init() {
@@ -268,8 +269,8 @@
 
   function trayText(t) {
     if (!t.pieces) return "";
-    if (!t.with_source) return `${t.pieces} piece${t.pieces > 1 ? "s" : ""} on the tray — put the box beside it`;
-    return t.sure ? `${t.count} tablet${t.count > 1 ? "s" : ""} on the tray` : `About ${t.count} on the tray — count to check`;
+    if (!t.with_source) return `${t.pieces} piece${t.pieces > 1 ? "s" : ""} on the tray: put the box beside it`;
+    return t.sure ? `${t.count} tablet${t.count > 1 ? "s" : ""} on the tray` : `About ${t.count} on the tray: count to check`;
   }
 
   function showDetections(dets, tray) {

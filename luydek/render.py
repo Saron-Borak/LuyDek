@@ -13,7 +13,8 @@ from .services.stock import STATUS_ORDER
 from .services.summary import SOLD_LINES, WATCH_LINES
 
 
-def line_reason(line: Line, plan: SupplierPlan, lang: str) -> str:
+def line_reason(line: Line, plan: SupplierPlan, lang: str, date=None) -> str:
+    """Why a line says what it says. `date` formats the expiry (default: as printed on packs, 25/10/26)."""
     text = t(
         lang,
         "r_" + line.reason,
@@ -31,7 +32,7 @@ def line_reason(line: Line, plan: SupplierPlan, lang: str) -> str:
     if line.stockout_days and line.action in ("order", "market", "check"):
         text += t(lang, "r_stockout", days=line.stockout_days)
     if line.expiry:
-        text += t(lang, "r_expiring", date=line.expiry)
+        text += t(lang, "r_expiring", date=(date or short_date)(line.expiry))
     if line.stock < 0:
         text += t(lang, "r_negative")
     return text

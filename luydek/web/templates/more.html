@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ _("More") }}{% endblock %}
+{% block content %}
+{% macro cell(href, icon, title, hint) -%}
+  <li><a class="row-item" href="{{ href }}">
+    <span class="cell-icon"><i class="bi bi-{{ icon }}" aria-hidden="true"></i></span>
+    <span class="row-text"><b>{{ _(title) }}</b><span>{{ _(hint) }}</span></span>
+    <i class="bi bi-chevron-right row-go" aria-hidden="true"></i></a></li>
+{%- endmacro %}
+<header class="page-title"><h1>{{ _("More") }}</h1></header>
+
+<h2 class="list-title">{{ _("Every day") }}</h2>
+<ul class="row-list grouped mb-4">
+  {{ cell('/counter', 'webcam', 'Counter camera', 'Leave it open on the counter computer') }}
+  {{ cell('/shelf', 'calendar2-check', 'Shelf check', 'Walk the shop: what to take off or put in front') }}
+  {{ cell('/sales', 'camera-video', 'Sales and the camera', 'Checks, sales today, busy hours') }}
+  {{ cell('/invoices', 'truck', 'Deliveries', 'Invoices and what came in') }}
+  {{ cell('/map', 'map', 'Stock map', 'Every shelf, what is on it and its dates') }}
+</ul>
+
+<h2 class="list-title">{{ _("Your shop") }}</h2>
+<ul class="row-list grouped mb-4">
+  {{ cell('/catalog', 'tags', 'Products and suppliers', "Names, prices, photos, agents' visit days") }}
+  {{ cell('/spreadsheet', 'file-earmark-spreadsheet', 'Stock in Excel', 'Count or edit everything in one file') }}
+  {{ cell('/log', 'journal-text', 'Camera log', 'Every sale the camera saw') }}
+</ul>
+
+<h2 class="list-title">{{ _("Setting up") }}</h2>
+<ul class="row-list grouped mb-4">
+  {{ cell('/setup', 'gear', 'Setup', 'The steps to start') }}
+  {{ cell('/help', 'question-circle', 'Help', 'How LuyDek works, and what the words mean') }}
+  <li class="row-item">
+    <span class="cell-icon"><i class="bi bi-translate" aria-hidden="true"></i></span>
+    <span class="row-text"><b>{{ _("Language") }}</b></span>
+    <span class="lang-switch big" role="group" aria-label="{{ _('Language') }}">
+      <a href="/lang/km?next=/more" class="{{ 'on' if lang_code == 'km' }}" lang="km">ខ្មែរ</a>
+      <a href="/lang/en?next=/more" class="{{ 'on' if lang_code == 'en' }}" lang="en">English</a>
+    </span>
+  </li>
+</ul>
+
+{% if team %}
+<h2 class="list-title">{{ _("For the install team") }}</h2>
+<ul class="row-list grouped mb-3">
+  {{ cell('/report', 'graph-up-arrow', 'Pilot report', 'Before and after, week by week') }}
+  {{ cell('/accuracy', 'bullseye', 'Accuracy test', 'How often the camera is right') }}
+</ul>
+<div class="d-flex flex-column gap-2 small muted mb-4" style="max-width:20rem">
+  <div class="dropdown">
+    <button type="button" class="btn btn-outline-dark dropdown-toggle w-100" data-bs-toggle="dropdown"><i class="bi bi-play-circle" aria-hidden="true"></i> Demo</button>
+    <div class="dropdown-menu p-2" style="min-width:17rem">
+      {% if not bot %}<div class="small muted px-2 pb-2">Telegram bot is off: add <code>TELEGRAM_BOT_TOKEN</code> to <code>.env</code> and restart.</div>{% endif %}
+      <form method="post" action="/actions/digest"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}>Send the check digest now</button></form>
+      <form method="post" action="/actions/orders"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}>Send order lists now</button></form>
+      <form method="post" action="/actions/summary"><button class="dropdown-item py-2" {% if not bot %}disabled{% endif %}>Send today's summary now</button></form>
+      <form method="post" action="/actions/end-of-day" onsubmit="return confirm('Accept every unchecked item as its best guess?')">
+        <button class="dropdown-item py-2">Run end of day now</button></form>
+    </div>
+  </div>
+  <span>{% if bot %}<span class="dot dot-on"></span>Telegram on{% else %}<span class="dot dot-off"></span>Telegram off{% endif %} · {{ cfg.shop.name }}</span>
+</div>
+{% endif %}
+{% endblock %}

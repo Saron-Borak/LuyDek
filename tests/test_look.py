@@ -38,10 +38,11 @@ def test_list_photos_are_small_and_made_once(client, conn, cfg):
 def test_products_show_their_photo_in_lists_and_pickers(client, conn):
     enroll(client, conn, "coke-330", shots=2)
     gid = conn.execute("SELECT MIN(id) FROM gallery_images").fetchone()[0]
-    page = client.get("/").text
-    assert f'src="/thumb/{gid}.jpg"' in page                           # stock table
-    assert f'"img": "/thumb/{gid}.jpg"' in page                        # picker data
-    assert 'class="pic pic-none"' in page                              # products without photos yet
+    page = client.get("/stock").text
+    assert f'src="/thumb/{gid}.jpg"' in page                           # the stock list
+    assert 'class="bi bi-image"' in page                               # products without photos yet
+    picker = client.get("/adjust").text
+    assert f'"img": "/thumb/{gid}.jpg"' in picker                      # picker data
     assert f'src="/thumb/{gid}.jpg"' in client.get("/orders").text
 
 
@@ -77,7 +78,7 @@ def test_today_compares_this_week_with_last(client, conn):
     stock.record(conn, coke, -10, "sale", at=NOW - timedelta(days=10))
     stock.record(conn, coke, -12, "sale", at=NOW - timedelta(days=2))
     conn.commit()
-    page = client.get("/").text
+    page = client.get("/sales").text
     assert "This week 12 sold" in page and "20%</span> vs last week" in page
 
 

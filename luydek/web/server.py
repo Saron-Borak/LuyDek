@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import os
+import re
 import socket
 import time
 import uuid
@@ -22,25 +23,29 @@ import anthropic
 import numpy as np
 import segno
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from PIL import Image, ImageOps
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .. import clock, db, render
 from ..bot import app as bot_app
 from ..bot import digest
 from ..config import Config, get_config
-from ..i18n import t
+from ..i18n import STRINGS, t
 from ..recognition import cutout, labels, pipeline, segment, tray
 from ..services import (accuracy, batches, catalog, forecast, invoices, learn, locations, loose, metrics, report,
-                        shelfphoto, shelfsheet, shop3d, sources, stock, stockin, stockmap, transactions)
+                        shelfphoto, shelfsheet, shop3d, sources, stock, stockin, stockmap, transactions, workbook)
 from . import charts as charts_mod
-from . import miniapp
+from . import miniapp, words
 
 log = logging.getLogger("luydek.web")
 HERE = Path(__file__).parent
+# pictographs, dingbat emojis, the hourglass and arrows Telegram uses, and the emoji variation selector
+EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u26FF\u2705\u274C\u2795-\u2797\u231A\u231B\u23E9-\u23FA\u21A9\u21AA\uFE0F]")
 IGNORE_LABELS = ("phone", "cash", "calculator", "plastic_bag", "hand", "other")
 MIN_PHOTOS = 5  # enrollment photos per pack before recognition is dependable
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -183,6 +188,34 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     templates.env.globals.update(pack_label=catalog.pack_label, display_name=catalog.display_name, t=t, asset=asset)
     templates.env.filters["plural"] = loose.plural  # {{ unit|plural(n) }}: box -> boxes, tablet -> tablets
+    # dates and times in the page's language: {{ "2026-10-05"|day }} 5 Oct 2026 (5 តុលា 2026), |day(True) 5 Oct
+    templates.env.filters["day"] = lambda d, short=False: words.date(clock.day_words(d, short))
+    templates.env.filters["when"] = lambda m, cap=False: words.date(clock.when_words(m, cap))
+    templates.env.filters["unit"] = words.unit                # {{ "cans"|unit }}: cans / កំប៉ុង
+
+    def pname(row) -> str:
+        """A product's name in the page's language: its Khmer name on a Khmer page, when it has one."""
+        # A database row iterates over its values, so its column names need .keys().
+        get = row.get if isinstance(row, dict) else (lambda k, d=None: row[k] if k in row.keys() else d)  # noqa: SIM118
+        km, en = get("name_km"), get("name_en") or get("name") or ""
+        return km if words.lang() == "km" and km else en
+
+    templates.env.globals.update(_=words.say, lang=words.lang, pname=pname, weekday=words.weekday,
+                                 weekday_short=words.weekday_short, phrases=words.phrases, MAP_KEYS=words.MAP_KEYS)
+
+    def plain(text: str | None) -> str:
+        """Telegram's wording without its emojis, for the web pages: "⌛ expires 5 Oct" -> "expires 5 Oct"."""
+        return " ".join(EMOJI.sub("", text or "").split())
+
+    def reason_words(reason: str | None) -> str:
+        """An adjustment's reason for people: "family_use by Dara" -> "Family use by Dara"; free text as it is."""
+        key, _, by = (reason or "").partition(" by ")
+        if "reason_" + key not in STRINGS:
+            return reason or ""
+        return plain(t("en", "reason_" + key)) + (f" by {by}" if by else "")
+
+    templates.env.filters["reason"] = reason_words
+    templates.env.filters["plain"] = plain
 
     async def refresh_item(item_id: int) -> None:
         if app.state.bot is not None:
@@ -190,7 +223,12 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     miniapp.register(app, cfg, templates, _picker_items, refresh_item)
 
+    def lang_of(request: Request) -> str:
+        """The page language: what this phone picked (a cookie), else the shop's default."""
+        return words.use(request.cookies.get("ld_lang") or cfg.shop.web_lang)
+
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
+        lang_of(request)
         with db.session(cfg) as conn:
             simulated = stock.has_simulated(conn)
             pending = conn.execute("SELECT COUNT(*) FROM transaction_items WHERE status = 'pending'").fetchone()[0]
@@ -200,8 +238,20 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             "cfg": cfg, "bot": app.state.bot, "simulated": simulated, "pending_count": pending,
             "photos": {"product": photos[0], "pack": photos[1]},
             "team": cfg.shop.team_tools, "verifiers": verifiers,
-            "msg": request.query_params.get("msg"), "active": name.split(".")[0], **ctx,
+            "msg": request.query_params.get("msg"), "active": name.split(".")[0], "lang_code": words.lang(),
+            "path": request.url.path, **ctx,
         })
+
+    @app.exception_handler(StarletteHTTPException)
+    async def not_found_page(request: Request, exc: StarletteHTTPException):
+        """Someone who follows a dead link gets a page with a way back; API calls keep their JSON."""
+        wants_page = (request.method == "GET" and "text/html" in request.headers.get("accept", "")
+                      and not request.url.path.startswith(("/api/", "/media/", "/static/", "/thumb/")))
+        if exc.status_code == 404 and wants_page:
+            resp = page(request, "notfound.html", detail=exc.detail if exc.detail != "Not Found" else None)
+            resp.status_code = 404
+            return resp
+        return await http_exception_handler(request, exc)
 
     def back(request: Request, msg: str | None = None, default: str = "/") -> RedirectResponse:
         target = request.headers.get("referer") or default
@@ -227,7 +277,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     @app.get("/fragments/checks", response_class=HTMLResponse)
     def checks_fragment(request: Request):
-        """The check list alone: the Today page polls it to show new items without a reload."""
+        """The check list alone: the Sales page polls it to show new items without a reload."""
+        lang_of(request)
         with db.session(cfg) as conn:
             ctx = _checks(conn)
         return templates.TemplateResponse(request, "_checks.html", ctx)
@@ -274,21 +325,150 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             im.save(path, quality=88)
         return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=3600"})
 
+    def _with_lots(table: list[dict], lots: dict) -> list[dict]:
+        """Each stock row with its batches (dates), where they are, and the one status to show."""
+        for r in table:
+            ls = lots.get(r["id"], [])
+            r["lots"] = ls
+            r["places"] = list(dict.fromkeys(lot["place"] or "no place yet" for lot in ls))
+            # Some of it past its date says more than "expiring soon" for the rest.
+            r["shown"] = "expired" if r["status"] not in ("out", "low") and any(
+                lot["state"] == "expired" for lot in ls) else r["status"]
+            r["attention"] = r["shown"] in ("out", "low", "expiring", "expired")
+        return table
+
+    def _stock_view(conn) -> dict:
+        """The stock as Home and Stock show it: every product with its dates, what to do, what is worth what."""
+        days = cfg.forecast.expiry_warning_days
+        table = stock.stock_table(conn, days)
+        plans = forecast.build_plans(conn, cfg.forecast)
+        lots = batches.lots(conn, days)
+        tasks = batches.shelf_check(conn, days)
+        spots = {(loc, f["product"]): f["level"] for loc, fs in stockmap.facings(conn).items() for f in fs}
+        shelves = {p["id"]: p for p in stockmap.shelves(conn)}
+        table.sort(key=lambda r: r["urgency"])
+        next_visit = {p.supplier_id: p for p in plans}
+        attention = {
+            "out": [r for r in table if r["status"] == "out"],
+            "low": [r for r in table if r["status"] == "low"],
+            "sleeping": sorted((l for p in plans for l in p.of("sleeping")), key=lambda l: -l.value),
+        }
+
+        def where(place_id, product_id) -> str:
+            if place_id is None:
+                return None
+            shelf = shelves.get(place_id)
+            level = spots.get((place_id, product_id))
+            if shelf is None:
+                return "?"
+            if level is None or shelf["levels"] == 1:
+                return shelf["name"]
+            return f"{shelf['name']}, " + (words.say("top level") if level == 1 else words.say("bottom level")
+                                           if level == shelf["levels"] else words.say("level {n}", n=level))
+        rows = {r["id"]: r for r in table}
+        todo = {"remove": [], "front": [], "clear": [], "order": [], "low": [], "away": []}
+        for task in tasks:
+            r = rows.get(task.product["id"])
+            if r is None:
+                continue
+            todo[task.action].append({"id": r["id"], "name": r["name_en"], "name_km": r["name_km"], "left": task.batch.left,
+                                      "of": max(r["on_hand"], 0), "expiry": task.batch.expiry, "days": task.days_left,
+                                      "place_id": task.batch.location_id, "where": where(task.batch.location_id, r["id"]),
+                                      "daily": round(r["sold_28d"] / 28, 1)})
+        for key in ("out", "low"):
+            for r in attention[key]:
+                v = next_visit.get(r["supplier_id"])
+                todo["order" if key == "out" else "low"].append(
+                    {"id": r["id"], "name": r["name_en"], "name_km": r["name_km"], "left": max(r["on_hand"], 0),
+                     "critical": r["is_critical"], "cover": r["days_cover"], "visit": v, "place_id": None, "where": None})
+        for pid, ls in lots.items():
+            away = sum(lot["left"] for lot in ls if lot["place_id"] is None)
+            if away and pid in rows:
+                todo["away"].append({"id": pid, "name": rows[pid]["name_en"], "name_km": rows[pid]["name_km"],
+                                     "left": away, "place_id": None, "where": None})
+        _with_lots(table, lots)
+        totals = {"value": round(sum(r["value"] for r in table), 2),
+                  "units": sum(max(r["on_hand"], 0) for r in table if r["tracked"]),
+                  "products": sum(1 for r in table if r["tracked"] and r["on_hand"] > 0),
+                  "expired": sum(lot["left"] for ls in lots.values() for lot in ls if lot["state"] == "expired"),
+                  "soon": sum(lot["left"] for ls in lots.values() for lot in ls if lot["state"] == "soon")}
+        return {"table": table, "plans": plans, "todo": todo, "attention": attention, "totals": totals,
+                "visits": sorted(plans, key=lambda p: (p.visit_date, p.name)),
+                "sleeping": round(sum(p.sleeping_value for p in plans), 2)}
+
+    def _home_tasks(v: dict, pending: int, unfinished: list, setup: dict) -> list[dict]:
+        """Home's "To do now": one row per thing to do, most urgent first. Words are the template's."""
+        todo, out = v["todo"], []
+        if pending:
+            out.append({"kind": "checks", "n": pending, "href": "/sales#check", "tone": "warn", "icon": "camera"})
+        for x in todo["remove"]:
+            out.append({**x, "kind": "remove", "n": x["left"], "href": f"/catalog/{x['id']}#stock", "tone": "bad"})
+        for x in todo["order"]:
+            out.append({**x, "kind": "out", "href": f"/catalog/{x['id']}", "tone": "bad"})
+        for p in v["visits"]:
+            n = len(p.of("order")) + len(p.of("market"))
+            if p.days_to_visit <= 1 and n:
+                out.append({"kind": "order", "agent": p.name, "days": p.days_to_visit, "n": n, "value": p.order_value,
+                            "href": f"/orders#supplier-{p.supplier_id}", "tone": "ok", "icon": "cart3"})
+        for x in todo["front"]:
+            out.append({**x, "kind": "front", "n": x["left"], "href": f"/catalog/{x['id']}#stock", "tone": "warn"})
+        for x in todo["clear"]:
+            out.append({**x, "kind": "clear", "n": x["left"], "href": f"/catalog/{x['id']}#stock", "tone": "warn"})
+        for x in todo["low"]:
+            out.append({**x, "kind": "low", "href": f"/catalog/{x['id']}", "tone": "warn",
+                        "d": round(x["cover"]) if x["cover"] else 0})
+        for x in todo["away"]:
+            out.append({**x, "kind": "away", "n": x["left"], "href": f"/catalog/{x['id']}#stock", "tone": "muted"})
+        if unfinished:
+            out.append({"kind": "suppliers", "n": len(unfinished), "href": "/catalog#learned", "tone": "muted",
+                        "icon": "truck"})
+        if setup["done"] < setup["total"]:
+            out.append({"kind": "setup", **setup, "href": "/setup", "tone": "muted", "icon": "list-check"})
+        return out
+
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request):
+        """Home: the money on the shelves, and what to do now, one row per thing."""
+        lang_of(request)
         with db.session(cfg) as conn:
-            table = stock.stock_table(conn, cfg.forecast.expiry_warning_days)
+            v = _stock_view(conn)
+            today = metrics.today_counts(conn)
+            sold_today = conn.execute(
+                "SELECT COALESCE(-SUM(qty), 0) FROM stock_movements WHERE type = 'sale' AND created_at >= ?",
+                (clock.stamp(datetime.combine(clock.today(), datetime.min.time())),)).fetchone()[0]
+            pending = len(transactions.pending_items(conn))
+            unfinished = learn.unfinished(conn)
+            steps = _setup_steps(conn)
+        required = [x for x in steps if not x.get("optional")]
+        setup = {"done": sum(1 for x in required if x["done"]), "total": len(required)}
+        tasks = _home_tasks(v, pending, unfinished, setup)
+        coming = [p for p in v["visits"] if p.days_to_visit <= 7][:4]
+        return page(request, "dashboard.html", tasks=tasks, totals=v["totals"], attention=v["attention"],
+                    coming=coming, sleeping=v["sleeping"], today=today, sold_today=sold_today, now=clock.now(),
+                    pending=pending)
+
+    @app.get("/stock", response_class=HTMLResponse)
+    def stock_page(request: Request):
+        """Every product with how many are left, what needs the owner, its dates. Search first."""
+        lang_of(request)
+        with db.session(cfg) as conn:
+            v = _stock_view(conn)
+        table = v["table"]
+        counts = {"needs": sum(1 for r in table if r["attention"]), "all": len(table),
+                  "out": sum(1 for r in table if r["shown"] == "out"),
+                  "expiring": sum(1 for r in table if r["shown"] in ("expired", "expiring"))}
+        return page(request, "stock.html", table=table, totals=v["totals"], counts=counts)
+
+    @app.get("/sales", response_class=HTMLResponse)
+    def sales_page(request: Request):
+        """What the counter camera saw: the sales to check first, then today, the busy hours, the latest."""
+        with db.session(cfg) as conn:
             checks = _checks(conn)
-            pending = checks["pending"]
             recent = transactions.recent(conn, 10)
-            today = checks["today"]
             trend = metrics.weekly_trend(conn)
             taps = metrics.taps_per_day(conn)
             follow = metrics.follow_rate(conn)
-            plans = forecast.build_plans(conn, cfg.forecast)
             picker = _picker_items(conn)
-            users = conn.execute("SELECT COUNT(*) FROM bot_users").fetchone()[0]
-            unfinished = learn.unfinished(conn)
             set_aside_today = conn.execute(
                 "SELECT COUNT(*) FROM ignored_detections WHERE created_at >= ? AND fixed_item_id IS NULL",
                 (clock.stamp(datetime.combine(clock.today(), datetime.min.time())),)).fetchone()[0]
@@ -305,47 +485,53 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         this_week, last_week = (week_sold[0] or 0), (week_sold[1] or 0)
         week = {"this": this_week, "last": last_week,
                 "pct": round((this_week - last_week) / last_week * 100) if last_week else None}
-        sleeping = round(sum(p.sleeping_value for p in plans), 2)
-        table.sort(key=lambda r: r["urgency"])
-
-        # Two weeks at a glance: the shop's line in the Sales tile, a small bar strip per product.
         spark_days = [spark_start + timedelta(days=i) for i in range(14)]
         keys = [d.isoformat() for d in spark_days]
         shop = [sum(by_day.get(k, 0) for by_day in sold_by_day.values()) for k in keys]
         sales_spark = charts_mod.sparkline(
-            shop, charts_mod.AMBER, w=200, h=36, kind="line", label=f"Units sold per day, last 14 days: {sum(shop)}",
+            shop, charts_mod.ACCENT, w=200, h=36, kind="line", label=f"Units sold per day, last 14 days: {sum(shop)}",
             tips=[f"{'Today' if i == 13 else d.strftime('%a %d %b')}: {n} sold" for i, (d, n) in enumerate(zip(spark_days, shop, strict=True))],
         ) if any(shop) else None
-        for r in table:
-            vals = [sold_by_day.get(r["id"], {}).get(k, 0) for k in keys]
-            r["sold_14d"] = sum(vals)
-            r["spark"] = charts_mod.sparkline(vals, label=f"Sold per day, last 14 days: {sum(vals)} in all")
         busy_chart = charts_mod.hours_chart(busy["counts"], busy["days"]) if busy["total"] >= 5 else None
         busy_peak = charts_mod.hour_name(busy["peak"]) if busy_chart else None
+        return page(request, "sales.html", pending=checks["pending"], pending_cands=checks["pending_cands"],
+                    to_name=checks["to_name"], today=checks["today"], recent=recent, trend=trend, taps=taps,
+                    follow=follow, picker=picker, set_aside_today=set_aside_today, week=week,
+                    sales_spark=sales_spark, busy_chart=busy_chart, busy_peak=busy_peak)
 
-        # "Needs attention", in the owner's words rather than as table flags.
-        next_visit = {p.supplier_id: p for p in plans}
-        attention = {
-            "out": [r for r in table if r["status"] == "out"],
-            "low": [r for r in table if r["status"] == "low"],
-            "expiring": sorted((r for r in table if r["expiring"]), key=lambda r: r["expiry"]),
-            "sleeping": sorted((l for p in plans for l in p.of("sleeping")), key=lambda l: -l.value),
-        }
-        visits = sorted(plans, key=lambda p: (p.visit_date, p.name))
+    @app.get("/adjust", response_class=HTMLResponse)
+    def adjust_page(request: Request, product: int | None = None):
+        """Sold or used: stock that left without passing the camera. Why, which product, how many."""
+        with db.session(cfg) as conn:
+            picker = _picker_items(conn)
+        chosen = next((i for i in picker if i["base"] and i["product"] == product), None) if product else None
+        return page(request, "adjust.html", picker=picker, reasons=list(stock.ADJUST_REASONS), chosen=chosen)
 
-        # Waiting items are counted live in the check card right below, not here.
-        summary = [f"{today['txns']} sale{'s' if today['txns'] != 1 else ''} recorded today"]
-        if attention["out"]:
-            summary.append(f"{len(attention['out'])} out of stock")
-        if attention["low"]:
-            summary.append(f"{len(attention['low'])} running low")
-        return page(request, "dashboard.html", table=table, pending=pending, pending_cands=checks["pending_cands"],
-                    to_name=checks["to_name"], unfinished=unfinished, set_aside_today=set_aside_today,
-                    recent=recent, today=today, trend=trend, taps=taps, follow=follow, sleeping=sleeping,
-                    picker=picker, users=users, reasons=list(stock.ADJUST_REASONS), attention=attention,
-                    visits=visits, next_visit=next_visit, summary=summary, now=clock.now(), week=week,
-                    sales_spark=sales_spark, busy_chart=busy_chart, busy_peak=busy_peak, busy=busy,
-                    suppliers=sorted({(r["supplier_name"] or "") for r in table}))
+    @app.get("/count", response_class=HTMLResponse)
+    def count_page(request: Request, product: int | None = None):
+        """Count a shelf: one product at a time, the number that is there now, then the next."""
+        with db.session(cfg) as conn:
+            picker = _picker_items(conn)
+            level = stock.on_hand(conn).get(product) if product else None
+            row = _product(conn, product) if product else None
+        return page(request, "count.html", picker=picker, product=row, level=level)
+
+    @app.get("/more", response_class=HTMLResponse)
+    def more_page(request: Request):
+        return page(request, "more.html")
+
+    @app.get("/help", response_class=HTMLResponse)
+    def help_page(request: Request):
+        return page(request, "help.html")
+
+    @app.get("/lang/{code}")
+    def set_lang(request: Request, code: str, next: str = "/"):
+        """One tap switches this phone's language; it keeps the choice for a year."""
+        target = next if next.startswith("/") and not next.startswith("//") else "/"
+        resp = RedirectResponse(target, status_code=303)
+        if code in words.LANGS:
+            resp.set_cookie("ld_lang", code, max_age=365 * 24 * 3600, samesite="lax")
+        return resp
 
     @app.post("/items/{item_id}/resolve")
     async def resolve_item(request: Request, item_id: int, action: str = Form(...),
@@ -539,9 +725,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         return back(request, f"Confirmed {len(ids)} item{'s' if len(ids) != 1 else ''}" if ids else "Nothing to confirm")
 
     @app.post("/adjust")
-    def adjust(request: Request, product_id: int = Form(...), reason: str = Form(...), qty: int = Form(...)):
+    def adjust(request: Request, product_id: int = Form(...), reason: str = Form(...), qty: int = Form(...),
+               next: str = Form("")):
         with db.session(cfg) as conn:
             stock.adjust(conn, product_id, reason, qty, by="dashboard")
+            name = _product(conn, product_id)["name_en"]
+        if next.startswith("/") and not next.startswith("//"):
+            return RedirectResponse(next + ("&" if "?" in next else "?") + "msg=" + quote(f"Saved: {qty} {name} {reason.replace('_', ' ')}"), status_code=303)
         return back(request, "Stock adjusted")
 
     @app.post("/actions/digest")
@@ -590,18 +780,16 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         # Camera setup stays folded away once the camera is calibrated and the mat is marked.
         return page(request, "counter.html", setup_open=not (calibrated and mat_marked))
 
-    @app.get("/setup", response_class=HTMLResponse)
-    def setup_page(request: Request):
-        """Everything install day needs, as a checklist with one button per step."""
-        with db.session(cfg) as conn:
-            ref = db.get_setting(conn, pipeline.REFERENCE_KEY)
-            mat = pipeline.load_roi(conn)
-            tray_roi = pipeline.load_roi(conn, pipeline.TRAY_KEY)
-            rows = catalog.catalog_rows(conn)
-            suppliers = catalog.suppliers(conn)
-            loose_count = len(loose.loose_products(conn))
-            n_places = len(locations.places(conn))
-            n_homeless = len(locations.homeless(conn))
+    def _setup_steps(conn) -> list[dict]:
+        """Install day as steps, each done or not; Setup lists them, Home counts them."""
+        ref = db.get_setting(conn, pipeline.REFERENCE_KEY)
+        mat = pipeline.load_roi(conn)
+        tray_roi = pipeline.load_roi(conn, pipeline.TRAY_KEY)
+        rows = catalog.catalog_rows(conn)
+        suppliers = catalog.suppliers(conn)
+        loose_count = len(loose.loose_products(conn))
+        n_places = len(locations.places(conn))
+        n_homeless = len(locations.homeless(conn))
         calibrated_at = None
         if ref and (cfg.media_dir / ref).exists():
             calibrated_at = datetime.fromtimestamp((cfg.media_dir / ref).stat().st_mtime).strftime("%d %b %H:%M")
@@ -642,6 +830,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
              "button": None, "detail": "On: invoice photos and look-alike labels are read automatically."
              if cfg.anthropic_key_present else "Off. Put ANTHROPIC_API_KEY in .env; until then deliveries are typed in."},
         ]
+        return steps
+
+    @app.get("/setup", response_class=HTMLResponse)
+    def setup_page(request: Request):
+        """Everything install day needs, as a checklist with one button per step."""
+        with db.session(cfg) as conn:
+            steps = _setup_steps(conn)
         required = [s for s in steps if not s.get("optional")]
 
         # "Open on your phone": a QR code to scan once. With --public-url (an https:// address, e.g.
@@ -658,7 +853,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             if ip:
                 phone["url"] = f"http://{ip}:{port}/"
         if phone.get("url"):
-            phone["qr"] = segno.make(phone["url"], error="m").svg_inline(scale=5, dark="#26215C", border=2)
+            phone["qr"] = segno.make(phone["url"], error="m").svg_inline(scale=5, dark="#111111", border=2)
         return page(request, "setup.html", steps=steps, done=sum(1 for s in required if s["done"]),
                     total=len(required), phone=phone)
 
@@ -836,8 +1031,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "GROUP BY ignore_label")}
             boxes = loose.box_sizes(conn)
             lookalikes = accuracy.lookalike_pairs(conn, cfg.recognition)
+            days = cfg.forecast.expiry_warning_days
+            stock_rows = {r["id"]: r for r in _with_lots(stock.stock_table(conn, days), batches.lots(conn, days))}
         return page(request, "catalog.html", products=products, suppliers=suppliers, ignore=ignore, boxes=boxes,
-                    ignore_labels=IGNORE_LABELS, min_photos=MIN_PHOTOS, weekdays=WEEKDAYS, lookalikes=lookalikes)
+                    ignore_labels=IGNORE_LABELS, min_photos=MIN_PHOTOS, weekdays=WEEKDAYS, lookalikes=lookalikes,
+                    stock_rows=stock_rows)
 
     @app.get("/catalog/new", response_class=HTMLResponse)
     def new_product_page(request: Request):
@@ -943,7 +1141,10 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             tray_marked = pipeline.load_roi(conn, pipeline.TRAY_KEY) is not None
             places = locations.places(conn)
             where = batches.places(conn)
-            lots = [{"b": b, "place": where[b.location_id]["name"] if b.location_id in where else None}
+            states = {x["batch"]: x for x in batches.lots(conn, cfg.forecast.expiry_warning_days).get(product_id, [])}
+            lots = [{"b": b, "place": where[b.location_id]["name"] if b.location_id in where else None,
+                     "state": states[b.id]["state"] if b.id in states else "undated",
+                     "days": states[b.id]["days_left"] if b.id in states else None}
                     for b in batches.open_batches(conn, product_id)]
         loose_info = None
         if product["sold_loose"]:
@@ -1003,13 +1204,17 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         return back(request, "Saved")
 
     @app.post("/catalog/{product_id}/stock")
-    def count_product(request: Request, product_id: int, counted: str = Form("")):
+    def count_product(request: Request, product_id: int, counted: str = Form(""), next: str = Form("")):
         n = _int(counted)
         if n is None or n < 0:
             return back(request, "Enter how many are on the shelf")
         with db.session(cfg) as conn:
             delta = stock.count(conn, product_id, n, "product_page", by="dashboard")
-        return back(request, f"Stock set to {n}" if delta else f"{n}, as recorded")
+            name = _product(conn, product_id)["name_en"]
+        msg = f"Stock set to {n}" if delta else f"{n}, as recorded"
+        if next.startswith("/") and not next.startswith("//"):
+            return RedirectResponse(next + ("&" if "?" in next else "?") + "msg=" + quote(f"{name}: {msg}"), status_code=303)
+        return back(request, msg)
 
     @app.post("/catalog/{product_id}/archive")
     def archive_product(request: Request, product_id: int):
@@ -1109,7 +1314,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         with db.session(cfg) as conn:
             tasks = batches.shelf_check(conn, days)
             places = locations.places(conn)
-            products = conn.execute("SELECT id, name_en, location_id FROM products WHERE active = 1 "
+            products = conn.execute("SELECT id, name_en, name_km, location_id FROM products WHERE active = 1 "
                                     "ORDER BY location_id IS NOT NULL, name_en").fetchall()
             dated = conn.execute("SELECT COUNT(DISTINCT m.product_id) FROM stock_movements m JOIN products p "
                                  "ON p.id = m.product_id WHERE m.qty > 0 AND m.expiry_date IS NOT NULL "
@@ -1279,6 +1484,50 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 done = shelfsheet.save(conn, list(body.get("rows") or []), count_stock=bool(body.get("count_stock")))
                 return {**stockmap.stock_map(conn, cfg), "done": done}
         except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+
+    # --- the stock in Excel: download, count and edit, upload ----------------------------------------------
+
+    @app.get("/spreadsheet", response_class=HTMLResponse)
+    def spreadsheet_page(request: Request):
+        with db.session(cfg) as conn:
+            products = conn.execute("SELECT COUNT(*) FROM products WHERE active = 1").fetchone()[0]
+            lots = sum(len(v) for v in batches.lots(conn, cfg.forecast.expiry_warning_days).values())
+        return page(request, "spreadsheet.html", products=products, lots=lots)
+
+    @app.get("/stock.xlsx")
+    def stock_workbook():
+        """Every product and every batch, in an Excel workbook to count and edit."""
+        with db.session(cfg) as conn:
+            data = workbook.build(conn, cfg)
+        name = f"luydek-stock-{clock.today().isoformat()}.xlsx"
+        return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    async def _workbook_file(file: UploadFile) -> bytes:
+        data = await file.read()
+        if len(data) > 15 * 1024 * 1024:
+            raise HTTPException(400, "That file is over 15 MB: is it the right one?")
+        return data
+
+    @app.post("/api/workbook/check")
+    async def api_workbook_check(file: UploadFile = File(...)):
+        """What an uploaded stock workbook would change. Nothing is saved."""
+        data = await _workbook_file(file)
+        try:
+            with db.session(cfg) as conn:
+                return workbook.public(workbook.read(conn, cfg, data, file.filename or ""))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/workbook/apply")
+    async def api_workbook_apply(file: UploadFile = File(...)):
+        """Save what an uploaded stock workbook changes: counts, corrections, product details."""
+        data = await _workbook_file(file)
+        try:
+            with db.session(cfg) as conn:
+                return workbook.apply(conn, cfg, data, file.filename or "", by="sheet")
+        except ValueError as exc:
             raise HTTPException(400, str(exc))
 
     @app.get("/map/shelves.csv")
@@ -1810,7 +2059,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             follow = metrics.follow_rate(conn)
             simulated = stock.has_simulated(conn)
         previews = {p.supplier_id: render.order_message(p, lang, simulated) for p in plans}
-        reasons = {(p.supplier_id, l.product_id): render.line_reason(l, p, "en") for p in plans for l in p.lines}
+        reasons = {(p.supplier_id, l.product_id): plain(render.line_reason(l, p, "en", clock.day_words)) for p in plans for l in p.lines}
         return page(request, "orders.html", plans=plans, previews=previews, reasons=reasons, follow=follow,
                     lang=lang, today=clock.today(), sleeping=sum(p.sleeping_value for p in plans),
                     timedelta=timedelta)

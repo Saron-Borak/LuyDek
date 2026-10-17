@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set back = '/catalog/' ~ p.id %}
 {% block title %}{{ p.name_en }} · history{% endblock %}
 {% block content %}
 {% from "_macros.html" import pic, empty %}
@@ -25,7 +26,7 @@
     <div class="log-item">
       {% if it.crop_path %}<a href="/media/{{ it.crop_path }}" target="_blank"><img class="crop-sm" src="/media/{{ it.crop_path }}" alt="what the camera saw"></a>{% endif %}
       <div class="flex-grow-1">
-        <div class="fw-semibold">{{ it.started_at[:16] }}
+        <div class="fw-semibold">{{ it.started_at|when(True) }}
           {% if is_it %}· sold{% if it.count > 1 %} ×{{ it.count }}{% endif %}{% else %}· <span class="text-danger">was not {{ p.name_en }}</span>{% endif %}</div>
         <div class="small muted">{% if not is_it and it.final_name %}It was {{ it.final_name }}. {% endif %}{{ outcome(it, it.final_name) }} · {{ '%.0f'|format(it.confidence * 100) }}% sure</div>
       </div>
@@ -43,9 +44,9 @@
       <tbody>
       {% for m in ledger %}
       <tr>
-        <td class="text-nowrap muted">{{ m.created_at[:16] }}</td>
+        <td class="text-nowrap muted">{{ m.created_at|when(True) }}</td>
         <td>{{ {'sale': 'Sold', 'delivery': 'Delivered', 'freebie': 'Free from the supplier', 'adjustment': 'Adjusted', 'opening': 'Counted', 'spot_check': 'Recounted'}.get(m.type, m.type) }}
-          {% if m.reason %}<span class="small muted">· {{ t('en', 'reason_' + m.reason) if m.type == 'adjustment' else m.reason }}</span>{% endif %}
+          {% if m.reason %}<span class="small muted">· {{ m.reason|reason }}</span>{% endif %}
           {% if m.ref_type == 'invoice_line' %}<span class="small muted">· from a delivery</span>{% elif m.ref_type == 'transaction_item' %}<span class="small muted">· camera</span>{% endif %}
           {% if m.simulated %}<span class="pill bg-warning-subtle text-warning-emphasis">simulated</span>{% endif %}</td>
         <td class="num fw-semibold {{ 'text-success' if m.qty > 0 else 'text-danger' }}">{{ '%+d'|format(m.qty) }}</td>

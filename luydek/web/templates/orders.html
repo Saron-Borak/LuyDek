@@ -1,42 +1,34 @@
 {% extends "base.html" %}
-{% block title %}Order lists{% endblock %}
+{% set help_topic = 'orders' %}
+{% block title %}{{ _("Orders") }}{% endblock %}
 {% block content %}
 {% from "_macros.html" import pic %}
-<div class="page-head">
-  <div>
-    <h1>Order lists</h1>
-    <div class="lead-line">What to buy from each agent before they visit — and what <b>not</b> to buy.</div>
-  </div>
-  <div class="d-flex gap-2 flex-wrap align-items-stretch">
-    <a href="#sleeping" class="stat sleep py-2 px-3" style="height:auto"><div class="fs-4 fw-bold" style="color:var(--sleep)">${{ '%.0f'|format(sleeping) }}</div>
-      <div class="h mt-0"><i class="bi bi-moon-stars" aria-hidden="true"></i> sleeping on the shelf</div></a>
-    {% if follow.rate is not none %}
-    <div class="stat py-2 px-3" style="height:auto"><div class="fs-4 fw-bold">{{ follow.rate }}%</div>
-      <div class="h mt-0">advice followed</div></div>
-    {% endif %}
-    {% if team %}
-    <form method="post" action="/actions/orders" class="d-flex"><button class="btn btn-lg btn-outline-primary" {% if not bot %}disabled title="Telegram bot is off"{% endif %}><i class="bi bi-send" aria-hidden="true"></i> Send all to Telegram now</button></form>
-    {% endif %}
-  </div>
-</div>
+<header class="page-title">
+  <h1>{{ _("Orders") }}</h1>
+  <div class="sub">{{ _("What to buy from each agent before they come.") }}</div>
+</header>
 
-<!-- jump to an agent -->
-<div class="chips mb-3">
+<!-- the agents in the order they come: one tap jumps to the list -->
+<nav class="agent-strip" aria-label="{{ _('Agent') }}">
   {% for p in plans %}
-  <a class="chip text-decoration-none d-inline-flex align-items-center gap-1" href="#supplier-{{ p.supplier_id }}">
-    <b>{% if p.days_to_visit == 0 %}Today{% elif p.days_to_visit == 1 %}Tomorrow{% else %}{{ p.visit_date.strftime('%a') }}{% endif %}</b>
-    {{ p.emoji }} {{ p.name }}{% if p.of('order') %} · {{ p.of('order')|length }} to order{% endif %}</a>
+  {% set n = p.of('order')|length + p.of('market')|length %}
+  <a class="agent-chip" href="#supplier-{{ p.supplier_id }}">
+    <b>{{ _("Today") if p.days_to_visit == 0 else (_("Tomorrow") if p.days_to_visit == 1 else weekday_short(p.visit_date)) }}</b>
+    <span>{{ p.name }}</span>
+    <span class="muted">{{ _("Order {n} item|Order {n} items", n=n) if n else _("Nothing to order") }}</span></a>
   {% endfor %}
-</div>
+</nav>
 
-<details class="mb-3 muted">
-  <summary class="py-1">How the numbers are worked out</summary>
-  <div class="pt-2" style="max-width:52rem">Average sales over the last 4 weeks, with recent weeks counting more and out-of-stock days
-    left out (an empty shelf is not zero demand). Enough is ordered to last until the delivery after next, plus a
-    {{ '%g'|format(cfg.forecast.safety_days) }}-day safety buffer ({{ '%g'|format(cfg.forecast.safety_days_critical) }} days for must-have items),
-    rounded up to whole cases, and never more than sells before it expires. Each list also goes to Telegram
-    the evening before the agent comes.</div>
-</details>
+{% if sleeping %}
+<a class="row-item boxed mb-4" href="#sleeping">
+  <span class="task-tile tone-info"><i class="bi bi-moon-stars" aria-hidden="true"></i></span>
+  <span class="row-text"><b>{{ _("Money sleeping on the shelf") }}</b><span>{% if follow.rate is not none %}advice followed {{ follow.rate }}%{% endif %}</span></span>
+  <b class="row-n tone-info">${{ '%.0f'|format(sleeping) }}</b>
+</a>
+{% endif %}
+{% if team %}
+<form method="post" action="/actions/orders" class="mb-3"><button class="btn btn-outline-dark" {% if not bot %}disabled title="Telegram bot is off"{% endif %}><i class="bi bi-send" aria-hidden="true"></i> Send all to Telegram now</button></form>
+{% endif %}
 
 {% for p in plans %}
 {% set orders = p.of('order') %}{% set market = p.of('market') %}{% set check = p.of('check') %}
@@ -44,11 +36,11 @@
 <div class="card mb-4 supplier-card" id="supplier-{{ p.supplier_id }}">
   <div class="card-header d-flex align-items-center gap-3 flex-wrap">
     <div class="date-block">
-      <div class="d">{% if p.days_to_visit == 0 %}Today{% elif p.days_to_visit == 1 %}Tmrw{% else %}{{ p.visit_date.strftime('%a') }}{% endif %}</div>
-      <div class="s">{{ p.visit_date.strftime('%d %b') }}</div>
+      <div class="d">{{ _("Today") if p.days_to_visit == 0 else (_("Tomorrow") if p.days_to_visit == 1 else weekday_short(p.visit_date)) }}</div>
+      <div class="s">{{ p.visit_date|day(True) }}</div>
     </div>
     <div class="flex-grow-1">
-      <div class="fs-5">{{ p.emoji }} {{ p.name }}</div>
+      <div class="fs-5">{{ p.name }}</div>
       <div class="sub">{% if orders or market %}{{ orders|length + market|length }} to buy{% else %}nothing to buy this time{% endif %}
         · {{ skips|length }} to skip{% if sleep %} · <i class="bi bi-moon-stars" aria-hidden="true"></i> {{ sleep|length }} sleeping{% endif %}</div>
     </div>
@@ -57,20 +49,19 @@
       {% if p.below_min_order %}<div class="pill status-pending">below the ${{ '%.0f'|format(p.min_order) }} minimum</div>{% endif %}
     </div>
     {% if orders or market %}
-    <button class="btn btn-outline-dark" data-copy="copy-{{ p.supplier_id }}"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy for the agent</button>
-    <textarea id="copy-{{ p.supplier_id }}" class="d-none">Order for {{ p.name }} ({{ p.visit_date.strftime('%a %d %b') }}):
+    <button class="btn btn-outline-dark" data-copy="copy-{{ p.supplier_id }}"><i class="bi bi-clipboard" aria-hidden="true"></i> {{ _("Copy for the agent") }}</button>
+    <textarea id="copy-{{ p.supplier_id }}" class="d-none">Order for {{ p.name }} ({{ p.visit_date.strftime('%a') }} {{ p.visit_date|day(True) }}):
 {% for l in orders %}- {{ l.name_en }}: {{ l.cases }} {{ l.order_unit|plural(l.cases) }}
 {% endfor %}{% for l in market %}- {{ l.name_en }}: {{ l.units }} {{ l.unit|plural(l.units) }} (loose)
 {% endfor %}</textarea>
     {% endif %}
   </div>
 
-  <div class="row g-0">
-    <div class="{{ 'col-xl-8' if team else 'col-12' }} p-3">
-      {% if p.observing %}<div class="alert alert-info"><i class="bi bi-eye" aria-hidden="true"></i> Still learning this shop's sales — recommendations start after {{ cfg.forecast.observe_until }}.</div>{% endif %}
+  <div class="p-3">
+      {% if p.observing %}<div class="alert alert-info"><i class="bi bi-eye" aria-hidden="true"></i> Still learning this shop's sales. Recommendations start after {{ cfg.forecast.observe_until }}.</div>{% endif %}
 
       {% if orders or market %}
-      <div class="plan-section-title text-success"><i class="bi bi-cart-check" aria-hidden="true"></i> Buy</div>
+      <div class="plan-section-title text-success"><i class="bi bi-cart-check" aria-hidden="true"></i> {{ _("Buy") }}</div>
       {% for l in orders + market %}
       <div class="order-line">
         <div class="qty-big">{% if l.action == 'order' %}{{ l.cases }}<small>{{ l.order_unit|plural(l.cases) }}</small>
@@ -84,7 +75,7 @@
             <span><b>{{ l.stock if l.stock >= 0 else 0 }}</b> on the shelf</span>
             <span>~<b>{{ '%.1f'|format(l.avg_daily) }}</b>/day</span>
           </div>
-          {% if l.stockout_days %}<div class="warn-line"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Was out of stock {{ l.stockout_days }} day{{ 's' if l.stockout_days != 1 }} in the last 4 weeks — customers went across the street</div>{% endif %}
+          {% if l.stockout_days %}<div class="warn-line"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Was out of stock {{ l.stockout_days }} day{{ 's' if l.stockout_days != 1 }} in the last 4 weeks: customers went across the street</div>{% endif %}
           {% if l.capped_by_expiry %}<div class="warn-line"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Kept small so it sells before it expires</div>{% endif %}
           {% if l.action == 'market' %}<div class="warn-line"><i class="bi bi-cart" aria-hidden="true"></i> A full case would expire before it sold: buy a few loose instead</div>{% endif %}
         </div>
@@ -94,43 +85,54 @@
       {% endif %}
 
       {% if check %}
-      <div class="plan-section-title text-warning-emphasis"><i class="bi bi-question-circle" aria-hidden="true"></i> Have a look</div>
+      <div class="plan-section-title text-warning-emphasis"><i class="bi bi-question-circle" aria-hidden="true"></i> {{ _("Have a look") }}</div>
       {% for l in check %}
       <div class="plan-row"><span class="fw-semibold">{{ pic(photos.product.get(l.product_id), 28) }} {{ l.name_en }}</span><span class="muted">{{ reasons[(p.supplier_id, l.product_id)] }}</span></div>
       {% endfor %}
       {% endif %}
 
       {% if skips %}
-      <div class="plan-section-title muted"><i class="bi bi-pause-circle" aria-hidden="true"></i> Don't buy this time</div>
-      {% for l in skips %}
-      <div class="plan-row"><span>{{ pic(photos.product.get(l.product_id), 28) }} {{ l.name_en }}</span><span class="muted">{{ reasons[(p.supplier_id, l.product_id)] }}</span></div>
-      {% endfor %}
+      <details class="plan-fold">
+        <summary class="plan-section-title muted"><i class="bi bi-pause-circle" aria-hidden="true"></i> {{ _("Don't buy this time") }}
+          <span class="plan-count">{{ skips|length }}</span> <span class="fw-normal small">enough on the shelf, or not selling: tap to see why</span></summary>
+        {% for l in skips %}
+        <div class="plan-row"><span>{{ pic(photos.product.get(l.product_id), 28) }} {{ l.name_en }}</span><span class="muted">{{ reasons[(p.supplier_id, l.product_id)] }}</span></div>
+        {% endfor %}
+      </details>
       {% endif %}
 
       {% if sleep %}
-      <div class="plan-section-title" style="color:var(--sleep)" id="sleeping-{{ p.supplier_id }}"><i class="bi bi-moon-stars-fill" aria-hidden="true"></i> Sleeping money — don't buy, try to sell or return</div>
+      <div class="plan-section-title" style="color:var(--sleep)" id="sleeping-{{ p.supplier_id }}"><i class="bi bi-moon-stars-fill" aria-hidden="true"></i> {{ _("Money sleeping on the shelf") }}</div>
       {% for l in sleep %}
       <div class="plan-row"><span class="d-flex align-items-center gap-2">{{ pic(photos.product.get(l.product_id), 28) }}<span><span class="fw-semibold">{{ l.name_en }}</span>
         <span class="d-block small muted">{{ l.stock }} on the shelf · {{ l.sold_4w }} sold in 4 weeks</span></span></span>
         <span class="fs-5 fw-bold" style="color:var(--sleep)">${{ '%.2f'|format(l.value) }}</span></div>
       {% endfor %}
       {% endif %}
-    </div>
-    {% if team %}
-    <div class="col-xl-4 p-3 border-start bg-light-subtle">
-      <div class="d-flex justify-content-between align-items-center mb-2 small">
-        <span class="fw-semibold">What the owner gets in Telegram</span>
-        <span class="btn-group btn-group-sm">
-          <a href="?lang=km#supplier-{{ p.supplier_id }}" class="btn btn-sm {{ 'btn-dark' if lang == 'km' else 'btn-outline-dark' }}">ខ្មែរ</a>
-          <a href="?lang=en#supplier-{{ p.supplier_id }}" class="btn btn-sm {{ 'btn-dark' if lang == 'en' else 'btn-outline-dark' }}">EN</a>
-        </span>
-      </div>
-      <div class="tg-preview">{{ previews[p.supplier_id]|safe }}</div>
-    </div>
-    {% endif %}
+
+      {% if team %}
+      <details class="plan-fold tg-fold" {{ 'open' if request.query_params.get('lang') }}>
+        <summary class="plan-section-title muted"><i class="bi bi-telegram" aria-hidden="true"></i> What the owner gets in Telegram</summary>
+        <div class="d-flex justify-content-end mb-2">
+          <span class="btn-group btn-group-sm">
+            <a href="?lang=km#supplier-{{ p.supplier_id }}" class="btn btn-sm {{ 'btn-dark' if lang == 'km' else 'btn-outline-dark' }}">ខ្មែរ</a>
+            <a href="?lang=en#supplier-{{ p.supplier_id }}" class="btn btn-sm {{ 'btn-dark' if lang == 'en' else 'btn-outline-dark' }}">EN</a>
+          </span>
+        </div>
+        <div class="tg-preview">{{ previews[p.supplier_id]|safe }}</div>
+      </details>
+      {% endif %}
   </div>
 </div>
 {% endfor %}
+<details class="fold-section mt-2" id="how">
+  <summary>How the numbers are worked out</summary>
+  <div class="fold-body small muted" style="max-width:52rem">Average sales over the last 4 weeks, with recent weeks counting more and out-of-stock days
+    left out (an empty shelf is not zero demand). Enough is ordered to last until the delivery after next, plus a
+    {{ '%g'|format(cfg.forecast.safety_days) }}-day safety buffer ({{ '%g'|format(cfg.forecast.safety_days_critical) }} days for must-have items),
+    rounded up to whole cases, and never more than sells before it expires. Each list also goes to Telegram
+    the evening before the agent comes.</div>
+</details>
 <div id="sleeping"></div>
 {% endblock %}
 
@@ -139,7 +141,7 @@
 document.querySelectorAll("[data-copy]").forEach((btn) => btn.addEventListener("click", async () => {
   const text = document.getElementById(btn.dataset.copy).value.trim();
   const label = btn.innerHTML;
-  try { await navigator.clipboard.writeText(text); btn.innerHTML = '<i class="bi bi-clipboard-check" aria-hidden="true"></i> Copied'; }
+  try { await navigator.clipboard.writeText(text); btn.innerHTML = '<i class="bi bi-clipboard-check" aria-hidden="true"></i> {{ _("Copied") }}'; }
   catch { window.prompt("Copy this list:", text); }
   setTimeout(() => (btn.innerHTML = label), 2000);
 }));

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% set back = '/more' %}
+{% block title %}{{ _("Stock in Excel") }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> {{ _("Stock in Excel") }}</h1>
+    <div class="lead-line">All the stock in one Excel file: count it, correct it, change product details, then upload
+      it here. You see every change before anything is saved.</div>
+  </div>
+</div>
+
+<div class="steps">
+  <section class="card step">
+    <div class="step-n">1</div>
+    <div class="step-body">
+      <h2>Download the stock sheet</h2>
+      <p class="muted mb-2">{{ products }} products and {{ lots }} batches, as they are now. Four sheets:</p>
+      <ul class="sheet-list">
+        <li><b>Summary</b> what the stock is worth, what is out, low or past its date, by place and supplier</li>
+        <li><b>Stock</b> a row per product, with its sales and every date on the shelf</li>
+        <li><b>Count</b> a row per batch, with an empty <span class="cell-yellow">Counted</span> column</li>
+        <li><b>How to use</b></li>
+      </ul>
+      <a class="btn btn-dark btn-lg" href="/stock.xlsx" download><i class="bi bi-download" aria-hidden="true"></i> Download the Excel file</a>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="step-n">2</div>
+    <div class="step-body">
+      <h2>Count and edit in Excel</h2>
+      <ul class="rules">
+        <li><b>Count:</b> on the <b>Count</b> sheet, write what you found in <span class="cell-yellow">Counted</span>.
+          Leave it empty for what you didn't count: it stays as it is. <b>0</b> means none were there.</li>
+        <li><b>One product, several dates:</b> each date is its own row. Count each one.</li>
+        <li><b>Wrong date or place?</b> Fix <b>Expiry</b>, <b>Where</b> or <b>Lot</b> on its row.</li>
+        <li><b>Found something LuyDek doesn't know about?</b> Add a row at the bottom of Count: product, where,
+          expiry, how many.</li>
+        <li><b>Product details:</b> change the yellow columns on <b>Stock</b> (name, supplier, case size, cost, barcode,
+          must-have). A row with no ID adds a product.</li>
+      </ul>
+      <div class="small muted">Count and upload on the same day: sales after you count would be undone by the count.</div>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="step-n">3</div>
+    <div class="step-body">
+      <h2>Upload it</h2>
+      <label class="btn btn-outline-dark btn-lg file-pick"><i class="bi bi-upload" aria-hidden="true"></i> Choose the Excel file
+        <input type="file" id="wb-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="visually-hidden"></label>
+      <div class="small muted mt-2" id="wb-status" role="status"></div>
+    </div>
+  </section>
+</div>
+
+<div class="card d-none mt-3" id="wb-review" aria-live="polite"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Upload the workbook, list what it changes, and save it only when the owner says so.
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  let file = null;
+  async function send(url) {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    const r = await fetch(url, { method: "POST", body: fd });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : r.statusText);
+    return data;
+  }
+  const when = (iso) => iso ? new Date(iso.replace(" ", "T")).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  function show(plan) {
+    const box = $("wb-review");
+    const parts = [];
+    if (plan.problems.length) {
+      parts.push(`<div class="review-block bad"><h3><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i> ${plan.problems.length} row${plan.problems.length === 1 ? "" : "s"} to fix first</h3>
+        <ul>${plan.problems.map((p) => `<li><b>${esc(p.sheet)}, row ${p.row}:</b> ${esc(p.text)}</li>`).join("")}</ul>
+        <div class="small">Fix them in Excel, save, and upload the file again. Nothing has been saved.</div></div>`);
+    }
+    if (plan.since.length) {
+      parts.push(`<div class="review-block warn"><h3><i class="bi bi-clock-history" aria-hidden="true"></i> Sold since you downloaded the sheet${plan.downloaded ? ` (${esc(when(plan.downloaded))})` : ""}</h3>
+        <ul>${plan.since.map((s) => `<li>${esc(s.name)}: ${s.sold} sold</li>`).join("")}</ul>
+        <div class="small">If you counted before those sales, the count would put them back on the shelf. Count again, or apply only if you counted after them.</div></div>`);
+    }
+    if (plan.counts.length) {
+      parts.push(`<div class="review-block"><h3><i class="bi bi-123" aria-hidden="true"></i> Counts: ${plan.counts.length} change${plan.counts.length === 1 ? "" : "s"}</h3>
+        <table class="table table-sm review-table"><thead><tr><th>Product</th><th>Where</th><th class="num">Now</th><th class="num">Counted</th><th class="num">Change</th><th>Dates after</th></tr></thead>
+        <tbody>${plan.counts.map((c) => `<tr><td class="fw-semibold">${esc(c.name)}</td><td>${esc(c.place)}</td><td class="num">${c.before}</td>
+          <td class="num fw-bold">${c.after}</td><td class="num ${c.diff < 0 ? "text-danger" : "text-success"} fw-bold">${c.diff > 0 ? "+" : ""}${c.diff}</td>
+          <td class="small muted">${c.dates.split("; ").map(esc).join("<br>")}</td></tr>`).join("")}</tbody></table></div>`);
+    }
+    if (plan.batch_edits.length) {
+      parts.push(`<div class="review-block"><h3><i class="bi bi-pencil-square" aria-hidden="true"></i> Batches corrected</h3>
+        <ul>${plan.batch_edits.map((b) => `<li><b>${esc(b.name)}</b> (${b.left}): ${esc(b.what)}</li>`).join("")}</ul></div>`);
+    }
+    if (plan.products.length || plan.new_products.length) {
+      parts.push(`<div class="review-block"><h3><i class="bi bi-box-seam" aria-hidden="true"></i> Product details</h3>
+        <ul>${plan.products.map((p) => `<li><b>${esc(p.name)}</b>: ${p.changes.map((c) => `${esc(c.field)} <span class="muted">${esc(c.old)}</span> → <b>${esc(c.new)}</b>`).join(" · ")}</li>`).join("")}
+        ${plan.new_products.map((p) => `<li><span class="pill new-from">new</span> <b>${esc(p.name)}</b> (row ${p.row})</li>`).join("")}</ul></div>`);
+    }
+    if (plan.nothing && !plan.problems.length) {
+      parts.push(`<div class="review-block"><h3><i class="bi bi-check-circle" aria-hidden="true"></i> Nothing to change</h3>
+        <div class="small muted">Every count matches, and no details were changed. Fill the yellow Counted column on the Count sheet, then upload again.</div></div>`);
+    }
+    const can = !plan.problems.length && !plan.nothing;
+    box.innerHTML = `<div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <div><i class="bi bi-list-check" aria-hidden="true"></i> What this file changes
+          <div class="sub">${esc(file.name)}${plan.downloaded ? ` · downloaded ${esc(when(plan.downloaded))}` : ""}</div></div>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <span class="small text-danger fw-semibold" data-apply-error role="alert"></span>
+          <button type="button" class="btn btn-outline-dark" data-act="cancel">Cancel</button>
+          <button type="button" class="btn btn-success" data-act="apply" ${can ? "" : "disabled"}>Apply the changes</button></div></div>
+      <div class="card-body">${parts.join("")}</div>`;
+    box.classList.remove("d-none");
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  $("wb-file").onchange = async (e) => {
+    file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    $("wb-status").innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Reading the file…';
+    try { show(await send("/api/workbook/check")); $("wb-status").textContent = ""; }
+    catch (err) { $("wb-status").innerHTML = `<span class="text-danger fw-semibold">${esc(err.message)}</span> Choose the file again.`; $("wb-review").classList.add("d-none"); }
+  };
+  $("wb-review").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    if (b.dataset.act === "cancel") { $("wb-review").classList.add("d-none"); file = null; return; }
+    b.disabled = true;
+    const label = b.innerHTML, err = $("wb-review").querySelector("[data-apply-error]");
+    err.textContent = "";
+    b.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Saving…';
+    try {
+      const done = await send("/api/workbook/apply");
+      const bits = [];
+      if (done.counted) bits.push(`${done.counted} product${done.counted === 1 ? "" : "s"} counted (${done.units > 0 ? "+" : ""}${done.units} units)`);
+      if (done.batch_edits) bits.push(`${done.batch_edits} batch${done.batch_edits === 1 ? "" : "es"} corrected`);
+      if (done.products) bits.push(`${done.products} product${done.products === 1 ? "" : "s"} updated`);
+      if (done.created.length) bits.push(`${done.created.length} new product${done.created.length === 1 ? "" : "s"}`);
+      location.href = "/?msg=" + encodeURIComponent("Saved from Excel: " + (bits.join(", ") || "nothing changed") + ".");
+    } catch (e) { err.textContent = `Not saved: ${e.message}. Check the file and try again.`; b.innerHTML = label; b.disabled = false; }
+  });
+})();
+</script>
+{% endblock %}
